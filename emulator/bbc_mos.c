@@ -530,6 +530,9 @@ static void os_cli(struct bbc_machine *m) {
         uint16_t end = read_name(m, slash ? (uint16_t)(p + 1) : after, name, sizeof name);
         if (!end) raise(BBC_MOS_E_BAD_NAME);
         else run_file(m, name, end);
+    } else if (command_is(m, p, "HELP", &after)) {
+        y = (uint8_t)(skip_spaces(m, after) - line);   /* service call 9, Y at its argument */
+        pc = BBC_MOS_CLI_HELP;
     } else if (command_is(m, p, "LOAD", &after)) {
         uint16_t end = read_name(m, after, name, sizeof name);
         uint32_t addr, load, exec, length;
@@ -642,6 +645,13 @@ static void os_byte(struct bbc_machine *m) {
     case 143:   /* a service call to the ROMs */
         pc = BBC_MOS_BYTE_SVC;
         break;
+    case 252: { /* the current language ROM, $028C: X the old value, Y the next variable's */
+        uint8_t old = bus_rd(m, LANGUAGE);
+        bus_wr(m, LANGUAGE, (uint8_t)((old & y) ^ x));
+        x = old;
+        y = bus_rd(m, LANGUAGE + 1);
+        break;
+    }
     case 170:   /* the address of the ROM type table */
         x = (uint8_t)BBC_MOS_ROMTAB;
         y = (uint8_t)(BBC_MOS_ROMTAB >> 8);
@@ -722,6 +732,18 @@ static int slot_is_rom(struct bbc_machine *m, int slot, uint8_t *type) {
     return rom;
 }
 
+/* A command line put at $0700 (at most 254 bytes and the CR) and passed to OSCLI, with the
+ * run's end as its return address */
+static void start_command(struct bbc_machine *m, const char *text) {
+    size_t n = strlen(text);
+    if (n > 254) n = 254;
+    for (size_t i = 0; i < n; i++) bus_wr(m, (uint16_t)(BBC_COMMAND_BUFFER + i), (uint8_t)text[i]);
+    bus_wr(m, (uint16_t)(BBC_COMMAND_BUFFER + n), 0x0D);
+    x = (uint8_t)BBC_COMMAND_BUFFER;
+    y = (uint8_t)(BBC_COMMAND_BUFFER >> 8);
+    call(m, BBC_MOS_OSCLI, BBC_MOS_EXIT_RET);
+}
+
 static void mos_reset(struct bbc_machine *m) {
     int language = -1;
     for (int slot = 0; slot < BBC_SLOTS; slot++) {
@@ -735,17 +757,20 @@ static void mos_reset(struct bbc_machine *m) {
     bus_wr(m, ZP_ROMCOPY, current);
     bus_wr(m, BBC_ROMSEL, current);
     bus_wr(m, ZP_ESCAPE, 0);
-    if (m->cfg.command) {
-        size_t n = strlen(m->cfg.command);
-        if (n > 254) n = 254;
-        for (size_t i = 0; i < n; i++) bus_wr(m, (uint16_t)(BBC_COMMAND_BUFFER + i), (uint8_t)m->cfg.command[i]);
-        bus_wr(m, (uint16_t)(BBC_COMMAND_BUFFER + n), 0x0D);
-        x = (uint8_t)BBC_COMMAND_BUFFER;
-        y = (uint8_t)(BBC_COMMAND_BUFFER >> 8);
-        call(m, BBC_MOS_OSCLI, BBC_MOS_EXIT_RET);
-    } else {
-        call(m, (uint16_t)m->cfg.entry, BBC_MOS_EXIT_RET);
+    if (m->cfg.command) start_command(m, m->cfg.command);
+    else call(m, (uint16_t)m->cfg.entry, BBC_MOS_EXIT_RET);
+}
+
+/* The command or program returned: the next command, if there is one, from $0700 with the
+ * stack reset, as a language's prompt would pass a line typed after the last one returned;
+ * otherwise the run ends with status 0 */
+static void command_returned(struct bbc_machine *m) {
+    if (m->next_command < m->cfg.more_count) {
+        sp = 0xFF;
+        start_command(m, m->cfg.more_commands[m->next_command++]);
+        return;
     }
+    m->end = BBC_END_RETURNED;
 }
 
 /* The default BRKV handler: the message after the error number at ($FD).
@@ -772,7 +797,7 @@ static void trap(struct bbc_machine *m, uint16_t at) {
     m->mos_calls++;
     switch (at) {
     case BBC_MOS_T_RESET: mos_reset(m); break;
-    case BBC_MOS_T_EXIT:  m->end = BBC_END_RETURNED; break;
+    case BBC_MOS_T_EXIT:  command_returned(m); break;
     case BBC_MOS_T_BRK:   report_error(m); break;
     case BBC_MOS_T_CLI:   os_cli(m); break;
     case BBC_MOS_T_CLI_FILE: os_cli_file(m); break;

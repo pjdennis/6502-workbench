@@ -62,6 +62,9 @@ to hold for MOS 2.00, which is itself a **memory** assumption.
 | OSBYTE 142 records the language at `$028C` | memory | (the MOS 1.20 reassembly names `languageROMNumber`; its address was not read) |
 | OSBYTE 142 prints the language's title | memory, not done | the emulator prints nothing |
 | OSBYTE 143: X the call, Y the argument; X=0 on exit if claimed, Y the result | checked | BeebWiki OSBYTE &8F |
+| `*HELP` offers service call 9 to every ROM, with `($F2),Y` its argument; no ROM claims it, and the MOS also prints its own version line | memory | the emulator issues the call and prints nothing |
+| OSBYTE 252 (`&FC`) reads and writes the current language ROM: X the old value, the new (old AND Y) EOR X, Y the next variable's; the variable is the one at `$028C` | memory | |
+| OSBYTE 170 (`&AA`) with X=0, Y=`$FF` gives the ROM type table's address in X and Y | memory | |
 | At reset the MOS scans every slot's header and enters the highest language ROM | partly | the scan: BeebWiki Paged ROM; "the highest": **memory** |
 | At reset the MOS also issues service calls (1, 2 workspace and others) and drops duplicate ROMs | memory, not done | |
 

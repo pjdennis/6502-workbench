@@ -29,7 +29,7 @@ import test_src_gen
 import test_src_out
 
 # Where the fixed variables start at the full capacities: just above each program's fixed code.
-FULL_SPLIT = {'outtest': 0x3900, 'regtest': 0x3F00, 'condtest': 0x3F40}
+FULL_SPLIT = {'outtest': 0x3940, 'regtest': 0x3F00, 'condtest': 0x3F80}
 HAVE_TOOLS = os.path.isfile(support.EMULATOR) and os.path.isfile(support.build.COMPILER)
 TOP = 0x7C00                        # HIMEM in mode 7
 

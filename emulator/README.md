@@ -143,7 +143,7 @@ offenders.
 
 | Option | Notes |
 |---|---|
-| `--bbc-command TEXT` | passed to OSCLI after reset, from `$0700` (as a language's input line would be) |
+| `--bbc-command TEXT` | passed to OSCLI after reset, from `$0700` (as a language's input line would be). Repeatable, up to 9: each further line is passed in turn, from `$0700` with the stack reset, when the one before returns (an error ends the run there) |
 | `<code file> --load HEX` | without `--bbc-command`: the file put in main RAM at HEX and entered there (with both, the file is loaded and the command run) |
 | `--disk DIR` | the host directory the MOS's filing system works in |
 | `--bbc-sideways-ram LIST` | the slots that are sideways RAM (default `0,1,12,13`, the B+128's; `none`) |
@@ -248,7 +248,8 @@ offenders.
   `$028C`, enter `$8000` with A=1; an empty slot does nothing, a ROM
   without a language entry is the error "This is not a language"), 143
   (a service call: X the call, Y its argument; X=0 on return if claimed),
-  170 (the ROM type table's address). Any other is offered to the ROMs as
+  170 (the ROM type table's address), 252 (the current language, `$028C`:
+  X the old value, (old AND Y) EOR X the new, Y the next variable's). Any other is offered to the ROMs as
   service call 7 with A, X and Y in `$EF`, `$F0` and `$F1`; unclaimed it
   returns X=`$FF` with V set. A language never returns on a real
   machine; here the MOS enters it with the stack reset and the run's end
@@ -263,8 +264,10 @@ offenders.
   `*`s; `|` starts a comment. Built in: `RUN name` (or `/name`): load the
   file at its load address and enter its execution address (the code's
   RTS returns to OSCLI's caller; OSARGS 1 gives the command line tail),
-  `LOAD name [addr]`, `SAVE name start end|+length [exec [reload]]`.
-  Anything else is offered to the ROMs as service call 4, with A=4 and Y
+  `LOAD name [addr]`, `SAVE name start end|+length [exec [reload]]`,
+  `HELP [arg]`: service call 9 to every ROM, with Y the offset of its
+  argument (after spaces) from `($F2)`; the MOS prints nothing of its own
+  (a real MOS prints its version too: memory). Anything else is offered to the ROMs as service call 4, with A=4 and Y
   the offset of the command from `($F2)`; unclaimed, a file of that name
   is run as by `*RUN`, and otherwise it is the error "Bad command" (254).
   Abbreviations (`*R.`) and the MOS's other commands (`*FX`, `*KEY`,

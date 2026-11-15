@@ -101,6 +101,12 @@ t_cli_file:
   .byte $02
   RTS
 
+; *HELP: service call 9, Y = the offset of its argument from ($F2). Every
+; ROM is offered it and none claims it; the MOS prints nothing of its own
+cli_help:
+  LDX #$09
+  JMP svc
+
 ; ---- OSBYTE ----
 byte_default:
   STA osbyte_a

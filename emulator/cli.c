@@ -58,6 +58,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->bbc_shadow = 0;
     opts->bbc_page = -1;
     opts->bbc_command = NULL;
+    opts->bbc_more_count = 0;
     opts->bbc_strict = 0;
     opts->bbc_options = 0;
     opts->cycle_cap = 200000000ULL;
@@ -303,7 +304,16 @@ static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
         opts->bbc_module_ram = 1;
         (*i)++;
     } else if (strcmp(arg, "--bbc-command") == 0) {
-        if (take_str_value(argc, argv, i, arg, &opts->bbc_command)) return 1;
+        const char *text;
+        if (take_str_value(argc, argv, i, arg, &text)) return 1;
+        if (!opts->bbc_command) {
+            opts->bbc_command = text;
+        } else if (opts->bbc_more_count < 8) {
+            opts->bbc_more_commands[opts->bbc_more_count++] = text;
+        } else {
+            fprintf(stderr, "error: at most 8 --bbc-command lines after the first\n");
+            return 1;
+        }
     } else if (strcmp(arg, "--bbc-module") == 0) {
         if (take_str_value(argc, argv, i, arg, &opts->bbc_module_filename)) return 1;
     } else if (strcmp(arg, "--bbc-sideways-ram") == 0) {

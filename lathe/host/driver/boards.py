@@ -26,7 +26,8 @@ bbc.exit raises, 1 for any other error, or 0 when the program returned to the MO
 program (an environment such as lathe/env/bbc-bank.env, whose code or regions are in the
 window) runs with the module in its developer's form, RAM (module_options): the caller puts the
 bank files in the directory beside the program (build.run_program does), and the program's
-start-up code loads them into the module and the sideways RAM.
+start-up code loads them into the module and the sideways RAM. run_module() runs a * command of
+a module image (bbcrom.py), from ROM or, through the loader, from the module's RAM form.
 
 The emulator's default machine is not here: build.run_image runs it, with host services.
 """
@@ -274,6 +275,53 @@ def module_options(env):
         raise RunError(f'{env.path}: a banked program on the BBC needs `define MODULE_SLOT N`')
     return ('--bbc-module-ram', '--bbc-module-scheme', 'direct16',
             '--bbc-module-slot', str(defines['MODULE_SLOT']))
+
+
+ROM_TAIL = 239          # the most of a tail the module's bank 0 copies to $0700 (module.asm)
+
+
+def module_command(command, args, tail=None):
+    """The line of a * command of a module image with args (bbc_quote), or the tail as it is.
+    RunError if the module cannot take it."""
+    rest = ' '.join(bbc_quote(a) for a in args) if tail is None else tail
+    if len(rest) > ROM_TAIL:
+        raise RunError(f'the tail is {len(rest)} bytes, more than the {ROM_TAIL} the module copies')
+    line = command + (' ' + rest if rest else '')
+    if len(line) > BBC_LINE:
+        raise RunError(f'the command line is {len(line)} bytes, more than the {BBC_LINE} the MOS takes')
+    return line
+
+
+def run_module(board, image, disk, command, args=(), slot=4, bank=0, ram=False, before=(),
+               roms=(), stdin=None, tail=None, raw=False, cap=None):
+    """Runs the * command `command` of a module image (lathe/host/driver/bbcrom.py) with args on
+    the BBC, in the directory of files disk: the image in the module, scheme direct16, in `slot`,
+    with the latch at `bank` at power on. With ram, the module is the developer's form, RAM, and
+    empty: the commands `before` (such as `RUN LOADMOD IMAGE 4`, its loader) run first and fill
+    it, and image is not given to the emulator. `roms` are (slot, file) pairs of further ROMs, a
+    language among them. Returns what run_mos returns: (status, output, error output, cycles),
+    or with raw the emulator's own status and output and its error output with the report."""
+    if not os.path.isfile(EMULATOR):
+        raise RunError('emulator/emulator.out is missing: run make at the repository root')
+    fill = {'disk': os.path.abspath(disk)}
+    cmd = ([EMULATOR, '--machine', board.machine] + [o.format(**fill) for o in board.options]
+           + ['--bbc-module-scheme', 'direct16', '--bbc-module-slot', str(slot),
+              '--bbc-module-bank', str(bank)]
+           + (['--bbc-module-ram'] if ram else ['--bbc-module', os.path.abspath(image)]))
+    for s, path in roms:
+        cmd += ['--bbc-rom', f'{s}={os.path.abspath(path)}']
+    for line in before:
+        cmd += ['--bbc-command', line]
+    cmd += ['--bbc-command', module_command(command, args, tail),
+            '--cycle-cap', str(cap or board.cycle_cap), '--exit-report']
+    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                       input=stdin if stdin is not None else b'')
+    err = r.stderr.decode('latin-1')
+    if raw:
+        m = BBC_REPORT_RE.search(err)
+        return r.returncode, r.stdout, err.encode('latin-1'), int(m.group(1)) if m else 0
+    status, said, cycles = bbc_status(r.returncode, err)
+    return status, bbc_output(r.stdout), said, cycles
 
 
 def run_mos(board, image, disk, args=(), stdin=None, command_tail=None, raw=False, cap=None,

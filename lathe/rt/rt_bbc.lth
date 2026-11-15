@@ -26,12 +26,13 @@
 ; slot, as the design in bbc.md first had it: unmap latches the bank again when it puts the
 ; module back.
 ;
-; The module's slot is the define MODULE_SLOT of the environment, which must match the socket
-; (the emulator's --bbc-module-slot, 4 by default). The developer's form is run from disk, so
-; the environment is the one place that knows it. The ROM form will learn it at run time: the
-; MOS enters a ROM's service and language entries with its slot in $F4 (and in X for a service
-; call), so the ROM's entry code can keep it in a variable before anything far-calls, and the
-; `#SLOT` operands below become that variable (a cycle more at each use).
+; The module's slot is the variable `mslot`, which start() sets before anything far-calls. A
+; program run with *RUN (the developer's form, loaded from disk by its start-up code) takes it
+; from the define MODULE_SLOT of the environment, which must match the socket (the emulator's
+; --bbc-module-slot, 4 by default). A program of a module image, started by a * command (the ROM
+; form: bbc.from_rom()), takes it from the stub of the module's bank 0 (bbc.ROM_SLOT), which
+; kept the slot the MOS gave the service call; its banks are in the image and its regions'
+; constants were copied into sideways RAM by bank 0, so start() loads nothing.
 ;
 ; The stub, written by the linker in fixed code, is rt_bank's:
 ;
@@ -52,12 +53,13 @@
 ; tables"). The developer's module holds RAM, so its banks are written through the window.
 module rt_bbc
 
-import bbc (close, exit, open, read)
+import bbc (close, exit, from_rom, open, read, ROM_SLOT)
 
 const ROMSEL = $FE30                ; write only
 const COPY = $F4                    ; the MOS's copy of ROMSEL
 const LATCH = $BFF0                 ; a read of LATCH+n latches the module's bank n
-const SLOT: byte = MODULE_SLOT      ; the module's slot (the environment's define)
+const SLOT: byte = MODULE_SLOT      ; the module's slot in the developer's form (the environment's
+                                    ; define)
 const IN_MODULE: byte = $80         ; the bit of a value that names a bank of the module
 const BANK_BITS: byte = $0F
 
@@ -67,6 +69,8 @@ var save_x: byte
 var save_y: byte
 var now: byte                       ; the value of what is in the window (below)
 var mos_copy: byte at COPY
+var mslot: byte                     ; the module's slot (above), set by start()
+var stub_slot: byte at bbc.ROM_SLOT
 
 ; `now` is the value of what is in the window, kept up to date by every switch here, before the
 ; switch is made: a handler's far call that comes between the two then pushes the new value, and
@@ -97,7 +101,7 @@ pub asm func back()
   RTS
 .module
   TAY                               ; a bank of the module
-  LDA #SLOT
+  LDA mslot
   STA COPY
   STA ROMSEL
   LDA LATCH-$80,Y
@@ -149,7 +153,7 @@ pub asm func call()
   RTS                               ; to f
 .module
   TAY                               ; a bank of the module
-  LDA #SLOT
+  LDA mslot
   STA COPY
   STA ROMSEL
   LDA LATCH-$80,Y
@@ -184,7 +188,7 @@ pub asm func map(value: byte in a): byte in a
   TYA
   RTS
 .module
-  LDA #SLOT                         ; a bank of the module
+  LDA mslot                         ; a bank of the module
   STA COPY
   STA ROMSEL
   LDA LATCH-$80,X
@@ -211,7 +215,7 @@ pub asm func unmap(value: byte in y)
   RTS
 .module
   PHA                               ; a bank of the module
-  LDA #SLOT
+  LDA mslot
   STA COPY
   STA ROMSEL
   LDA LATCH-$80,Y
@@ -251,19 +255,25 @@ type TableEntry = record
   name: ^byte
 end
 
-; Load each bank that has a file, as the table at `table` says (above), and leave the window as
-; it was found (`now` is the slot $F4 holds when the program starts). It runs before any
-; initial value is set (code in a bank may set some), so it uses only what needs none: bbc's
-; open, read, close and exit. A file that cannot be opened stops the program with status 255 (the MOS error
-; `Exit 255`).
+; Set the module's slot (above). Then, in the developer's form, load each bank that has a file,
+; as the table at `table` says (above), and leave the window as it was found (`now` is the slot
+; $F4 holds when the program starts); in the ROM form there is nothing to load. It runs before
+; any initial value is set (code in a bank may set some), so it uses only what needs none: bbc's
+; from_rom, open, read, close and exit. A file that cannot be opened stops the program with
+; status 255 (the MOS error `Exit 255`).
 pub func start(table: ^byte)
   var head: ^TableHead
   var entry: ^TableEntry
   var found: byte
   var i: byte
+  now = mos_copy
+  if bbc.from_rom() then
+    mslot = stub_slot
+    return
+  end
+  mslot = SLOT
   head = ^TableHead(word(table))
   entry = ^TableEntry(word(table) + sizeof(TableHead))
-  now = mos_copy
   found = now
   for i = 1 to head.count do
     select(entry.value)

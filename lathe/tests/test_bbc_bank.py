@@ -578,12 +578,14 @@ class Costs(unittest.TestCase):
         self.assertEqual(found, [WITH_BLOCK, WITH_BLOCK_FROM_A_BANK])
 
 
-# Measured (2026-11-14). Wendy 2's: 182 a far call, 90 a block banked and 24 all in one
+# Measured (2026-11-14; 2026-11-15 with the module's slot in a variable, rt_bbc.mslot, which the
+# ROM form sets at run time: a cycle more for each switch to a bank of the module, where it was
+# 186, 195 and 78). Wendy 2's: 182 a far call, 90 a block banked and 24 all in one
 # (configurations.md).
-FAR_CALL = 186
-FAR_CALL_BETWEEN_BANKS = 195
+FAR_CALL = 187
+FAR_CALL_BETWEEN_BANKS = 197
 WITH_BLOCK = (64, 24)               # (banked, all in one)
-WITH_BLOCK_FROM_A_BANK = (78, 24)
+WITH_BLOCK_FROM_A_BANK = (79, 24)
 
 
 if __name__ == '__main__':

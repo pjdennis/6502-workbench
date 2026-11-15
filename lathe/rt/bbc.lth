@@ -22,7 +22,8 @@
 ;   |                             | carry set, and goes on giving it without asking the MOS     |
 ;   |                             | again, which would raise the error EOF                      |
 ;   | argc, argv                  | the tail of the command that ran the program (OSARGS A=1,   |
-;   |                             | Y=0), split at spaces; "..." is one argument, which may be  |
+;   |                             | Y=0; at $0700 in the ROM form, below), split at spaces;     |
+;   |                             | "..." is one argument, which may be                         |
 ;   |                             | empty or hold spaces, with "" for a quote inside it         |
 ;   | exit(0)                     | closes every file (OSFIND 0 with Y = 0, as CLOSE#0) and     |
 ;   |                             | returns to the MOS from any depth: the start-up code of     |
@@ -35,6 +36,15 @@
 ; prompt that is the language's input buffer at $0700, which is where the emulator's
 ; --bbc-command puts it too. lathe/env/bbc.env leaves $0700-$07FF out of the program's data, so
 ; the tail stays there while the program runs, and argc and argv read it again at every call.
+;
+; The ROM form (lathe/docs/bbc.md, "Step 3, as built: the ROM form"). A program of a module
+; image (lathe/host/driver/bbcrom.py) is started by a * command: the module's bank 0 copies the
+; command's tail to $0700, ended by CR, writes a stub at $07F0 that enters the program with
+; `JSR` (so the program's return address is $07F2) and holds the module's slot at $07F4, and
+; copies the program's resident part into main RAM. from_rom() tells the two forms apart by that
+; return address, read where the start-up code kept S (KEEP): so the same objects link for *RUN
+; and for the ROM form. In the ROM form the tail is at $0700, not where OSARGS 1 points (OSARGS
+; knows only the tail of *RUN), and rt_bbc takes the module's slot from $07F4.
 ;
 ; No variable here has an initial value, so that the module has no `$init`: lathe/src/sys.lth
 ; imports it in every build (build.py reads every `import` line, whatever `#if` it is under), and
@@ -55,6 +65,17 @@ extern func osbyte(code: byte in a, xv: byte in x, yv: byte in y) at $FFF4
 
 pub const KEEP = $0400              ; where the start-up code keeps S (bbc.env: exit return $0400)
 var kept_s: byte at KEEP
+
+pub const ROM_SLOT = $07F4          ; the ROM form: the module's slot, in the stub
+const ROM_ENTRY = $07F2             ; the ROM form: the return address the stub's JSR pushes
+const ROM_TAIL = $0700              ; the ROM form: the command's tail, ended by CR
+
+; True if the program was started by a * command of a module image (above), false if by *RUN.
+pub func from_rom(): bool
+  var s: ^byte
+  s = ^byte($0100 + word(kept_s))
+  return s[1] == byte(ROM_ENTRY & $FF) and s[2] == byte(ROM_ENTRY >> 8)
+end
 
 const LF: byte = 10
 const CR: byte = 13
@@ -214,14 +235,22 @@ var arg_count: byte
 var block: [4]byte zp               ; OSARGS's result
 var top: byte                       ; the next free byte of arg_text
 
-; The address of the command line's tail, ended by CR: OSARGS with A = 1, Y = 0.
-asm func tail_address(): ^byte in ax
+; The address of *RUN's tail, ended by CR: OSARGS with A = 1, Y = 0.
+asm func osargs_tail(): ^byte in ax
   LDA #$01
   LDX #<block
   LDY #$00
   JSR $FFDA                         ; OSARGS
   LDA block
   LDX block+1
+end
+
+; The address of the command line's tail, ended by CR: $0700 in the ROM form, else OSARGS's.
+func tail_address(): ^byte
+  if from_rom() then
+    return ^byte(ROM_TAIL)
+  end
+  return osargs_tail()
 end
 
 ; Add c to the argument being read, if there is room.

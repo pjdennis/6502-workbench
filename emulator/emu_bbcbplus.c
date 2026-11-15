@@ -72,6 +72,8 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
         .shadow = opts->bbc_shadow,
         .strict = opts->bbc_strict,
         .command = opts->bbc_command,
+        .more_commands = opts->bbc_more_commands,
+        .more_count = opts->bbc_more_count,
         .entry = opts->load_address,
     };
     bbc_machine_init(&m, &cfg, &mem, has_module ? &module : NULL);

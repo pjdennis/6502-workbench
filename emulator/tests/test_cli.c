@@ -705,6 +705,22 @@ TEST cli_bbcbplus_errors(void) {
     PASS();
 }
 
+TEST cli_bbcbplus_commands_in_turn(void) {
+    char *argv[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "A", "--bbc-command", "B C",
+                    "--bbc-command", "D", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+    ASSERT_STR_EQ("A", opts.bbc_command);        /* the first; the others after it, in turn */
+    ASSERT_EQ(2, opts.bbc_more_count);
+    ASSERT_STR_EQ("B C", opts.bbc_more_commands[0]);
+    ASSERT_STR_EQ("D", opts.bbc_more_commands[1]);
+    char *many[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "1", "--bbc-command", "2",
+                    "--bbc-command", "3", "--bbc-command", "4", "--bbc-command", "5", "--bbc-command", "6",
+                    "--bbc-command", "7", "--bbc-command", "8", "--bbc-command", "9", "--bbc-command", "10", NULL};
+    ASSERT(bbc_error(many, "at most 8 --bbc-command"));
+    PASS();
+}
+
 TEST cli_bbcbplus_sideways_ram_none(void) {
     char *argv[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-sideways-ram", "none",
                     "--bbc-module-ram", "--bbc-module-slot", "0", NULL};
@@ -762,6 +778,7 @@ SUITE(cli_suite) {
     RUN_TEST(cli_bbcbplus_defaults);
     RUN_TEST(cli_bbcbplus_options_parsed);
     RUN_TEST(cli_bbcbplus_errors);
+    RUN_TEST(cli_bbcbplus_commands_in_turn);
     RUN_TEST(cli_bbcbplus_sideways_ram_none);
 }
 

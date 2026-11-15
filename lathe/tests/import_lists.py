@@ -52,7 +52,7 @@ COMPILER_ENVS = [os.path.join(SRC, e + '.env')
                  for e in ('compiler', 'compiler-small', 'compiler-bank', 'compiler-bbc', 'compiler-bbc-bank')]
 LINKER_ENVS = [os.path.join(SRC, e + '.env') for e in ('linker', 'linker-bank')]
 BOARD_ENVS = [os.path.join(LATHE, 'env', e + '.env')
-              for e in ('host', 'michael', 'wendy2', 'wendy2disk', 'bbc', 'bbc-bank')]
+              for e in ('host', 'michael', 'wendy2', 'wendy2disk', 'bbc', 'bbc-bank', 'bbc-rom')]
 IMPORT = re.compile(r'^(\s*)import\s+([A-Za-z][A-Za-z0-9_]*)\s*(\(?)', re.I)
 
 

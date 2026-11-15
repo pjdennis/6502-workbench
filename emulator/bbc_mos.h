@@ -42,6 +42,9 @@ struct bbc_config {
     int shadow;             /* --bbc-shadow: OSBYTE 132 answers $8000 (else $7C00) */
     int strict;             /* --bbc-strict: a failed check ends the run */
     const char *command;    /* --bbc-command: passed to OSCLI after reset, or NULL */
+    const char *const *more_commands;   /* further --bbc-command lines, each passed to OSCLI from
+                                         * $0700 when the one before it returns */
+    int more_count;
     long entry;             /* without a command: the program entered after reset, or -1 */
     FILE *out, *in, *err;   /* OSWRCH, OSRDCH/OSWORD 0, error messages */
 };
@@ -79,6 +82,7 @@ struct bbc_machine {
     uint16_t tail;                     /* OSARGS 1: the command line tail of *RUN */
     int64_t clock_offset;              /* OSWORD 2 */
     uint64_t mos_calls;                /* traps served */
+    int next_command;                  /* the next of cfg.more_commands to run */
 };
 
 /* Wire the machine: mem and module (NULL for none) are the caller's,

@@ -200,16 +200,61 @@ emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict \
 `DIR` holds the bank files beside the program. `build.py --run` does both (`boards.module_options`: the module's options for any environment of the BBC that places code or a region in the window, with the slot from its `define MODULE_SLOT`).
 
 - **The environment.** `bbc-bank.env` is the machine; a program adds its own `bank`, `place` and `region` lines after it. A bank's value is `$80 + n` for bank n of the module (numbered `N = n`, and 16 for bank 0, by convention) or the slot's number for a sideways slot (numbered `20 + s`: 32 and 33 for slots 12 and 13). `switch WIN bank farcall`: no register describes the switch, so the far-call module alone does (`configurations.md`, "The environment file").
-- **The module's slot** is `define MODULE_SLOT 4`, which must be the emulator's `--bbc-module-slot` (4 is its default).
+- **The module's slot** is `define MODULE_SLOT 4`, which must be the emulator's `--bbc-module-slot` (4 is its default). The same objects linked for the ROM form (below) take the slot the MOS gives instead.
 - **The window ends at `$BFDF`**: a read of `$BFF0+n` latches the module's bank n, and a real NMOS 6502 reads the byte after a one-byte instruction, so nothing is placed in the last 32 bytes.
 - **Sideways RAM** is slots 0, 1, 12 and 13 (`--bbc-sideways-ram`, the B+128's by default). A region of variables needs no file; one with constants is loaded from its file at start-up.
-- **Variables of a module placed in a bank** are at the bank's top, in the module's RAM. The ROM form will need them elsewhere (a bank marked read-only, the linker's next change).
+- **Variables of a module placed in a bank** are at the bank's top, in the module's RAM. In the ROM form (below) the banks are `rom`, and the linker puts them in main RAM.
 - **The MOS is called from anywhere**: from code in a bank of the module, and inside a `with` block with a sideways slot in the window. Every switch writes `$F4` before ROMSEL, and `bbc.lth`'s catching of a filing system error selects again the slot that was in the window, which the MOS's BRK handler replaced with the language's.
 
 | `$8000-$BFDF` | What is there |
 |---|---|
 | bank n of the module (value `$80 + n`) | Code and constants of the modules placed there, from `$8000`; their variables from `$BFDF` down. Its file is the bytes from `$8000` to the last placed. |
 | sideways slot s (value s) | A region: its constants from `$8000` (in its file), its variables from `$BFDF` down. |
+
+### The ROM module
+
+A banked program, or several, as one **module image**: sixteen 16 KB banks (262,144 bytes, scheme `direct16`) in one sideways slot, each program started by a `*` command of its own with its arguments, its code banks read only, its regions in sideways RAM and the rest in main RAM ([`bbc.md`](bbc.md), "Step 3, as built: the ROM form", has the layout and the start and end sequences).
+
+**Build.** Each program is linked on its own with a ROM environment: `../env/bbc-rom.env` with its lines, which `bbcrom.rom_env` makes from its `bbc-bank.env` lines (the window `$8050-$BFDF`, its banks of the module numbered from a first bank and `rom`; it returns the next number, for the next program). Then the image tool puts the links together:
+
+```bash
+python3 - <<'EOF'
+import sys; sys.path.insert(0, 'lathe/host/driver')
+import bbcrom
+n = bbcrom.rom_env('first-run.env', 'first-rom.env', 1)     # banks 1, 2, 3 ...
+bbcrom.rom_env('second-run.env', 'second-rom.env', n)       # ... and on
+EOF
+python3 lathe/host/driver/build.py first.lth -o rom1/FIRST --env first-rom.env --keep rom1/work
+python3 lathe/host/driver/build.py second.lth -o rom2/SECOND --env second-rom.env --keep rom2/work
+python3 lathe/host/driver/bbcrom.py -o MODULE --listing MODULE.txt --loader disk/LOADMOD \
+    FIRST=rom1/FIRST,first-rom.env,rom1/work/first.map SECOND=rom2/SECOND,second-rom.env
+```
+
+`bbcrom.py` takes each program's resident image (build.py's output, from the start of its `code` range), its bank files beside it, its environment and, for the listing, its map; it writes the image and the listing (what is in each bank, what each command copies where, the space left), and with `--loader` the developer's loader `LOADMOD` and its `.inf`. It fails with a message naming the program and the bank when something does not fit or collides: two programs in one bank, a bank of the module not `rom`, bank 0 (the module's own), the window not `$8050-$BFDF`, a region not in sideways RAM, a range over `$0700-$07FF`, more resident parts and region constants than the free banks hold. The tests call `bbcrom.image(specs, out, listing)` and `bbcrom.loader(out)`.
+
+**Run it from ROM**:
+
+```bash
+emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict \
+    --bbc-module MODULE --bbc-module-scheme direct16 [--bbc-module-slot S] [--bbc-module-bank B] \
+    [--bbc-rom 15=LANG.rom] --bbc-command "FIRST ARGS"
+```
+
+**Run it in the developer's form**: the module holds RAM, empty; `LOADMOD` fills it from the image file on the disc and enters it in the ROM type table, then the command runs as from ROM (`--bbc-command` is repeatable: each line runs when the one before returns):
+
+```bash
+cp MODULE DIR/MODULE; cp disk/LOADMOD disk/LOADMOD.inf DIR/
+emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict \
+    --bbc-module-ram --bbc-module-scheme direct16 --bbc-module-slot 4 \
+    --bbc-command "RUN LOADMOD MODULE 4" --bbc-command "FIRST ARGS"
+```
+
+`boards.run_module(board, image, disk, command, args, slot=, bank=, ram=, before=, roms=)` does both for the tests (`before` is the loader's line, `roms` a language ROM).
+
+- **The arguments** are the command's tail, which the module copies to `$0700` (at most 239 bytes); `bbc.lth` reads it there when the program was started by the module (`bbc.from_rom()`), and from OSARGS for `*RUN`. The same objects link both ways.
+- **The end**: status 0 enters the current language again with OSBYTE 142 if it is a language ROM, and otherwise returns from the service call, claimed (the emulator without `--bbc-rom` has no language: the run ends with status 0). A status N other than 0 is the MOS error `Exit N`, as for `*RUN`.
+- **`*HELP`** lists the module's commands; a command it does not know is left to the other ROMs and the MOS (`Bad command`).
+- **Sideways RAM**: the slots the program's regions are in are taken; their constants are copied there from the image at the command.
 
 ## The VIA timer
 

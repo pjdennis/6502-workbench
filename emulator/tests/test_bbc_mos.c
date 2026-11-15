@@ -259,6 +259,25 @@ TEST osbyte_version_page_himem_and_high_address(void) {
     PASS();
 }
 
+TEST osbyte_252_reads_and_writes_the_current_language(void) {
+    fresh();
+    static const uint8_t svc[] = { RTS };
+    rom_in_slot(9, 0xC2, svc, sizeof svc);   /* the language: reset selects it */
+    static const uint8_t code[] = {
+        LDA_IMM(252), LDX_IMM(0), LDY_IMM(0xFF), JSR(OSBYTE), STX_ZP(0x70), STY_ZP(0x71),
+        LDA_IMM(252), LDX_IMM(5), LDY_IMM(0), JSR(OSBYTE), STX_ZP(0x72),     /* write 5 */
+        LDA_IMM(252), LDX_IMM(0), LDY_IMM(0xFF), JSR(OSBYTE), STX_ZP(0x73), RTS };
+    mem.ram[0x28D] = 0x44;
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(9, mem.ram[0x70]);             /* X: the old value, (old AND Y) EOR X the new */
+    ASSERT_EQ(0x44, mem.ram[0x71]);          /* Y: the next of the MOS's variables, $028D */
+    ASSERT_EQ(9, mem.ram[0x72]);
+    ASSERT_EQ(5, mem.ram[0x73]);
+    ASSERT_EQ(5, mem.ram[0x28C]);
+    mem.kind[9] = BBC_SLOT_EMPTY;
+    PASS();
+}
+
 TEST osbyte_0_with_x_0_is_an_error_through_brkv(void) {
     fresh();
     static const uint8_t code[] = { LDA_IMM(0), LDX_IMM(0), JSR(OSBYTE), RTS };
@@ -482,6 +501,67 @@ TEST oscli_offers_service_call_4_from_slot_15_down(void) {
     ASSERT_EQ(LO(BBC_COMMAND_BUFFER), mem.ram[0xF2]);
     ASSERT_EQ(HI(BBC_COMMAND_BUFFER), mem.ram[0xF3]);
     ASSERT_EQ(1, mem.ram[0x404]);            /* slot 6 saw call 4 once */
+    PASS();
+}
+
+/* A ROM in slot 5 that, for service call 9 (*HELP), prints the line from
+ * ($F2),Y to its CR and leaves the call unclaimed */
+static void help_rom(void) {
+    static const uint8_t svc[] = {
+        0xC9, 0x09, 0xD0, 0x12,              /* CMP #9; BNE out */
+        STY_ZP(0x70),
+        0xB1, 0xF2, 0xC9, 0x0D, 0xF0, 0x06,  /* loop: LDA ($F2),Y; CMP #$0D; BEQ done */
+        JSR(OSWRCH), 0xC8, 0xD0, 0xF4,       /* JSR OSWRCH; INY; BNE loop */
+        0xA4, 0x70, LDA_IMM(9),              /* done: LDY $70; LDA #9 (not claimed) */
+        RTS };                               /* out: */
+    rom_in_slot(5, 0x82, svc, sizeof svc);
+}
+
+TEST oscli_help_offers_service_call_9_with_y_at_its_argument(void) {
+    fresh();
+    help_rom();
+    counting_rom();                          /* slot 6 sees it too */
+    ASSERT_EQ(0, run(NULL, 0, NULL, "HELP", NULL));
+    ASSERT_STR_EQ("", out_text);
+    ASSERT_EQ(1, mem.ram[0x409]);            /* slot 6 saw call 9 once */
+    ASSERT_EQ(4, mem.ram[0x70]);             /* Y: the CR after HELP */
+    ASSERT_EQ(0, run(NULL, 0, NULL, " *help  LATHE now", NULL));
+    ASSERT_STR_EQ("LATHE now", out_text);
+    ASSERT_EQ(8, mem.ram[0x70]);             /* Y: after the spaces */
+    ASSERT_EQ(1, run(NULL, 0, NULL, "HELPX", NULL));   /* not HELP: service call 4, then Bad command */
+    ASSERT_STR_EQ("Bad command\n", err_text);
+    PASS();
+}
+
+TEST more_commands_run_in_turn_after_each_returns(void) {
+    fresh();
+    hi_rom();
+    static const char *const more[] = { "HI", "*HI" };
+    struct bbc_config cfg = { 0 };
+    cfg.more_commands = more;
+    cfg.more_count = 2;
+    ASSERT_EQ(0, run(NULL, 0, NULL, "HI", &cfg));
+    ASSERT_STR_EQ("hihihi", out_text);
+    ASSERT_EQ(BBC_END_RETURNED, m.end);
+    static const char *const after_error[] = { "NOSUCH", "HI" };
+    cfg.more_commands = after_error;
+    ASSERT_EQ(1, run(NULL, 0, NULL, "HI", &cfg));   /* an error ends the run: no command after it */
+    ASSERT_STR_EQ("hi", out_text);
+    ASSERT_STR_EQ("Bad command\n", err_text);
+    /* after a program that enters a language by OSBYTE 142: the language returns, then the
+     * next command runs, from $0700, with the stack reset */
+    static const uint8_t svc[] = { RTS };
+    rom_in_slot(7, 0xC2, svc, sizeof svc);
+    const uint8_t lang[] = { LDA_IMM('L'), JSR(OSWRCH), RTS };
+    memcpy(mem.slot[7] + 0x40, lang, sizeof lang);
+    static const uint8_t code[] = { LDA_IMM(142), LDX_IMM(7), JSR(OSBYTE), RTS };
+    static const char *const one[] = { "HI" };
+    cfg.more_commands = one;
+    cfg.more_count = 1;
+    ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &cfg));
+    ASSERT_STR_EQ("Lhi", out_text);
+    ASSERT_MEM_EQ("HI\r", (char *)mem.ram + BBC_COMMAND_BUFFER, 3);
+    mem.kind[7] = BBC_SLOT_EMPTY;
     PASS();
 }
 
@@ -899,6 +979,7 @@ SUITE(bbc_mos_suite) {
     RUN_TEST(a_replaced_vector_is_used_and_can_chain);
     RUN_TEST(osrdch_reads_standard_input_then_escape_at_its_end);
     RUN_TEST(osbyte_version_page_himem_and_high_address);
+    RUN_TEST(osbyte_252_reads_and_writes_the_current_language);
     RUN_TEST(osbyte_0_with_x_0_is_an_error_through_brkv);
     RUN_TEST(osbyte_126_acknowledges_escape);
     RUN_TEST(osbyte_unknown_returns_x_ff_with_v_set);
@@ -911,6 +992,8 @@ SUITE(bbc_mos_suite) {
     RUN_TEST(an_error_in_a_rom_selects_the_language_and_is_reported_from_the_rom);
     RUN_TEST(oscli_unknown_command_is_bad_command);
     RUN_TEST(oscli_offers_service_call_4_from_slot_15_down);
+    RUN_TEST(oscli_help_offers_service_call_9_with_y_at_its_argument);
+    RUN_TEST(more_commands_run_in_turn_after_each_returns);
     RUN_TEST(oscli_run_and_star_name_run_a_file_from_disk);
     RUN_TEST(oscli_run_passes_the_command_tail_to_osargs);
     RUN_TEST(oscli_save_and_load);
