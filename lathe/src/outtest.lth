@@ -6,7 +6,7 @@ module outtest
 
 import err (init)
 import fbuf (begin, finish, op, op_fix)
-import kernel (init, keep_argument, sym_add, sym_obj, sym_weight)
+import kernel (C_OBJ, C_WEIGHT, init, keep_argument, set_byte, set_word, sym_add)
 import out (begin_module, call, class_parameter, data, data_byte, end_module, function_begin,
             function_end, imported, init, member, open, pointer_class, region, slot, symbol,
             table_begin, table_byte, table_end, table_fix, variable, with_region)
@@ -103,8 +103,8 @@ pub func main()
       b = script.small()
       d = script.name()
       s = kernel.sym_add(a, d, b)
-      kernel.sym_obj[s] = script.number()
-      kernel.sym_weight[s] = script.small()
+      kernel.set_word(s, kernel.C_OBJ, script.number())
+      kernel.set_byte(s, kernel.C_WEIGHT, script.small())
       script.show_word(s)
     of 21
       out.end_module()

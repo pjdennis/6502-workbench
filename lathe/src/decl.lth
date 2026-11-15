@@ -57,16 +57,17 @@ import expr (constant, constant_number, data_region, directive, function_body, l
 import gen (cpu, function_begin, function_end, init_count, INIT_FLUSH, init_function,
             interrupt_entry, receive, REG_A, REG_AX, REG_C, REG_NONE, REG_Y, saves_frame)
 import inlines (read, read_name, save, SF_INLINE, SF_INTERRUPT, skip, skip_name, write, write_uses)
-import kernel (built_is, built_loaded, close, freeze, freeze_member, get, get_word, K_BUILTIN,
-               K_CONST, K_FIELD, K_FUNC, K_LOCAL, K_MODULE, K_TYPE, K_VAR, local_base, local_names,
-               MAX_MODULES, MAX_NAME, member_add, member_type, member_value, module_add,
-               module_count, module_name, name_add, name_begin, name_char, name_end, name_hash,
-               name_length, name_top, new_hash, NO_OBJ, open_in, open_out, path_add, path_add_name,
-               path_add_text, path_begin, path_end, put, put_name, put_word, scope_begin, scope_end,
-               SCOPE_FIELDS, SCOPE_LOCAL, SCOPE_MODULE, SCOPE_PREDECLARED, SF_ASM, SF_AT, SF_EXTERN,
-               SF_FORWARD, SF_HIDDEN, SF_IN, SF_LIST, SF_NOZP, SF_PUB, SF_RECURSIVE, SF_ZP, sym_add,
-               sym_count, sym_find, sym_flags, sym_kind, sym_members, sym_name, sym_obj, sym_params,
-               sym_results, sym_scope, sym_thawed, sym_type, sym_value, sym_weight)
+import kernel (built_is, built_loaded, byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_NAME, C_OBJ, C_PARAMS,
+               C_RESULTS, C_SCOPE, C_TYPE, C_VALUE, C_WEIGHT, close, freeze, freeze_member, get,
+               get_word, K_BUILTIN, K_CONST, K_FIELD, K_FUNC, K_LOCAL, K_MODULE, K_TYPE, K_VAR,
+               local_base, local_names, MAX_MODULES, MAX_NAME, member_add, member_type_of,
+               member_value_of, module_add, module_count, module_name, name_add, name_begin,
+               name_char, name_end, name_hash, name_length, name_top, new_hash, NO_OBJ, open_in,
+               open_out, path_add, path_add_name, path_add_text, path_begin, path_end, put,
+               put_name, put_word, scope_begin, scope_end, SCOPE_FIELDS, SCOPE_LOCAL, SCOPE_MODULE,
+               SCOPE_PREDECLARED, set_byte, set_word, SF_ASM, SF_AT, SF_EXTERN, SF_FORWARD,
+               SF_HIDDEN, SF_IN, SF_LIST, SF_NOZP, SF_PUB, SF_RECURSIVE, SF_ZP, sym_add, sym_count,
+               sym_find, sym_thawed, word_of)
 import lex (col, expect, line, next, string_length, T_ASM, T_ASSIGN, T_AT, T_BOOL, T_COLON, T_COMMA,
             T_CONST, T_END, T_ENUM, T_EOF, T_EXTERN, T_FORWARD, T_FUNC, T_HASH_IF, T_IMPORT, T_IN,
             T_INLINE, T_INTERRUPT, T_LPAREN, T_MODULE, T_NAME, T_NL, T_PUB, T_RECORD, T_RECURSIVE,
@@ -141,14 +142,15 @@ const MAX_WANTS = 160
 const W_LISTED = 1              ; want_flags: the importer's list names it
 const W_FOUND = 2               ; an entry of the interface has its name, or the module had it already
 const NO_ROW = $FF
-var want_module: [MAX_WANTS]word
-var want_name: [MAX_WANTS]word
-var want_hash: [MAX_WANTS]byte  ; kernel.name_hash() of the name
-var want_flags: [MAX_WANTS]byte
-var want_line: [MAX_WANTS]word
-var want_col: [MAX_WANTS]word
+var want_module: [MAX_WANTS]word in WANTS  ; the rows, in the region WANTS: used only inside
+var want_name: [MAX_WANTS]word in WANTS    ; the blocks of add_want(), listed(), not_exported(),
+var want_hash: [MAX_WANTS]byte in WANTS    ; wanted(), pending() and check_found(). kernel.name_hash()
+var want_flags: [MAX_WANTS]byte in WANTS   ; of the name
+var want_line: [MAX_WANTS]word in WANTS
+var want_col: [MAX_WANTS]word in WANTS
 var want_count: byte = 0
 var entry_row: byte = NO_ROW    ; the row that wanted() found for the entry being read
+var row_name: word = 0          ; and its name
 
 ; How each module's interface is read: everything in it (M_WHOLE: an `import` without a list, or
 ; a module whose functions the compiler calls by itself, WHOLE_MODULES), and whether the importer
@@ -199,11 +201,11 @@ pub func init()
   for i = 0 until len(CONSTANTS) do
     if CONSTANTS[i] == C_SPACE then
       s = kernel.sym_add(kernel.SCOPE_PREDECLARED, kernel.name_end(), kernel.K_CONST)
-      kernel.sym_type[s] = typetab.BOOL_TYPE
-      kernel.sym_value[s] = value
+      kernel.set_byte(s, kernel.C_TYPE, typetab.BOOL_TYPE)
+      kernel.set_word(s, kernel.C_VALUE, value)
       if value == 2 then
-        kernel.sym_type[s] = typetab.NIL_TYPE
-        kernel.sym_value[s] = 0
+        kernel.set_byte(s, kernel.C_TYPE, typetab.NIL_TYPE)
+        kernel.set_word(s, kernel.C_VALUE, 0)
       end
       value += 1
       kernel.name_begin()
@@ -215,7 +217,7 @@ pub func init()
   for i = 0 until len(BUILTINS) do
     if BUILTINS[i] == C_SPACE then
       s = kernel.sym_add(kernel.SCOPE_PREDECLARED, kernel.name_end(), kernel.K_BUILTIN)
-      kernel.sym_value[s] = value
+      kernel.set_word(s, kernel.C_VALUE, value)
       value += 1
       kernel.name_begin()
     else
@@ -262,8 +264,8 @@ func write_type(stream: byte, t: byte)
   if typetab.is_record(t) or typetab.is_enum(t) or typetab.is_func(t) then
     s = typetab.base(t)
     kernel.put(stream, LI_NAMED)
-    kernel.put_name(stream, kernel.module_name[kernel.sym_scope[s]])
-    kernel.put_name(stream, kernel.sym_name[s])
+    kernel.put_name(stream, kernel.module_name[kernel.byte_of(s, kernel.C_SCOPE)])
+    kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
   else
     kernel.put(stream, t)
   end
@@ -280,17 +282,17 @@ func write_named_type(stream: byte, s: word)
   var kind: byte
   var flags: byte
   var f: word
-  t = kernel.sym_type[s]
+  t = kernel.byte_of(s, kernel.C_TYPE)
   kind = LI_TYPE
   if (typetab.is_record(t) or typetab.is_enum(t) or typetab.is_func(t)) and typetab.base(t) == s then
     kind = LI_RECORD + typetab.form[t] - typetab.FORM_RECORD
-  elif kernel.sym_flags[s] & kernel.SF_PUB == 0 then
+  elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB == 0 then
     return
   end
   kernel.put(stream, kind)
-  kernel.put_name(stream, kernel.sym_name[s])
+  kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
   flags = 0
-  if kernel.sym_flags[s] & kernel.SF_PUB != 0 then
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB != 0 then
     flags = LI_PUB
   end
   if kind == LI_FUNC_TYPE and typetab.is_recursive(t) then
@@ -302,10 +304,10 @@ func write_named_type(stream: byte, s: word)
   elif kind == LI_TYPE then
     write_type(stream, t)
   elif kind == LI_RECORD then
-    kernel.put(stream, kernel.sym_params[s])
-    for f = s + 1 until s + 1 + kernel.sym_params[s] do
-      kernel.put_name(stream, kernel.sym_name[f])
-      write_type(stream, kernel.sym_type[f])
+    kernel.put(stream, kernel.byte_of(s, kernel.C_PARAMS))
+    for f = s + 1 until s + 1 + kernel.byte_of(s, kernel.C_PARAMS) do
+      kernel.put_name(stream, kernel.word_of(f, kernel.C_NAME))
+      write_type(stream, kernel.byte_of(f, kernel.C_TYPE))
     end
   end
 end
@@ -314,68 +316,68 @@ func write_members(stream: byte, first: word, count: byte)
   var m: word
   kernel.put(stream, count)
   for m = first until first + count do
-    write_type(stream, kernel.member_type[m])
-    kernel.put(stream, kernel.member_value[m])
+    write_type(stream, kernel.member_type_of(m))
+    kernel.put(stream, kernel.member_value_of(m))
   end
 end
 
 ; The parameters and results of function or function type `s`.
 func write_signature(stream: byte, s: word)
-  write_members(stream, kernel.sym_members[s], kernel.sym_params[s])
-  write_members(stream, kernel.sym_members[s] + kernel.sym_params[s], kernel.sym_results[s])
+  write_members(stream, kernel.word_of(s, kernel.C_MEMBERS), kernel.byte_of(s, kernel.C_PARAMS))
+  write_members(stream, kernel.word_of(s, kernel.C_MEMBERS) + kernel.byte_of(s, kernel.C_PARAMS), kernel.byte_of(s, kernel.C_RESULTS))
 end
 
 func write_function(stream: byte, s: word)
   kernel.put(stream, LI_FUNC)
-  kernel.put_name(stream, kernel.sym_name[s])
-  if kernel.sym_flags[s] & kernel.SF_EXTERN != 0 then
+  kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_EXTERN != 0 then
     kernel.put(stream, LI_EXTERN)
-    kernel.put_word(stream, kernel.sym_value[s])
-  elif kernel.sym_flags[s] & kernel.SF_ASM != 0 then
+    kernel.put_word(stream, kernel.word_of(s, kernel.C_VALUE))
+  elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_ASM != 0 then
     kernel.put(stream, LI_ASM)
-  elif kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0 then
+  elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0 then
     kernel.put(stream, LI_RECURSIVE)
-  elif kernel.sym_flags[s] & inlines.SF_INLINE != 0 then
+  elif kernel.byte_of(s, kernel.C_FLAGS) & inlines.SF_INLINE != 0 then
     kernel.put(stream, LI_INLINE)
-  elif kernel.sym_flags[s] & inlines.SF_INTERRUPT != 0 then
+  elif kernel.byte_of(s, kernel.C_FLAGS) & inlines.SF_INTERRUPT != 0 then
     kernel.put(stream, LI_INTERRUPT)
   else
     kernel.put(stream, 0)
   end
   write_signature(stream, s)
-  if kernel.sym_flags[s] & inlines.SF_INLINE != 0 then
+  if kernel.byte_of(s, kernel.C_FLAGS) & inlines.SF_INLINE != 0 then
     inlines.write(stream, s)
   end
 end
 
 func write_constant(stream: byte, s: word)
-  if kernel.sym_flags[s] & kernel.SF_IN != 0 then
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0 then
     kernel.put(stream, LI_CONST_IN)
-    kernel.put_name(stream, kernel.sym_name[s])
-    write_type(stream, kernel.sym_type[s])
+    kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
+    write_type(stream, kernel.byte_of(s, kernel.C_TYPE))
     kernel.put_word(stream, 0)
-    kernel.put_name(stream, kernel.sym_value[s])
+    kernel.put_name(stream, kernel.word_of(s, kernel.C_VALUE))
     return
   end
   kernel.put(stream, LI_CONST)
-  kernel.put_name(stream, kernel.sym_name[s])
-  write_type(stream, kernel.sym_type[s])
-  kernel.put_word(stream, kernel.sym_value[s])
+  kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
+  write_type(stream, kernel.byte_of(s, kernel.C_TYPE))
+  kernel.put_word(stream, kernel.word_of(s, kernel.C_VALUE))
 end
 
 func write_variable(stream: byte, s: word)
   kernel.put(stream, LI_VAR)
-  kernel.put_name(stream, kernel.sym_name[s])
-  write_type(stream, kernel.sym_type[s])
-  if kernel.sym_flags[s] & kernel.SF_AT != 0 then
+  kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
+  write_type(stream, kernel.byte_of(s, kernel.C_TYPE))
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0 then
     kernel.put(stream, LI_AT)
-    kernel.put_word(stream, kernel.sym_value[s])
-  elif kernel.sym_flags[s] & kernel.SF_IN != 0 then
+    kernel.put_word(stream, kernel.word_of(s, kernel.C_VALUE))
+  elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0 then
     kernel.put(stream, LI_IN)
-    kernel.put_name(stream, kernel.sym_value[s])
-  elif kernel.sym_flags[s] & kernel.SF_ZP != 0 then
+    kernel.put_name(stream, kernel.word_of(s, kernel.C_VALUE))
+  elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_ZP != 0 then
     kernel.put(stream, LI_ZP)
-  elif kernel.sym_flags[s] & kernel.SF_NOZP != 0 then
+  elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_NOZP != 0 then
     kernel.put(stream, LI_NOZP)
   else
     kernel.put(stream, 0)
@@ -398,8 +400,8 @@ pub func write_interface(directory_name: ^byte)
   kernel.put_name(stream, kernel.module_name[0])
   expands = false                       ; an importer may expand an inline function of this one
   for s = 0 until kernel.sym_count do
-    if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_FUNC and
-        kernel.sym_flags[s] & (kernel.SF_PUB | inlines.SF_INLINE) == kernel.SF_PUB | inlines.SF_INLINE then
+    if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC and
+        kernel.byte_of(s, kernel.C_FLAGS) & (kernel.SF_PUB | inlines.SF_INLINE) == kernel.SF_PUB | inlines.SF_INLINE then
       expands = true
     end
   end
@@ -407,25 +409,25 @@ pub func write_interface(directory_name: ^byte)
   s = kernel.sym_count
   while s > 0 do
     s -= 1
-    if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_FUNC and
-        kernel.sym_flags[s] & (kernel.SF_PUB | inlines.SF_INLINE) == kernel.SF_PUB | inlines.SF_INLINE then
+    if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC and
+        kernel.byte_of(s, kernel.C_FLAGS) & (kernel.SF_PUB | inlines.SF_INLINE) == kernel.SF_PUB | inlines.SF_INLINE then
       kernel.put(stream, LI_USES)
-      kernel.put_name(stream, kernel.sym_name[s])
+      kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
       inlines.write_uses(stream, s)
     end
   end
   for s = 0 until kernel.sym_count do
-    if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_TYPE then
+    if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_TYPE then
       write_named_type(stream, s)
-    elif kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_MODULE then
+    elif kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE then
       if expands then
         kernel.put(stream, LI_MODULE)
-        kernel.put_name(stream, kernel.sym_name[s])
+        kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
       end
-    elif kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_flags[s] & kernel.SF_PUB != 0 then
-      if kernel.sym_kind[s] == kernel.K_FUNC then
+    elif kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB != 0 then
+      if kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC then
         write_function(stream, s)
-      elif kernel.sym_kind[s] == kernel.K_CONST then
+      elif kernel.byte_of(s, kernel.C_KIND) == kernel.K_CONST then
         write_constant(stream, s)
       else
         write_variable(stream, s)
@@ -478,10 +480,10 @@ func imported_type(stream: byte): byte
     err.fatal(err.E_TYPE_MODULE)
   end
   s, found = kernel.sym_find(scope, inlines.read_name(stream))
-  if not found or kernel.sym_kind[s] != kernel.K_TYPE then
+  if not found or kernel.byte_of(s, kernel.C_KIND) != kernel.K_TYPE then
     err.fatal(err.E_BAD_INTERFACE)
   end
-  return kernel.sym_type[s]
+  return kernel.byte_of(s, kernel.C_TYPE)
 end
 
 forward func read_signature(stream: byte, s: word)
@@ -521,14 +523,14 @@ func read_named_type(stream: byte, scope: byte, kind: byte, again: bool)
   end
   s = kernel.sym_add(scope, kernel.name_end(), kernel.K_TYPE)
   if flags & LI_PUB != 0 then
-    kernel.sym_flags[s] = hidden(kernel.SF_PUB, how)
+    kernel.set_byte(s, kernel.C_FLAGS, hidden(kernel.SF_PUB, how))
   end
   if kind == LI_TYPE then
-    kernel.sym_type[s] = read_type(stream)
+    kernel.set_byte(s, kernel.C_TYPE, read_type(stream))
     return
   end
   t = typetab.declared(typetab.FORM_RECORD + kind - LI_RECORD, s)
-  kernel.sym_type[s] = t
+  kernel.set_byte(s, kernel.C_TYPE, t)
   if kind == LI_FUNC_TYPE then
     if flags & LI_RECURSIVE != 0 then
       typetab.make_recursive(t)
@@ -571,11 +573,11 @@ end
 func add_field(s: word, name: word, t: byte)
   var r: byte
   var f: word
-  r = kernel.sym_type[s]
+  r = kernel.byte_of(s, kernel.C_TYPE)
   f = kernel.sym_add(kernel.SCOPE_FIELDS + r, name, kernel.K_FIELD)
-  kernel.sym_type[f] = t
-  kernel.sym_value[f] = typetab.grow(r, typetab.size(t))
-  kernel.sym_params[s] += 1
+  kernel.set_byte(f, kernel.C_TYPE, t)
+  kernel.set_word(f, kernel.C_VALUE, typetab.grow(r, typetab.size(t)))
+  kernel.set_byte(s, kernel.C_PARAMS, kernel.byte_of(s, kernel.C_PARAMS) + 1)
 end
 
 ; Read parameters or results as members of the newest symbol. Returns how many.
@@ -596,8 +598,8 @@ end
 
 ; The parameters and results of function or function type `s`, the newest symbol.
 func read_signature(stream: byte, s: word)
-  kernel.sym_params[s] = read_members(stream)
-  kernel.sym_results[s] = read_members(stream)
+  kernel.set_byte(s, kernel.C_PARAMS, read_members(stream))
+  kernel.set_byte(s, kernel.C_RESULTS, read_members(stream))
 end
 
 ; The name of an entry, which is not made a name yet: its characters are kept in entry_name, the
@@ -653,35 +655,43 @@ end
 ; name a list gives twice is error 103.
 func add_want(owner: word, name: word, flags: byte)
   var i: byte
-  for i = 0 until want_count do
-    if want_module[i] == owner and want_name[i] == name then
-      if flags & want_flags[i] & W_LISTED != 0 then
-        err.fatal(err.E_LISTED_TWICE)
+  var spelling: byte
+  spelling = kernel.name_hash(name)
+  with WANTS do
+    for i = 0 until want_count do
+      if want_module[i] == owner and want_name[i] == name then
+        if flags & want_flags[i] & W_LISTED != 0 then
+          err.fatal(err.E_LISTED_TWICE)
+        end
+        want_flags[i] = want_flags[i] | flags
+        return
       end
-      want_flags[i] = want_flags[i] | flags
-      return
     end
+    if want_count == MAX_WANTS then
+      err.fatal(err.E_WANTS_FULL)
+    end
+    want_module[want_count] = owner
+    want_name[want_count] = name
+    want_hash[want_count] = spelling
+    want_flags[want_count] = flags
+    want_line[want_count] = lex.line
+    want_col[want_count] = lex.col
   end
-  if want_count == MAX_WANTS then
-    err.fatal(err.E_WANTS_FULL)
-  end
-  want_module[want_count] = owner
-  want_name[want_count] = name
-  want_hash[want_count] = kernel.name_hash(name)
-  want_flags[want_count] = flags
-  want_line[want_count] = lex.line
-  want_col[want_count] = lex.col
   want_count += 1
 end
 
 ; True if `row` is one, and the importer's list gave it.
 func listed(row: byte): bool
-  return row != NO_ROW and want_flags[row] & W_LISTED != 0
+  with WANTS do
+    return row != NO_ROW and want_flags[row] & W_LISTED != 0
+  end
 end
 
 ; Error 102, at the name the list gave.
 func not_exported(row: byte)
-  err.position(want_line[row], want_col[row])
+  with WANTS do
+    err.position(want_line[row], want_col[row])
+  end
   err.fatal(err.E_NOT_EXPORTED)
 end
 
@@ -700,15 +710,20 @@ func wanted(number: byte, mark: bool): byte
   var i: byte
   var how: byte
   entry_row = NO_ROW
-  for i = 0 until want_count do
-    if want_hash[i] == kernel.new_hash and want_module[i] == kernel.module_name[number] and
-        kernel.built_is(want_name[i]) then
-      if mark then
-        want_flags[i] = want_flags[i] | W_FOUND
+  with WANTS do
+    for i = 0 until want_count do
+      if want_hash[i] == kernel.new_hash and want_module[i] == kernel.module_name[number] and
+          kernel.built_is(want_name[i]) then
+        if mark then
+          want_flags[i] = want_flags[i] | W_FOUND
+        end
+        if not listed(entry_row) then
+          entry_row = i
+        end
       end
-      if not listed(entry_row) then
-        entry_row = i
-      end
+    end
+    if entry_row != NO_ROW then
+      row_name = want_name[entry_row]
     end
   end
   how = READ_SKIP
@@ -732,24 +747,46 @@ func pending(number: byte): bool
   var i: byte
   var s: word
   var found: bool
+  var waiting: bool
+  var name: word
+  var kind: byte
   for i = 0 until want_count do
-    if want_module[i] == kernel.module_name[number] and want_flags[i] & W_FOUND == 0 then
-      s, found = kernel.sym_find(number, want_name[i])
+    with WANTS do
+      waiting = want_module[i] == kernel.module_name[number] and want_flags[i] & W_FOUND == 0
+      name = want_name[i]
+    end
+    if waiting then
+      s, found = kernel.sym_find(number, name)
       if not found then
         more = true
       elif listed(i) then
-        if kernel.sym_kind[s] == kernel.K_MODULE or (kernel.sym_kind[s] == kernel.K_TYPE and
-            kernel.sym_flags[s] & kernel.SF_PUB == 0) then
+        kind = kernel.byte_of(s, kernel.C_KIND)
+        if kind == kernel.K_MODULE or (kind == kernel.K_TYPE and
+            kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB == 0) then
           not_exported(i)
         end
-        kernel.sym_flags[s] = kernel.sym_flags[s] & ~kernel.SF_HIDDEN
+        kernel.set_byte(s, kernel.C_FLAGS, kernel.byte_of(s, kernel.C_FLAGS) & ~kernel.SF_HIDDEN)
       end
       if found then
-        want_flags[i] = want_flags[i] | W_FOUND
+        with WANTS do
+          want_flags[i] = want_flags[i] | W_FOUND
+        end
       end
     end
   end
   return more
+end
+
+; Error 102 at the first row the importer's list gave that no entry has.
+func check_found()
+  var i: byte
+  with WANTS do
+    for i = 0 until want_count do
+      if want_flags[i] & (W_LISTED | W_FOUND) == W_LISTED then
+        not_exported(i)
+      end
+    end
+  end
 end
 
 ; True if `name` is that of a module in WHOLE_MODULES.
@@ -811,12 +848,12 @@ func enter(scope: byte, how: byte, again: bool, kind: byte, flags: byte, t: byte
   end
   flags = hidden(flags, how)
   if how & READ_ROW != 0 then
-    s = kernel.sym_thawed(scope, want_name[entry_row], kind)
-    kernel.sym_flags[s] = flags
-    kernel.sym_type[s] = t
-    kernel.sym_value[s] = value
-    kernel.sym_params[s] = params
-    kernel.sym_results[s] = results
+    s = kernel.sym_thawed(scope, row_name, kind)
+    kernel.set_byte(s, kernel.C_FLAGS, flags)
+    kernel.set_byte(s, kernel.C_TYPE, t)
+    kernel.set_word(s, kernel.C_VALUE, value)
+    kernel.set_byte(s, kernel.C_PARAMS, params)
+    kernel.set_byte(s, kernel.C_RESULTS, results)
     for i = 0 until entry_members do
       kernel.member_add(entry_type[i], entry_register[i])
     end
@@ -849,7 +886,7 @@ func read_function(stream: byte, scope: byte, again: bool)
       return
     end
     s = kernel.sym_add(scope, kernel.name_end(), kernel.K_FUNC)
-    kernel.sym_flags[s] = hidden(kernel.SF_PUB | inlines.SF_INLINE, how)
+    kernel.set_byte(s, kernel.C_FLAGS, hidden(kernel.SF_PUB | inlines.SF_INLINE, how))
     read_signature(stream, s)
     inlines.read(stream, s)
     return
@@ -1002,7 +1039,7 @@ recursive func imported_module(stream: byte, scope: byte, again: bool)
     read_interface(m, true)
   end
   if not again then
-    kernel.sym_value[kernel.sym_add(scope, name, kernel.K_MODULE)] = m
+    kernel.set_word(kernel.sym_add(scope, name, kernel.K_MODULE), kernel.C_VALUE, m)
   end
 end
 
@@ -1112,7 +1149,6 @@ func import_line()
   var line: word
   var col: word
   var how: byte
-  var i: byte
   lex.next()
   if lex.tok != lex.T_NAME then
     err.fatal(err.E_NAME_EXPECTED)
@@ -1128,7 +1164,7 @@ func import_line()
   want_count = 0
   how = M_WHOLE | M_SHOWN
   if lex.tok == lex.T_LPAREN then
-    kernel.sym_flags[s] = kernel.SF_LIST
+    kernel.set_byte(s, kernel.C_FLAGS, kernel.SF_LIST)
     how = 0
     import_list(name)
   end
@@ -1148,13 +1184,9 @@ func import_line()
   elif pending(m) then
     read_interface(m, true)
   end
-  for i = 0 until want_count do
-    if want_flags[i] & (W_LISTED | W_FOUND) == W_LISTED then
-      not_exported(i)
-    end
-  end
+  check_found()
   want_count = 0
-  kernel.sym_value[s] = m
+  kernel.set_word(s, kernel.C_VALUE, m)
   out.imported(name)
   err.position(lex.line, lex.col)
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
@@ -1172,20 +1204,20 @@ func function_symbol(flags: byte): word, bool
     err.fatal(err.E_NAME_EXPECTED)
   end
   s, found = kernel.sym_find(kernel.SCOPE_MODULE, lex.value)
-  if found and kernel.sym_kind[s] == kernel.K_FUNC and kernel.sym_flags[s] & kernel.SF_FORWARD != 0 and
+  if found and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_FORWARD != 0 and
       flags & kernel.SF_FORWARD == 0 then
     if flags & (inlines.SF_INLINE | inlines.SF_INTERRUPT) != 0 then
       err.fatal(err.E_ATTRIBUTES)
     end
-    if (kernel.sym_flags[s] ^ flags) & kernel.SF_RECURSIVE != 0 then
+    if (kernel.byte_of(s, kernel.C_FLAGS) ^ flags) & kernel.SF_RECURSIVE != 0 then
       err.fatal(err.E_FORWARD)
     end
-    kernel.sym_flags[s] = flags
+    kernel.set_byte(s, kernel.C_FLAGS, flags)
     lex.next()
     return s, false
   end
   s = kernel.sym_add(kernel.SCOPE_MODULE, lex.value, kernel.K_FUNC)
-  kernel.sym_flags[s] = flags
+  kernel.set_byte(s, kernel.C_FLAGS, flags)
   lex.next()
   return s, true
 end
@@ -1285,10 +1317,10 @@ func extern_declaration(flags: byte)
   lex.expect(lex.T_FUNC, err.E_FUNC_EXPECTED)
   s, fresh = function_symbol(flags | kernel.SF_EXTERN)
   lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
-  kernel.sym_params[s] = register_parameters()
-  kernel.sym_results[s] = register_results()
+  kernel.set_byte(s, kernel.C_PARAMS, register_parameters())
+  kernel.set_byte(s, kernel.C_RESULTS, register_results())
   lex.expect(lex.T_AT, err.E_AT_EXPECTED)
-  kernel.sym_value[s] = expr.constant_number()
+  kernel.set_word(s, kernel.C_VALUE, expr.constant_number())
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
 end
 
@@ -1304,8 +1336,8 @@ func asm_function_declaration(flags: byte)
   lex.expect(lex.T_FUNC, err.E_FUNC_EXPECTED)
   s, fresh = function_symbol(flags | kernel.SF_ASM)
   lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
-  kernel.sym_params[s] = register_parameters()
-  kernel.sym_results[s] = register_results()
+  kernel.set_byte(s, kernel.C_PARAMS, register_parameters())
+  kernel.set_byte(s, kernel.C_RESULTS, register_results())
   kernel.scope_begin()                  ; the names of its labels go when it ends
   gen.function_begin(reg.object_symbol(s))
   asmblock.function_body()
@@ -1319,13 +1351,13 @@ end
 func object_flags(s: word): byte
   var flags: byte
   flags = 0
-  if kernel.sym_flags[s] & kernel.SF_PUB != 0 then
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB != 0 then
     flags = out.FUNC_EXPORTED
   end
-  if kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0 then
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0 then
     flags = flags | out.FUNC_RECURSIVE
   end
-  if kernel.sym_flags[s] & inlines.SF_INTERRUPT != 0 then
+  if kernel.byte_of(s, kernel.C_FLAGS) & inlines.SF_INTERRUPT != 0 then
     flags = flags | out.FUNC_INTERRUPT
   end
   return flags
@@ -1348,9 +1380,9 @@ func member(s: word, fresh: bool, index: byte, where: byte): byte
   end
   if fresh then
     kernel.member_add(t, where)
-  elif index >= kernel.sym_params[s] + kernel.sym_results[s] or
-      kernel.member_type[kernel.sym_members[s] + index] != t or
-      kernel.member_value[kernel.sym_members[s] + index] != where then
+  elif index >= kernel.byte_of(s, kernel.C_PARAMS) + kernel.byte_of(s, kernel.C_RESULTS) or
+      kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + index) != t or
+      kernel.member_value_of(kernel.word_of(s, kernel.C_MEMBERS) + index) != where then
     err.position(line, col)
     err.fatal(err.E_FORWARD)
   end
@@ -1371,9 +1403,9 @@ func parameters(s: word, fresh: bool): byte
       lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
       t = member(s, fresh, count, gen.REG_NONE)
       p = kernel.sym_add(kernel.SCOPE_LOCAL, name, kernel.K_LOCAL)
-      kernel.sym_type[p] = t
-      kernel.sym_value[p] = reg.new_slot(typetab.size(t), reg.CLASS_EITHER, reg.SLOT_PARAMETER,
-          name)
+      kernel.set_byte(p, kernel.C_TYPE, t)
+      kernel.set_word(p, kernel.C_VALUE, reg.new_slot(typetab.size(t), reg.CLASS_EITHER, reg.SLOT_PARAMETER,
+          name))
       count += 1
       if lex.tok != lex.T_COMMA then
         break
@@ -1423,14 +1455,14 @@ func head(s: word, fresh: bool)
   lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
   count = parameters(s, fresh)
   if fresh then
-    kernel.sym_params[s] = count
-  elif count != kernel.sym_params[s] then
+    kernel.set_byte(s, kernel.C_PARAMS, count)
+  elif count != kernel.byte_of(s, kernel.C_PARAMS) then
     err.fatal(err.E_FORWARD)
   end
   count = results(s, fresh, count)
   if fresh then
-    kernel.sym_results[s] = count
-  elif count != kernel.sym_results[s] then
+    kernel.set_byte(s, kernel.C_RESULTS, count)
+  elif count != kernel.byte_of(s, kernel.C_RESULTS) then
     err.fatal(err.E_FORWARD)
   end
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
@@ -1441,13 +1473,13 @@ end
 func lasting_variables(first: word, scope: byte)
   var s: word
   for s = first until kernel.sym_count do
-    if kernel.sym_kind[s] == kernel.K_VAR and kernel.sym_scope[s] == scope and
-        kernel.sym_flags[s] & kernel.SF_AT == 0 then
-      if kernel.sym_flags[s] & kernel.SF_IN != 0 then
-        out.region(kernel.sym_value[s])
+    if kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR and kernel.byte_of(s, kernel.C_SCOPE) == scope and
+        kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT == 0 then
+      if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0 then
+        out.region(kernel.word_of(s, kernel.C_VALUE))
       end
-      out.variable(kernel.sym_obj[s], typetab.size(kernel.sym_type[s]),
-          expr.zp_class(kernel.sym_flags[s]), kernel.sym_weight[s])
+      out.variable(kernel.word_of(s, kernel.C_OBJ), typetab.size(kernel.byte_of(s, kernel.C_TYPE)),
+          expr.zp_class(kernel.byte_of(s, kernel.C_FLAGS)), kernel.byte_of(s, kernel.C_WEIGHT))
     end
   end
 end
@@ -1467,14 +1499,14 @@ func function_declaration(flags: byte)
   ; read: every name made from here on is a parameter's or a local's.
   kernel.scope_begin()
   gen.function_begin(reg.object_symbol(s))
-  gen.saves_frame = kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0
+  gen.saves_frame = kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0
   head(s, fresh)
   if flags & kernel.SF_FORWARD != 0 then
     kernel.scope_end()
     return
   end
   if flags & inlines.SF_INTERRUPT != 0 then
-    if kernel.sym_params[s] + kernel.sym_results[s] != 0 then
+    if kernel.byte_of(s, kernel.C_PARAMS) + kernel.byte_of(s, kernel.C_RESULTS) != 0 then
       err.position(line, col)
       err.fatal(err.E_INTERRUPT_HEAD)
     end
@@ -1573,12 +1605,12 @@ func constant_declaration(flags: byte)
     expr.table_data(t, symbol)
     expr.data_region = 0
     s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
-    kernel.sym_flags[s] = flags
-    kernel.sym_type[s] = t
-    kernel.sym_obj[s] = symbol
+    kernel.set_byte(s, kernel.C_FLAGS, flags)
+    kernel.set_byte(s, kernel.C_TYPE, t)
+    kernel.set_word(s, kernel.C_OBJ, symbol)
     if region != 0 then
-      kernel.sym_flags[s] = flags | kernel.SF_IN
-      kernel.sym_value[s] = region
+      kernel.set_byte(s, kernel.C_FLAGS, flags | kernel.SF_IN)
+      kernel.set_word(s, kernel.C_VALUE, region)
     end
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
     return
@@ -1594,9 +1626,9 @@ func constant_declaration(flags: byte)
     err.fatal(err.E_NOT_CONST)
   end
   s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
-  kernel.sym_flags[s] = flags
-  kernel.sym_type[s] = reg.op_type[reg.depth - 1]
-  kernel.sym_value[s] = reg.op_value[reg.depth - 1]
+  kernel.set_byte(s, kernel.C_FLAGS, flags)
+  kernel.set_byte(s, kernel.C_TYPE, reg.op_type[reg.depth - 1])
+  kernel.set_word(s, kernel.C_VALUE, reg.op_value[reg.depth - 1])
   reg.pop()
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
 end
@@ -1629,8 +1661,8 @@ end
 func check_bodies()
   var s: word
   for s = 0 until kernel.sym_count do
-    if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_FUNC and
-        kernel.sym_flags[s] & kernel.SF_FORWARD != 0 then
+    if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC and
+        kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_FORWARD != 0 then
       err.fatal(err.E_NO_BODY)
     end
   end
@@ -1639,7 +1671,7 @@ end
 func type_symbol(name: word, flags: byte): word
   var s: word
   s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_TYPE)
-  kernel.sym_flags[s] = flags
+  kernel.set_byte(s, kernel.C_FLAGS, flags)
   return s
 end
 
@@ -1652,7 +1684,7 @@ func record_type(s: word)
   var col: word
   var f: byte
   t = typetab.declared(typetab.FORM_RECORD, s)
-  kernel.sym_type[s] = t
+  kernel.set_byte(s, kernel.C_TYPE, t)
   lex.next()
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
   while lex.tok != lex.T_END do
@@ -1682,7 +1714,7 @@ func function_type(s: word)
   var t: byte
   var count: byte
   t = typetab.declared(typetab.FORM_FUNC, s)
-  kernel.sym_type[s] = t
+  kernel.set_byte(s, kernel.C_TYPE, t)
   if lex.tok == lex.T_RECURSIVE then
     typetab.make_recursive(t)
     lex.next()
@@ -1709,8 +1741,8 @@ func function_type(s: word)
     end
   end
   lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
-  kernel.sym_params[s] = count
-  kernel.sym_results[s] = results(s, true, count)
+  kernel.set_byte(s, kernel.C_PARAMS, count)
+  kernel.set_byte(s, kernel.C_RESULTS, results(s, true, count))
 end
 
 ; typeDecl = "type" name "=" ( type | recordType | funcType ) NL.
@@ -1732,7 +1764,7 @@ func type_declaration(flags: byte)
     t = expr.type_spec()
     err.position(line, col)
     expr.layout(t)
-    kernel.sym_type[type_symbol(name, flags)] = t
+    kernel.set_byte(type_symbol(name, flags), kernel.C_TYPE, t)
   end
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
 end
@@ -1750,7 +1782,7 @@ func enum_declaration(flags: byte)
   lex.next()
   s = type_symbol(expr.new_name(kernel.SCOPE_MODULE), flags)
   t = typetab.declared(typetab.FORM_ENUM, s)
-  kernel.sym_type[s] = t
+  kernel.set_byte(s, kernel.C_TYPE, t)
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
   value = 0
   while lex.tok != lex.T_END do
@@ -1768,9 +1800,9 @@ func enum_declaration(flags: byte)
       err.fatal(err.E_RANGE)
     end
     c = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
-    kernel.sym_flags[c] = flags
-    kernel.sym_type[c] = t
-    kernel.sym_value[c] = value
+    kernel.set_byte(c, kernel.C_FLAGS, flags)
+    kernel.set_byte(c, kernel.C_TYPE, t)
+    kernel.set_word(c, kernel.C_VALUE, value)
     value += 1
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
   end

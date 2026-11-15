@@ -7,13 +7,15 @@
 module kerneltest
 
 import err (init)
-import kernel (close, freeze, freeze_member, get, get_word, init, K_CONST, K_FUNC, K_LOCAL, K_VAR,
-               keep_argument, member_add, member_value, module_add, name_add, name_begin, name_char,
-               name_end, name_length, name_set_token, name_symbol, name_token, name_top, open_in,
-               open_memory, open_out, path, path_add, path_add_name, path_add_text, path_begin,
-               path_end, put, put_name, put_word, scope_begin, scope_end, SCOPE_LOCAL, SCOPE_MODULE,
-               SF_PUB, sym_add, sym_count, sym_find, sym_lookup, sym_members, sym_params,
-               sym_release, sym_type, sym_value, text_reserve, thaw_top)
+import kernel (byte_of, C_FLAGS, C_KIND, C_LINK, C_MEMBERS, C_NAME, C_OBJ, C_PARAMS, C_RESULTS,
+               C_SCOPE, C_TYPE, C_VALUE, C_WEIGHT, close, freeze, freeze_member, get, get_word,
+               init, K_CONST, K_FUNC, K_LOCAL, K_VAR, keep_argument, member_add, member_type_of,
+               member_value_of, module_add, name_add, name_begin, name_char, name_end, name_length,
+               name_set_token, name_symbol, name_token, name_top, open_in, open_memory, open_out,
+               path, path_add, path_add_name, path_add_text, path_begin, path_end, put, put_name,
+               put_word, scope_begin, scope_end, SCOPE_LOCAL, SCOPE_MODULE, set_byte, set_word,
+               SF_PUB, sym_add, sym_count, sym_find, sym_lookup, sym_release, text_reserve,
+               thaw_top, word_of)
 import sys (exit, put_byte)
 
 const HEX: [16]byte = "0123456789ABCDEF"
@@ -139,6 +141,49 @@ func symbols()
   nl()
 end
 
+; Every column of a new symbol and of a member, through kernel's accessors.
+func columns()
+  var m: word
+  var s: word
+  m = kernel.member_add(7, 3)
+  s = kernel.sym_add(kernel.SCOPE_MODULE, name("cols"), kernel.K_VAR)
+  put_word(kernel.word_of(s, kernel.C_NAME))
+  put_hex(kernel.byte_of(s, kernel.C_SCOPE))
+  put_hex(kernel.byte_of(s, kernel.C_KIND))
+  put_hex(kernel.byte_of(s, kernel.C_FLAGS))
+  put_hex(kernel.byte_of(s, kernel.C_TYPE))
+  put_word(kernel.word_of(s, kernel.C_VALUE))
+  put_word(kernel.word_of(s, kernel.C_OBJ))
+  put_hex(kernel.byte_of(s, kernel.C_WEIGHT))
+  put_word(kernel.word_of(s, kernel.C_MEMBERS))
+  put_hex(kernel.byte_of(s, kernel.C_PARAMS))
+  put_hex(kernel.byte_of(s, kernel.C_RESULTS))
+  put_word(kernel.word_of(s, kernel.C_LINK))
+  put_hex(kernel.member_type_of(m))
+  put_hex(kernel.member_value_of(m))
+  nl()
+  kernel.set_byte(s, kernel.C_KIND, kernel.K_CONST)
+  kernel.set_byte(s, kernel.C_FLAGS, $81)
+  kernel.set_byte(s, kernel.C_TYPE, $42)
+  kernel.set_word(s, kernel.C_VALUE, $1234)
+  kernel.set_word(s, kernel.C_OBJ, $0567)
+  kernel.set_byte(s, kernel.C_WEIGHT, $99)
+  kernel.set_word(s, kernel.C_MEMBERS, m)
+  kernel.set_byte(s, kernel.C_PARAMS, 2)
+  kernel.set_byte(s, kernel.C_RESULTS, 1)
+  put_hex(kernel.byte_of(s, kernel.C_KIND))
+  put_hex(kernel.byte_of(s, kernel.C_FLAGS))
+  put_hex(kernel.byte_of(s, kernel.C_TYPE))
+  put_word(kernel.word_of(s, kernel.C_VALUE))
+  put_word(kernel.word_of(s, kernel.C_OBJ))
+  put_hex(kernel.byte_of(s, kernel.C_WEIGHT))
+  put_word(kernel.word_of(s, kernel.C_MEMBERS))
+  put_hex(kernel.byte_of(s, kernel.C_PARAMS))
+  put_hex(kernel.byte_of(s, kernel.C_RESULTS))
+  put_hex(kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS)))
+  nl()
+end
+
 func frozen_name(p: ^byte)
   kernel.name_begin()
   while p[0] != 0 do
@@ -162,8 +207,8 @@ func frozen()
   put_word(kernel.name_top)
   s, found = kernel.sym_find(3, n)
   put_word(s)
-  put_hex(kernel.sym_type[s])
-  put_word(kernel.sym_value[s])
+  put_hex(kernel.byte_of(s, kernel.C_TYPE))
+  put_word(kernel.word_of(s, kernel.C_VALUE))
   put_word(kernel.thaw_top)
   s, found = kernel.sym_find(3, n)
   put_word(s)
@@ -171,8 +216,8 @@ func frozen()
   put_word(s)
   s, found = kernel.sym_find(3, name("fun"))
   put_word(s)
-  put_hex(kernel.sym_params[s])
-  put_hex(kernel.member_value[kernel.sym_members[s] + 1])
+  put_hex(kernel.byte_of(s, kernel.C_PARAMS))
+  put_hex(kernel.member_value_of(kernel.word_of(s, kernel.C_MEMBERS) + 1))
   s, found = kernel.sym_find(3, name("none"))
   put_word(s)
   if found then
@@ -291,6 +336,7 @@ pub func main()
   end
   names()
   symbols()
+  columns()
   frozen()
   streams(input, output)
   paths(input)

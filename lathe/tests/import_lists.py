@@ -190,7 +190,7 @@ class Recorder:
         def recording_sym_add(scope, name, kind):
             s = sym_add(scope, name, kind)
             if self.on and scope == kernel.SCOPE_MODULE and kind == kernel.K_MODULE:
-                kernel.sym_flags[s] |= kernel.SF_LIST     # so that saved bodies are looked at
+                kernel.set_byte(s, kernel.C_FLAGS, kernel.byte_of(s, kernel.C_FLAGS) | kernel.SF_LIST)     # so that saved bodies are looked at
                 self.line_of[s] = lex.line
                 self.used.setdefault(lex.line, set())
             return s
@@ -200,14 +200,14 @@ class Recorder:
             # only so that saved bodies are looked at), and a name not there is error 40.
             if self.on and m in self.line_of:
                 self.used[self.line_of[m]].add(spelling(name))
-                return kernel.sym_find(kernel.sym_value[m], name)
+                return kernel.sym_find(kernel.word_of(m, kernel.C_VALUE), name)
             return module_find(m, name)
 
         def counting_unit():
             unit()
             if self.on:
                 for s, line in self.line_of.items():
-                    self.exported[line] = exported(kernel.sym_value[s])
+                    self.exported[line] = exported(kernel.word_of(s, kernel.C_VALUE))
         kernel.sym_add = recording_sym_add
         kernel.module_find = recording_module_find
         decl.unit = counting_unit
@@ -228,8 +228,8 @@ def exported(scope):
     import kernel
     count = 0
     for s in list(range(0, kernel.sym_count)) + list(range(kernel.thaw_top, kernel.MAX_SYMS)):
-        if kernel.sym_scope[s] == scope and kernel.sym_kind[s] != kernel.K_MODULE \
-                and (kernel.sym_kind[s] != kernel.K_TYPE or kernel.sym_flags[s] & kernel.SF_PUB):
+        if kernel.byte_of(s, kernel.C_SCOPE) == scope and kernel.byte_of(s, kernel.C_KIND) != kernel.K_MODULE \
+                and (kernel.byte_of(s, kernel.C_KIND) != kernel.K_TYPE or kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB):
             count += 1
     f = kernel.module_frozen[scope]
     while f != 0:

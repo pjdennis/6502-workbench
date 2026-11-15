@@ -137,18 +137,18 @@ class GenTest(unittest.TestCase):
     def variable(self, t, text, flags=0, address=0, scope=kernel.SCOPE_MODULE):
         """A variable that lives for the whole program. Returns its kernel symbol."""
         s = kernel.sym_add(scope, name(text), kernel.K_VAR)
-        kernel.sym_type[s] = t
-        kernel.sym_flags[s] = flags
-        kernel.sym_value[s] = address
+        kernel.set_byte(s, kernel.C_TYPE, t)
+        kernel.set_byte(s, kernel.C_FLAGS, flags)
+        kernel.set_word(s, kernel.C_VALUE, address)
         return s
 
     def function(self, text, params=(), results=(), scope=kernel.SCOPE_MODULE, flags=0, address=0):
         """A function with (type, register) parameters and results. Returns its kernel symbol."""
         s = kernel.sym_add(scope, name(text), kernel.K_FUNC)
-        kernel.sym_flags[s] = flags
-        kernel.sym_value[s] = address
+        kernel.set_byte(s, kernel.C_FLAGS, flags)
+        kernel.set_word(s, kernel.C_VALUE, address)
         for t, where in tuple(params) + tuple(results):
             kernel.member_add(t, where)
-        kernel.sym_params[s] = len(params)
-        kernel.sym_results[s] = len(results)
+        kernel.set_byte(s, kernel.C_PARAMS, len(params))
+        kernel.set_byte(s, kernel.C_RESULTS, len(results))
         return s

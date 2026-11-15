@@ -190,7 +190,7 @@ def run(c):
     elif c == 64:
         a = s_()
         s = kernel.sym_add(kernel.SCOPE_MODULE, script.name(), kernel.K_CONST)
-        kernel.sym_type[s] = a
+        kernel.set_byte(s, kernel.C_TYPE, a)
         script.show_word(s)
     elif c == 65:
         script.show_byte(kernel.module_add(script.name()))
@@ -205,7 +205,7 @@ def run(c):
     elif c == 68:
         s = kernel.sym_add(kernel.SCOPE_MODULE, script.name(), kernel.K_TYPE)
         a = typetab.declared(typetab.FORM_RECORD, s)
-        kernel.sym_type[s] = a
+        kernel.set_byte(s, kernel.C_TYPE, a)
         typetab.grow(a, n_())
         script.show_word(s)
         script.show_byte(a)
@@ -213,7 +213,7 @@ def run(c):
         script.show_bool(gen.must_protect())
     elif c == 70:
         s = n_()
-        kernel.sym_value[s] = n_()
+        kernel.set_word(s, kernel.C_VALUE, n_())
 
 
 def main():

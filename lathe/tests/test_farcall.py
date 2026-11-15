@@ -172,6 +172,95 @@ class Overlays(unittest.TestCase):
 
 
 
+# What a `with` block costs: a function that reads a variable of the region CELL inside a block,
+# against one that reads a fixed variable, called LOOPS times (lathe/docs/configurations.md,
+# "What a block of a fixed region costs").
+WITH_LIB = '''module libwt
+var cell: byte in CELL
+var plain: byte
+pub func get(): byte
+#if BLOCK
+  with CELL do
+    return cell
+  end
+#else
+  return plain
+#end
+end
+'''
+WITH_TIMING = '''module wtime
+import libwt
+pub func main()
+  var i: byte
+  var b: byte
+  for i = 1 to LOOPS do
+    b = libwt.get()
+  end
+end
+'''
+WITH_BANKED = '''window    WIN $8000 $EFFF
+switch    WIN bank $F000 $1F
+bank      WIN 1 $11
+region    CELL WIN 1
+farcall   rt_bank
+'''
+
+
+def with_timed(d, environment, block, loops, region):
+    """CPU cycles of WITH_TIMING built with farcall_flat.env (Wendy 2) and, unless `region` is
+    None, the window entries with CELL banked ('banked') or fixed ('fixed'); with
+    farcall_host.env when `environment` is 'host' (all in one, rt_with)."""
+    work = os.path.join(d, '%s-%s-%d-%d' % (environment, region, block, loops))
+    os.makedirs(work)
+    with open(os.path.join(work, 'libwt.lth'), 'w') as f:
+        f.write(WITH_LIB)
+    source = os.path.join(work, 'wtime.lth')
+    with open(source, 'w') as f:
+        f.write(WITH_TIMING)
+    with open(env('farcall_%s.env' % environment)) as f:
+        text = f.read()
+    if region is not None:
+        banked = WITH_BANKED
+        if region == 'fixed':
+            banked = banked.replace('region    CELL WIN 1', 'region    CELL fixed')
+        text = text.replace('code      $4000 $EFFF', 'code      $4000 $7FFF') + banked
+    environment_file = os.path.join(work, 'wtime.env')
+    with open(environment_file, 'w') as f:
+        f.write(text)
+    image = os.path.join(work, 'wtime.bin')
+    build.build(source, image, environment_file, keep=os.path.join(work, 'work'),
+                defines=['LOOPS=%d' % loops, 'BLOCK=%d' % block])
+    if environment == 'host':
+        return host_cycles(image)
+    disk = os.path.join(work, 'disk')
+    os.makedirs(disk)
+    return wendy_cycles(image, disk)
+
+
+def block_cost(environment, region):
+    """Cycles a `with` block adds to a call, per call."""
+    with tempfile.TemporaryDirectory(prefix='wtime_') as d:
+        cost = [(with_timed(d, environment, block, 110, region)
+                 - with_timed(d, environment, block, 10, region)) / 100 for block in (0, 1)]
+    return cost[1] - cost[0]
+
+
+@unittest.skipUnless(os.path.isfile(build.EMULATOR) and os.path.isfile(build.COMPILER),
+                     'emulator or compiler missing')
+class WithBlocks(unittest.TestCase):
+    def test_a_block_of_a_banked_region(self):
+        self.assertEqual(block_cost('flat', 'banked'), 94)
+
+    def test_a_block_of_a_fixed_region_maps_nothing(self):
+        # rt_bank.map(0), a region in fixed memory, touches no port, and unmap() of what it
+        # gave returns at once.
+        self.assertEqual(block_cost('flat', 'fixed'), 32)
+
+    def test_a_block_all_in_one(self):
+        # rt_with: a lone RTS each.
+        self.assertEqual(block_cost('host', None), 24)
+
+
 def mapped(source, environment):
     """The map of a program of CASES built with an environment of CASES, by name and kind."""
     with tempfile.TemporaryDirectory(prefix='fcmap_') as d:

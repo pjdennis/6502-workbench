@@ -54,11 +54,11 @@ import err (E_ARRAY_VALUE, E_FUNC_ADDRESS, E_INTERNAL, E_NOT_RECURSIVE, E_OPERAN
             E_REGION_USE, E_REGISTER_FUNC, E_SIGNATURE, E_SLOTS_FULL, E_TYPE, fatal)
 import fbuf (arrive, branch, FIRST_TEMP, FIX_ADDRESS, FIX_LOW, FIX_REACH_LOW, FIX_ZERO_PAGE, join,
              jump, label_note, NO_SLOT, op, op_byte, op_fix, op_word, place, runs_on, same)
-import kernel (K_CONST, K_FUNC, K_TYPE, K_VAR, member_type, member_value, module_name, name_add,
-               name_begin, name_char, name_end, name_length, NO_OBJ, NO_SYM, SCOPE_LOCAL,
-               SCOPE_MODULE, SF_ASM, SF_IN, SF_NOZP, SF_RECURSIVE, SF_ZP, sym_flags, sym_kind,
-               sym_members, sym_name, sym_obj, sym_params, sym_results, sym_scope, sym_type,
-               sym_value, sym_weight)
+import kernel (byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_NAME, C_OBJ, C_PARAMS, C_RESULTS, C_SCOPE,
+               C_TYPE, C_VALUE, C_WEIGHT, K_CONST, K_FUNC, K_TYPE, K_VAR, member_type_of,
+               member_value_of, module_name, name_add, name_begin, name_char, name_end, name_length,
+               NO_OBJ, NO_SYM, SCOPE_LOCAL, SCOPE_MODULE, set_byte, set_word, SF_ASM, SF_IN,
+               SF_NOZP, SF_RECURSIVE, SF_ZP, word_of)
 import out (class_parameter, CLASS_RECURSIVE, member, pointer_class, SYM_CLASS, SYM_DATA,
             SYM_FUNCTION, SYM_VARIABLE, symbol, with_region, with_used)
 import typetab (base, BYTE_TYPE, is_array, is_func, is_number, is_pointer, is_record, is_recursive,
@@ -537,7 +537,7 @@ end
 
 ; An instruction uses the variable that is kernel symbol `s`.
 pub func use_variable(s: word)
-  kernel.sym_weight[s] = heavier(kernel.sym_weight[s], use_weight())
+  kernel.set_byte(s, kernel.C_WEIGHT, heavier(kernel.byte_of(s, kernel.C_WEIGHT), use_weight()))
 end
 
 func heavier(weight: byte, amount: byte): byte
@@ -668,11 +668,11 @@ pub func dereferenced(i: byte): bool
     zero_page(i)
     return true
   end
-  if s == kernel.NO_SYM or kernel.sym_flags[s] & kernel.SF_NOZP != 0 or
-      (kernel.sym_scope[s] != kernel.SCOPE_MODULE and kernel.sym_scope[s] != kernel.SCOPE_LOCAL) then
+  if s == kernel.NO_SYM or kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_NOZP != 0 or
+      (kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_LOCAL) then
     return false
   end
-  kernel.sym_flags[s] = kernel.sym_flags[s] | kernel.SF_ZP
+  kernel.set_byte(s, kernel.C_FLAGS, kernel.byte_of(s, kernel.C_FLAGS) | kernel.SF_ZP)
   op_flags[i] = op_flags[i] | F_ZP
   return true
 end
@@ -1319,19 +1319,19 @@ end
 pub func class_symbol(s: word): word
   var flags: byte
   var m: word
-  if kernel.sym_obj[s] == kernel.NO_OBJ then
-    kernel.sym_obj[s] = out.symbol(out.SYM_CLASS, kernel.module_name[kernel.sym_scope[s]], 0,
-        kernel.sym_name[s])
+  if kernel.word_of(s, kernel.C_OBJ) == kernel.NO_OBJ then
+    kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_CLASS, kernel.module_name[kernel.byte_of(s, kernel.C_SCOPE)], 0,
+        kernel.word_of(s, kernel.C_NAME)))
     flags = 0
-    if typetab.is_recursive(kernel.sym_type[s]) then
+    if typetab.is_recursive(kernel.byte_of(s, kernel.C_TYPE)) then
       flags = out.CLASS_RECURSIVE
     end
-    out.pointer_class(kernel.sym_obj[s], flags, kernel.sym_params[s])
-    for m = kernel.sym_members[s] until kernel.sym_members[s] + kernel.sym_params[s] do
-      out.class_parameter(typetab.size(kernel.member_type[m]))
+    out.pointer_class(kernel.word_of(s, kernel.C_OBJ), flags, kernel.byte_of(s, kernel.C_PARAMS))
+    for m = kernel.word_of(s, kernel.C_MEMBERS) until kernel.word_of(s, kernel.C_MEMBERS) + kernel.byte_of(s, kernel.C_PARAMS) do
+      out.class_parameter(typetab.size(kernel.member_type_of(m)))
     end
   end
-  return kernel.sym_obj[s]
+  return kernel.word_of(s, kernel.C_OBJ)
 end
 
 ; True if regions `one` and `other`, names or 0 for none, are one: the same entry, or two of one
@@ -1357,29 +1357,29 @@ end
 ; type `s`, which gets its SYM record when it is first used.
 pub func object_symbol(s: word): word
   var kind: byte
-  if kernel.sym_kind[s] == kernel.K_TYPE then
+  if kernel.byte_of(s, kernel.C_KIND) == kernel.K_TYPE then
     return class_symbol(s)
   end
-  if kernel.sym_obj[s] == kernel.NO_OBJ then
+  if kernel.word_of(s, kernel.C_OBJ) == kernel.NO_OBJ then
     kind = out.SYM_FUNCTION
-    if kernel.sym_kind[s] == kernel.K_VAR then
+    if kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR then
       kind = out.SYM_VARIABLE
-    elif kernel.sym_kind[s] == kernel.K_CONST then
+    elif kernel.byte_of(s, kernel.C_KIND) == kernel.K_CONST then
       kind = out.SYM_DATA
     end
-    kernel.sym_obj[s] = out.symbol(kind, kernel.module_name[kernel.sym_scope[s]], 0,
-        kernel.sym_name[s])
+    kernel.set_word(s, kernel.C_OBJ, out.symbol(kind, kernel.module_name[kernel.byte_of(s, kernel.C_SCOPE)], 0,
+        kernel.word_of(s, kernel.C_NAME)))
   end
-  if kernel.sym_kind[s] != kernel.K_FUNC and kernel.sym_flags[s] & kernel.SF_IN != 0 then
+  if kernel.byte_of(s, kernel.C_KIND) != kernel.K_FUNC and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0 then
     ; In a region: only inside a `with` block of that region, whose bank it names.
-    if not same_region(kernel.sym_value[s], out.with_region) then
+    if not same_region(kernel.word_of(s, kernel.C_VALUE), out.with_region) then
       err.fatal(err.E_REGION_USE)
     end
     if out.with_used == kernel.NO_OBJ then
-      out.with_used = kernel.sym_obj[s]
+      out.with_used = kernel.word_of(s, kernel.C_OBJ)
     end
   end
-  return kernel.sym_obj[s]
+  return kernel.word_of(s, kernel.C_OBJ)
 end
 
 ; Operand `i`, `@f`, is given to something of type `t`, which must be a function type
@@ -1394,19 +1394,19 @@ pub func fit_function(i: byte, t: byte)
   end
   f = op_var[i]
   s = typetab.base(t)
-  if kernel.sym_flags[f] & kernel.SF_ASM != 0 then
+  if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_ASM != 0 then
     err.fatal(err.E_REGISTER_FUNC)
   end
-  if kernel.sym_params[f] != kernel.sym_params[s] or kernel.sym_results[f] != kernel.sym_results[s] then
+  if kernel.byte_of(f, kernel.C_PARAMS) != kernel.byte_of(s, kernel.C_PARAMS) or kernel.byte_of(f, kernel.C_RESULTS) != kernel.byte_of(s, kernel.C_RESULTS) then
     err.fatal(err.E_SIGNATURE)
   end
-  for m = 0 until kernel.sym_params[f] + kernel.sym_results[f] do
-    if kernel.member_type[kernel.sym_members[f] + m] != kernel.member_type[kernel.sym_members[s] + m] or
-        kernel.member_value[kernel.sym_members[f] + m] != kernel.member_value[kernel.sym_members[s] + m] then
+  for m = 0 until kernel.byte_of(f, kernel.C_PARAMS) + kernel.byte_of(f, kernel.C_RESULTS) do
+    if kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + m) != kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + m) or
+        kernel.member_value_of(kernel.word_of(f, kernel.C_MEMBERS) + m) != kernel.member_value_of(kernel.word_of(s, kernel.C_MEMBERS) + m) then
       err.fatal(err.E_SIGNATURE)
     end
   end
-  if typetab.is_recursive(t) and kernel.sym_flags[f] & kernel.SF_RECURSIVE == 0 then
+  if typetab.is_recursive(t) and kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_RECURSIVE == 0 then
     err.fatal(err.E_NOT_RECURSIVE)
   end
   out.member(class_symbol(s), op_symbol[i])

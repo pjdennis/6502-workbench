@@ -99,8 +99,8 @@ def main():
             b = script.small()
             d = script.name()
             s = kernel.sym_add(a, d, b)
-            kernel.sym_obj[s] = script.number()
-            kernel.sym_weight[s] = script.small()
+            kernel.set_word(s, kernel.C_OBJ, script.number())
+            kernel.set_byte(s, kernel.C_WEIGHT, script.small())
             script.show_word(s)
         elif c == 21:
             out.end_module()

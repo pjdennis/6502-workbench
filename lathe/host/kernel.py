@@ -11,7 +11,9 @@ Owns
 - the name heap: every name is stored once and is known everywhere by its offset there;
 - the symbol table: one column per attribute, indexed by symbol number. Module-level symbols
   come first; the symbols of the function being compiled lie above them and are released when
-  it ends. What the columns mean for each kind of symbol is DECL's business;
+  it ends. What the columns mean for each kind of symbol is DECL's business; the other modules
+  reach them only through byte_of(), word_of(), set_byte(), set_word(), member_type_of() and
+  member_value_of();
 - the frozen symbols: the functions, constants and variables an imported module exports, kept
   in the name heap in a compact form and made symbols (thawed) only when the importer names
   one. Thawed symbols are numbered down from the top of the table and are never released.
@@ -354,18 +356,42 @@ SF_HIDDEN = 4               # an imported symbol the importer's list does not na
                             # imported symbol has)
 SF_LIST = 4                 # a module's symbol: its `import` has a list (the same bit)
 
-sym_name = [0] * MAX_SYMS
-sym_scope = bytearray(MAX_SYMS)
-sym_kind = bytearray(MAX_SYMS)
-sym_flags = bytearray(MAX_SYMS)
-sym_type = bytearray(MAX_SYMS)
-sym_value = [0] * MAX_SYMS
-sym_obj = [0] * MAX_SYMS        # its number in the object file, NO_OBJ until it is used there
-sym_weight = bytearray(MAX_SYMS)     # a variable: how much it gains from zero page (docs/codegen.md)
-sym_members = [0] * MAX_SYMS    # the first of its members
-sym_params = bytearray(MAX_SYMS)     # how many members are parameters
-sym_results = bytearray(MAX_SYMS)    # how many more are results
-sym_link = [0] * MAX_SYMS       # the next older symbol with the same name
+# A symbol's columns: the byte columns one after another in sym_bytes, the word columns in
+# sym_words, each MAX_SYMS rows; byte_of(), word_of(), set_byte() and set_word() reach them by
+# number (C_*) for the other modules.
+C_SCOPE = 0                     # the byte columns
+C_KIND = 1
+C_FLAGS = 2
+C_TYPE = 3                      # a type number: typetab has MAX_TYPES = 64
+C_WEIGHT = 4                    # a variable: how much it gains from zero page (docs/codegen.md)
+C_PARAMS = 5                    # how many members are parameters
+C_RESULTS = 6                   # how many more are results
+BYTE_COLUMNS = 7
+C_NAME = 0                      # the word columns
+C_VALUE = 1
+C_OBJ = 2                       # its number in the object file, NO_OBJ until it is used there
+C_MEMBERS = 3                   # the first of its members
+C_LINK = 4                      # the next older symbol with the same name
+WORD_COLUMNS = 5
+SCOPE_AT = C_SCOPE * MAX_SYMS   # where each column starts
+KIND_AT = C_KIND * MAX_SYMS
+FLAGS_AT = C_FLAGS * MAX_SYMS
+TYPE_AT = C_TYPE * MAX_SYMS
+WEIGHT_AT = C_WEIGHT * MAX_SYMS
+PARAMS_AT = C_PARAMS * MAX_SYMS
+RESULTS_AT = C_RESULTS * MAX_SYMS
+NAME_AT = C_NAME * MAX_SYMS
+VALUE_AT = C_VALUE * MAX_SYMS
+OBJ_AT = C_OBJ * MAX_SYMS
+MEMBERS_AT = C_MEMBERS * MAX_SYMS
+LINK_AT = C_LINK * MAX_SYMS
+SYM_BYTE_SIZE = BYTE_COLUMNS * MAX_SYMS
+SYM_WORD_SIZE = WORD_COLUMNS * MAX_SYMS
+
+sym_bytes = bytearray(SYM_BYTE_SIZE)
+sym_words = [0] * SYM_WORD_SIZE
+byte_base = [0] * BYTE_COLUMNS  # where each byte column starts in sym_bytes (init())
+word_base = [0] * WORD_COLUMNS
 sym_count = 0
 thaw_top = MAX_SYMS             # the lowest thawed symbol: they lie from here to MAX_SYMS - 1
 local_base = 0                  # the first symbol of the function being compiled
@@ -379,12 +405,50 @@ module_name = [0] * MAX_MODULES
 module_count = 0
 
 
+# ---- The columns, for the other modules --------------------------------------------------
+#
+# Other modules read and write the columns of a symbol and of a member only through these
+# functions: in the twin the columns are in the region SYMS (docs/architecture.md, "What stays
+# in memory"), used only inside blocks of kernel's.
+
+def byte_of(s, column):
+    """Byte column `column` (C_SCOPE to C_RESULTS) of symbol `s`."""
+    return sym_bytes[byte_base[column] + s]
+
+
+def word_of(s, column):
+    """Word column `column` (C_NAME to C_LINK) of symbol `s`."""
+    return sym_words[word_base[column] + s]
+
+
+def set_byte(s, column, value):
+    sym_bytes[byte_base[column] + s] = value
+
+
+def set_word(s, column, value):
+    sym_words[word_base[column] + s] = value
+
+
+def member_type_of(m):
+    """Member `m`'s type."""
+    return member_type[m]
+
+
+def member_value_of(m):
+    """Member `m`'s register."""
+    return member_value[m]
+
+
+def chain_walk(scope, s):
+    """The symbol of `scope` on the chain that starts at symbol `s`, or NO_SYM."""
+    while s != NO_SYM and sym_bytes[SCOPE_AT + s] != scope:
+        s = sym_words[LINK_AT + s]
+    return s
+
+
 def chain_find(scope, name):
     """The symbol of `scope` on the chain of name entry `name`, or NO_SYM."""
-    s = name_word(name + N_SYMBOL)
-    while s != NO_SYM and sym_scope[s] != scope:
-        s = sym_link[s]
-    return s
+    return chain_walk(scope, name_word(name + N_SYMBOL))
 
 
 def sym_find(scope, name):
@@ -422,8 +486,9 @@ def module_find(m, name):
     """The symbol `name` of the module that module symbol `m` stands for, and whether there is
     one: what `m.name` means. Through an `import` with a list (SF_LIST), only what the list
     names can be named (error 101): not what the bodies of inline functions alone need."""
-    s, found = sym_find(sym_value[m], name)
-    if sym_flags[m] & SF_LIST != 0 and (not found or sym_flags[s] & SF_HIDDEN != 0):
+    listed = byte_of(m, C_FLAGS) & SF_LIST != 0
+    s, found = sym_find(word_of(m, C_VALUE), name)
+    if listed and (not found or byte_of(s, C_FLAGS) & SF_HIDDEN != 0):
         err.fatal(err.E_NOT_LISTED)
     return s, found
 
@@ -433,32 +498,36 @@ def name_symbol(name):
     return name_word(name + N_SYMBOL)
 
 
+def name_set_symbol(name, s):
+    """Make `s` the first symbol on the chain of `name`."""
+    name_set_word(name + N_SYMBOL, s)
+
+
 def sym_lookup(name):
     """What a plain `name` means here: a local, else a module-level symbol, else a predeclared
     one. Symbols of imported modules are skipped: those are written module.name."""
     s = name_word(name + N_SYMBOL)
-    while s != NO_SYM and sym_scope[s] != SCOPE_LOCAL and sym_scope[s] != SCOPE_MODULE \
-            and sym_scope[s] != SCOPE_PREDECLARED:
-        s = sym_link[s]
+    while s != NO_SYM:
+        scope = byte_of(s, C_SCOPE)
+        if scope == SCOPE_LOCAL or scope == SCOPE_MODULE or scope == SCOPE_PREDECLARED:
+            break
+        s = word_of(s, C_LINK)
     return s, s != NO_SYM
 
 
 def sym_new(s, scope, name, kind):
     """Make `s` the symbol called `name` in `scope`, the newest on its name's chain. The other
     columns start empty."""
-    sym_name[s] = name
-    sym_scope[s] = scope
-    sym_kind[s] = kind
-    sym_flags[s] = 0
-    sym_type[s] = 0
-    sym_value[s] = 0
-    sym_obj[s] = NO_OBJ
-    sym_weight[s] = 0
-    sym_members[s] = member_count
-    sym_params[s] = 0
-    sym_results[s] = 0
-    sym_link[s] = name_word(name + N_SYMBOL)
-    name_set_word(name + N_SYMBOL, s)
+    set_word(s, C_LINK, name_symbol(name))
+    name_set_symbol(name, s)
+    set_word(s, C_NAME, name)
+    set_byte(s, C_SCOPE, scope)
+    set_byte(s, C_KIND, kind)
+    for c in range(C_FLAGS, BYTE_COLUMNS):
+        set_byte(s, c, 0)
+    set_word(s, C_VALUE, 0)
+    set_word(s, C_OBJ, NO_OBJ)
+    set_word(s, C_MEMBERS, member_count)
 
 
 def sym_add(scope, name, kind):
@@ -552,7 +621,7 @@ def built_loaded(scope, show):
     s = built_symbol(scope)
     if s != NO_SYM:
         if show:
-            sym_flags[s] = sym_flags[s] & ~SF_HIDDEN
+            set_byte(s, C_FLAGS, byte_of(s, C_FLAGS) & ~SF_HIDDEN)
         return True
     f = built_frozen(scope)
     if f == 0:
@@ -631,20 +700,25 @@ def thaw(scope, f, oldest):
     kind = names[f + F_KIND]                # read before the entry is made a name
     flags = names[f + F_FLAGS]
     t = names[f + F_TYPE]
+    value = name_word(p + F_VALUE)
+    params = 0
+    results = 0
+    if kind == K_FUNC:
+        params = names[p + F_PARAMS]
+        results = names[p + F_RESULTS]
     name = oldest
     if oldest > f:
         name = f
         name_set_word(f + N_SYMBOL, NO_SYM)
         names[f + N_TOKEN] = 0
     sym_new(s, scope, name, kind)
-    sym_flags[s] = flags
-    sym_type[s] = t
-    sym_value[s] = name_word(p + F_VALUE)
-    if kind == K_FUNC:
-        sym_params[s] = names[p + F_PARAMS]
-        sym_results[s] = names[p + F_RESULTS]
-        for i in range(0, sym_params[s] + sym_results[s]):
-            member_add(names[p + F_MEMBERS + 2 * i], names[p + F_MEMBERS + 2 * i + 1])
+    set_byte(s, C_FLAGS, flags)
+    set_byte(s, C_TYPE, t)
+    set_word(s, C_VALUE, value)
+    set_byte(s, C_PARAMS, params)
+    set_byte(s, C_RESULTS, results)
+    for i in range(0, params + results):
+        member_add(names[p + F_MEMBERS + 2 * i], names[p + F_MEMBERS + 2 * i + 1])
     if oldest < f:
         return s
     bucket = spelling_hash(f) & (NAME_BUCKETS - 1)
@@ -673,7 +747,7 @@ def sym_release(base):
     while sym_count > base:
         sym_count -= 1
         # Symbols are released newest first, so each is the first on its name's chain.
-        name_set_word(sym_name[sym_count] + N_SYMBOL, sym_link[sym_count])
+        name_set_symbol(word_of(sym_count, C_NAME), word_of(sym_count, C_LINK))
 
 
 def scope_end():
@@ -721,3 +795,15 @@ def init():
         module_frozen[m] = 0
     member_count = 0
     module_count = 0
+    byte_base[C_SCOPE] = SCOPE_AT
+    byte_base[C_KIND] = KIND_AT
+    byte_base[C_FLAGS] = FLAGS_AT
+    byte_base[C_TYPE] = TYPE_AT
+    byte_base[C_WEIGHT] = WEIGHT_AT
+    byte_base[C_PARAMS] = PARAMS_AT
+    byte_base[C_RESULTS] = RESULTS_AT
+    word_base[C_NAME] = NAME_AT
+    word_base[C_VALUE] = VALUE_AT
+    word_base[C_OBJ] = OBJ_AT
+    word_base[C_MEMBERS] = MEMBERS_AT
+    word_base[C_LINK] = LINK_AT

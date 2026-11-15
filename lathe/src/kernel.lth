@@ -8,7 +8,9 @@
 ; - the name heap: every name is stored once and is known everywhere by its offset there;
 ; - the symbol table: one column per attribute, indexed by symbol number. Module-level symbols
 ;   come first; the symbols of the function being compiled lie above them and are released when
-;   it ends. What the columns mean for each kind of symbol is DECL's business;
+;   it ends. What the columns mean for each kind of symbol is DECL's business; the other modules
+;   reach them only through byte_of(), word_of(), set_byte(), set_word(), member_type_of() and
+;   member_value_of();
 ; - the frozen symbols: the functions, constants and variables an imported module exports, kept
 ;   in the name heap in a compact form and made symbols (thawed) only when the importer names
 ;   one. Thawed symbols are numbered down from the top of the table and are never released.
@@ -71,6 +73,15 @@
 ;   |                                      | one                               |                 |
 ;   | path_add_name, put_name: name_length | the entry read in one block       | one mapping     |
 ;   | and name_char for each character     |                                   |                 |
+;   | sym_bytes, sym_words, member_type,   | the same, `in SYMS`: used only    | on the BBC the  |
+;   | member_value                         | inside `with SYMS do ... end` in  | symbols are in a|
+;   |                                      | kernel's functions; the other     | sideways bank of|
+;   |                                      | modules call byte_of() and the    | their own, apart|
+;   |                                      | rest. A function inside a block of| from the names  |
+;   |                                      | NAMES reads what it needs there,  | (one window)    |
+;   |                                      | and has a block of SYMS after it, |                 |
+;   |                                      | or calls one that has its own     |                 |
+;   |                                      | (chain_walk(), member_add())      |                 |
 module kernel
 
 import err (E_DUPLICATE, E_MEMBERS_FULL, E_MODULES_FULL, E_NAMES_FULL, E_NOT_LISTED, E_PATH_LONG,
@@ -502,25 +513,49 @@ pub const SF_HIDDEN = 4         ; an imported symbol the importer's list does no
                                 ; which no imported symbol has)
 pub const SF_LIST = 4           ; a module's symbol: its `import` has a list (the same bit)
 
-pub var sym_name: [MAX_SYMS]word rows
-pub var sym_scope: [MAX_SYMS]byte nozp
-pub var sym_kind: [MAX_SYMS]byte nozp
-pub var sym_flags: [MAX_SYMS]byte nozp
-pub var sym_type: [MAX_SYMS]byte nozp       ; a type number: typetab has MAX_TYPES = 64
-pub var sym_value: [MAX_SYMS]word rows
-pub var sym_obj: [MAX_SYMS]word rows        ; its number in the object file, NO_OBJ until it is used there
-pub var sym_weight: [MAX_SYMS]byte nozp     ; a variable: how much it gains from zero page (docs/codegen.md)
-pub var sym_members: [MAX_SYMS]word rows    ; the first of its members
-pub var sym_params: [MAX_SYMS]byte nozp     ; how many members are parameters
-pub var sym_results: [MAX_SYMS]byte nozp    ; how many more are results
-pub var sym_link: [MAX_SYMS]word rows       ; the next older symbol with the same name
+; A symbol's columns: the byte columns one after another in sym_bytes, the word columns in
+; sym_words, each MAX_SYMS rows; byte_of(), word_of(), set_byte() and set_word() reach them by
+; number (C_*) for the other modules.
+pub const C_SCOPE = 0           ; the byte columns
+pub const C_KIND = 1
+pub const C_FLAGS = 2
+pub const C_TYPE = 3            ; a type number: typetab has MAX_TYPES = 64
+pub const C_WEIGHT = 4          ; a variable: how much it gains from zero page (docs/codegen.md)
+pub const C_PARAMS = 5          ; how many members are parameters
+pub const C_RESULTS = 6         ; how many more are results
+const BYTE_COLUMNS = 7
+pub const C_NAME = 0            ; the word columns
+pub const C_VALUE = 1
+pub const C_OBJ = 2             ; its number in the object file, NO_OBJ until it is used there
+pub const C_MEMBERS = 3         ; the first of its members
+pub const C_LINK = 4            ; the next older symbol with the same name
+const WORD_COLUMNS = 5
+const SCOPE_AT = C_SCOPE * MAX_SYMS ; where each column starts
+const KIND_AT = C_KIND * MAX_SYMS
+const FLAGS_AT = C_FLAGS * MAX_SYMS
+const TYPE_AT = C_TYPE * MAX_SYMS
+const WEIGHT_AT = C_WEIGHT * MAX_SYMS
+const PARAMS_AT = C_PARAMS * MAX_SYMS
+const RESULTS_AT = C_RESULTS * MAX_SYMS
+const NAME_AT = C_NAME * MAX_SYMS
+const VALUE_AT = C_VALUE * MAX_SYMS
+const OBJ_AT = C_OBJ * MAX_SYMS
+const MEMBERS_AT = C_MEMBERS * MAX_SYMS
+const LINK_AT = C_LINK * MAX_SYMS
+const SYM_BYTE_SIZE = BYTE_COLUMNS * MAX_SYMS
+const SYM_WORD_SIZE = WORD_COLUMNS * MAX_SYMS
+
+var sym_bytes: [SYM_BYTE_SIZE]byte nozp in SYMS
+var sym_words: [SYM_WORD_SIZE]word rows in SYMS
+var byte_base: [BYTE_COLUMNS]word   ; where each byte column starts in sym_bytes (init())
+var word_base: [WORD_COLUMNS]word
 pub var sym_count: word
 pub var thaw_top: word = MAX_SYMS   ; the lowest thawed symbol: they lie from here to MAX_SYMS - 1
 pub var local_base: word        ; the first symbol of the function being compiled
 pub var local_names: word       ; name_top when that function began
 
-pub var member_type: [MAX_MEMBERS]byte nozp
-pub var member_value: [MAX_MEMBERS]byte nozp    ; a parameter's or result's register
+var member_type: [MAX_MEMBERS]byte nozp in SYMS
+var member_value: [MAX_MEMBERS]byte nozp in SYMS    ; a parameter's or result's register
 pub var member_count: word
 
 pub var module_name: [MAX_MODULES]word
@@ -530,15 +565,66 @@ var module_frozen: [MAX_MODULES]word    ; each module's first frozen entry, or 0
 
 forward func thaw(scope: byte, f: word, oldest: word): word
 
+; ---- The columns, for the other modules --------------------------------------------------
+;
+; Other modules read and write the columns of a symbol and of a member only through these
+; functions: the columns are in the region SYMS (lathe/docs/architecture.md, "What stays in
+; memory"), used only inside blocks of kernel's.
+
+; Byte column `column` (C_SCOPE to C_RESULTS) of symbol `s`.
+pub func byte_of(s: word, column: byte): byte
+  with SYMS do
+    return sym_bytes[byte_base[column] + s]
+  end
+end
+
+; Word column `column` (C_NAME to C_LINK) of symbol `s`.
+pub func word_of(s: word, column: byte): word
+  with SYMS do
+    return sym_words[word_base[column] + s]
+  end
+end
+
+pub func set_byte(s: word, column: byte, value: byte)
+  with SYMS do
+    sym_bytes[byte_base[column] + s] = value
+  end
+end
+
+pub func set_word(s: word, column: byte, value: word)
+  with SYMS do
+    sym_words[word_base[column] + s] = value
+  end
+end
+
+; Member `m`'s type.
+pub func member_type_of(m: word): byte
+  with SYMS do
+    return member_type[m]
+  end
+end
+
+; Member `m`'s register.
+pub func member_value_of(m: word): byte
+  with SYMS do
+    return member_value[m]
+  end
+end
+
+; The symbol of `scope` on the chain that starts at symbol `s`, or NO_SYM.
+func chain_walk(scope: byte, s: word): word
+  with SYMS do
+    while s != NO_SYM and sym_bytes[SCOPE_AT + s] != scope do
+      s = sym_words[LINK_AT + s]
+    end
+  end
+  return s
+end
+
 ; The symbol of `scope` on the chain of the name entry `q` points to, or NO_SYM. `q` points
 ; into NAMES: called only inside a block of it.
 func chain_find(scope: byte, q: ^byte): word
-  var s: word
-  s = word(q[N_SYMBOL]) | (word(q[N_SYMBOL + 1]) << 8)
-  while s != NO_SYM and sym_scope[s] != scope do
-    s = sym_link[s]
-  end
-  return s
+  return chain_walk(scope, word(q[N_SYMBOL]) | (word(q[N_SYMBOL + 1]) << 8))
 end
 
 ; The hash name_add() gives the spelling of the entry `q` points to (into NAMES: called only
@@ -620,8 +706,10 @@ end
 pub func module_find(m: word, name: word): word, bool
   var s: word
   var found: bool
-  s, found = sym_find(byte(sym_value[m]), name)
-  if sym_flags[m] & SF_LIST != 0 and (not found or sym_flags[s] & SF_HIDDEN != 0) then
+  var listed: bool
+  listed = byte_of(m, C_FLAGS) & SF_LIST != 0
+  s, found = sym_find(byte(word_of(m, C_VALUE)), name)
+  if listed and (not found or byte_of(s, C_FLAGS) & SF_HIDDEN != 0) then
     err.fatal(err.E_NOT_LISTED)
   end
   return s, found
@@ -634,35 +722,43 @@ pub func name_symbol(name: word): word
   end
 end
 
+; Make `s` the first symbol on the chain of `name`.
+func name_set_symbol(name: word, s: word)
+  with NAMES do
+    name_set_word(name + N_SYMBOL, s)
+  end
+end
+
 ; What a plain `name` means here: a local, else a module-level symbol, else a predeclared
 ; one. Symbols of imported modules are skipped: those are written module.name.
 pub func sym_lookup(name: word): word, bool
   var s: word
+  var scope: byte
   s = name_symbol(name)
-  while s != NO_SYM and sym_scope[s] != SCOPE_LOCAL and sym_scope[s] != SCOPE_MODULE and
-      sym_scope[s] != SCOPE_PREDECLARED do
-    s = sym_link[s]
+  while s != NO_SYM do
+    scope = byte_of(s, C_SCOPE)
+    if scope == SCOPE_LOCAL or scope == SCOPE_MODULE or scope == SCOPE_PREDECLARED then
+      break
+    end
+    s = word_of(s, C_LINK)
   end
   return s, s != NO_SYM
 end
 
 ; Declare `name` in `scope`. The other columns start empty.
 func sym_new(s: word, scope: byte, name: word, kind: byte)
-  sym_name[s] = name
-  sym_scope[s] = scope
-  sym_kind[s] = kind
-  sym_flags[s] = 0
-  sym_type[s] = 0
-  sym_value[s] = 0
-  sym_obj[s] = NO_OBJ
-  sym_weight[s] = 0
-  sym_members[s] = member_count
-  sym_params[s] = 0
-  sym_results[s] = 0
-  with NAMES do
-    sym_link[s] = name_word(name + N_SYMBOL)
-    name_set_word(name + N_SYMBOL, s)
+  var c: byte
+  set_word(s, C_LINK, name_symbol(name))
+  name_set_symbol(name, s)
+  set_word(s, C_NAME, name)
+  set_byte(s, C_SCOPE, scope)
+  set_byte(s, C_KIND, kind)
+  for c = C_FLAGS until BYTE_COLUMNS do
+    set_byte(s, c, 0)
   end
+  set_word(s, C_VALUE, 0)
+  set_word(s, C_OBJ, NO_OBJ)
+  set_word(s, C_MEMBERS, member_count)
 end
 
 pub func sym_add(scope: byte, name: word, kind: byte): word
@@ -689,12 +785,10 @@ end
 ; The function ends: release its symbols and the names only it used.
 ; Release the symbols from `base` up. Their names stay.
 pub func sym_release(base: word)
-  with NAMES do
-    while sym_count > base do
-      sym_count -= 1
-      ; Symbols are released newest first, so each is the first on its name's chain.
-      name_set_word(sym_name[sym_count] + N_SYMBOL, sym_link[sym_count])
-    end
+  while sym_count > base do
+    sym_count -= 1
+    ; Symbols are released newest first, so each is the first on its name's chain.
+    name_set_symbol(word_of(sym_count, C_NAME), word_of(sym_count, C_LINK))
   end
 end
 
@@ -709,8 +803,10 @@ pub func member_add(t: byte, value: byte): word
   if member_count == MAX_MEMBERS then
     err.fatal(err.E_MEMBERS_FULL)
   end
-  member_type[member_count] = t
-  member_value[member_count] = value
+  with SYMS do
+    member_type[member_count] = t
+    member_value[member_count] = value
+  end
   member_count += 1
   return member_count - 1
 end
@@ -793,7 +889,7 @@ pub func built_loaded(scope: byte, show: bool): bool
   s = built_symbol(scope)
   if s != NO_SYM then
     if show then
-      sym_flags[s] = sym_flags[s] & ~SF_HIDDEN
+      set_byte(s, C_FLAGS, byte_of(s, C_FLAGS) & ~SF_HIDDEN)
     end
     return true
   end
@@ -889,13 +985,15 @@ func thaw(scope: byte, f: word, oldest: word): word
   var name: word
   var q: ^byte
   var r: ^byte
-  var count: byte
   var i: byte
   var bucket: byte
   var n: word
   var kind: byte
   var flags: byte
   var t: byte
+  var value: word
+  var params: byte = 0
+  var results: byte = 0
   if thaw_top == sym_count then
     err.fatal(err.E_SYMS_FULL)
   end
@@ -907,6 +1005,11 @@ func thaw(scope: byte, f: word, oldest: word): word
     kind = q[F_KIND]                    ; read before the entry is made a name
     flags = q[F_FLAGS]
     t = q[F_TYPE]
+    value = word(r[F_VALUE]) | (word(r[F_VALUE + 1]) << 8)
+    if kind == K_FUNC then
+      params = r[F_PARAMS]
+      results = r[F_RESULTS]
+    end
     name = oldest
     if oldest > f then
       name = f
@@ -914,19 +1017,19 @@ func thaw(scope: byte, f: word, oldest: word): word
       q[N_SYMBOL + 1] = hi(NO_SYM)
       q[N_TOKEN] = 0
     end
-    sym_new(s, scope, name, kind)
-    sym_flags[s] = flags
-    sym_type[s] = t
-    sym_value[s] = word(r[F_VALUE]) | (word(r[F_VALUE + 1]) << 8)
-    if kind == K_FUNC then
-      count = r[F_PARAMS] + r[F_RESULTS]
-      sym_params[s] = r[F_PARAMS]
-      sym_results[s] = r[F_RESULTS]
-      r += F_MEMBERS
-      for i = 0 until count do
-        member_add(r[0], r[1])
-        r += 2
-      end
+  end
+  sym_new(s, scope, name, kind)
+  set_byte(s, C_FLAGS, flags)
+  set_byte(s, C_TYPE, t)
+  set_word(s, C_VALUE, value)
+  set_byte(s, C_PARAMS, params)
+  set_byte(s, C_RESULTS, results)
+  with NAMES do
+    q = @names + f
+    r = q + N_TEXT + q[N_LENGTH] + F_MEMBERS
+    for i = 0 until params + results do
+      member_add(r[0], r[1])            ; its block of SYMS comes after r is read
+      r += 2
     end
     if oldest < f then
       return s
@@ -978,4 +1081,16 @@ pub func init()
   end
   member_count = 0
   module_count = 0
+  byte_base[C_SCOPE] = SCOPE_AT
+  byte_base[C_KIND] = KIND_AT
+  byte_base[C_FLAGS] = FLAGS_AT
+  byte_base[C_TYPE] = TYPE_AT
+  byte_base[C_WEIGHT] = WEIGHT_AT
+  byte_base[C_PARAMS] = PARAMS_AT
+  byte_base[C_RESULTS] = RESULTS_AT
+  word_base[C_NAME] = NAME_AT
+  word_base[C_VALUE] = VALUE_AT
+  word_base[C_OBJ] = OBJ_AT
+  word_base[C_MEMBERS] = MEMBERS_AT
+  word_base[C_LINK] = LINK_AT
 end

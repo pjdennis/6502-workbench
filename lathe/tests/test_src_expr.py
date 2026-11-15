@@ -88,38 +88,38 @@ def first_token():
 def declared(form):
     s = kernel.sym_add(kernel.SCOPE_MODULE, script.name(), kernel.K_TYPE)
     t = typetab.declared(form, s)
-    kernel.sym_type[s] = t
+    kernel.set_byte(s, kernel.C_TYPE, t)
     script.show_word(s)
     script.show_byte(t)
 
 
 def add_field(s, name, t):
-    r = kernel.sym_type[s]
+    r = kernel.byte_of(s, kernel.C_TYPE)
     f = kernel.sym_add(kernel.SCOPE_FIELDS + r, name, kernel.K_FIELD)
-    kernel.sym_type[f] = t
-    kernel.sym_value[f] = typetab.grow(r, typetab.size(t))
-    kernel.sym_params[s] += 1
+    kernel.set_byte(f, kernel.C_TYPE, t)
+    kernel.set_word(f, kernel.C_VALUE, typetab.grow(r, typetab.size(t)))
+    kernel.set_byte(s, kernel.C_PARAMS, kernel.byte_of(s, kernel.C_PARAMS) + 1)
 
 
 def parameter(s, i):
     name = script.name()
-    t = kernel.member_type[kernel.sym_members[s] + i]
+    t = kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + i)
     p = kernel.sym_add(kernel.SCOPE_LOCAL, name, kernel.K_LOCAL)
-    kernel.sym_type[p] = t
-    kernel.sym_value[p] = reg.new_slot(typetab.size(t), reg.CLASS_EITHER, reg.SLOT_PARAMETER, name)
+    kernel.set_byte(p, kernel.C_TYPE, t)
+    kernel.set_word(p, kernel.C_VALUE, reg.new_slot(typetab.size(t), reg.CLASS_EITHER, reg.SLOT_PARAMETER, name))
     script.show_word(p)
-    script.show_byte(kernel.sym_value[p] & 0xFF)
+    script.show_byte(kernel.word_of(p, kernel.C_VALUE) & 0xFF)
 
 
 def show_symbols(first):
     for s in range(first, kernel.sym_count):
-        script.show_word(kernel.sym_name[s])
-        script.show_byte(kernel.sym_scope[s])
-        script.show_byte(kernel.sym_kind[s])
-        script.show_byte(kernel.sym_flags[s])
-        script.show_byte(kernel.sym_type[s])
-        script.show_word(kernel.sym_value[s])
-        script.show_word(kernel.sym_obj[s])
+        script.show_word(kernel.word_of(s, kernel.C_NAME))
+        script.show_byte(kernel.byte_of(s, kernel.C_SCOPE))
+        script.show_byte(kernel.byte_of(s, kernel.C_KIND))
+        script.show_byte(kernel.byte_of(s, kernel.C_FLAGS))
+        script.show_byte(kernel.byte_of(s, kernel.C_TYPE))
+        script.show_word(kernel.word_of(s, kernel.C_VALUE))
+        script.show_word(kernel.word_of(s, kernel.C_OBJ))
         env.put_byte(ord(','))
 
 
@@ -142,9 +142,9 @@ def run(c):
         e = s_()
         v = n_()
         s = kernel.sym_add(b, script.name(), a)
-        kernel.sym_flags[s] = d
-        kernel.sym_type[s] = e
-        kernel.sym_value[s] = v
+        kernel.set_byte(s, kernel.C_FLAGS, d)
+        kernel.set_byte(s, kernel.C_TYPE, e)
+        kernel.set_word(s, kernel.C_VALUE, v)
         script.show_word(s)
     elif c == 4:
         declared(typetab.FORM_RECORD)
@@ -157,7 +157,7 @@ def run(c):
     elif c == 7:
         s = n_()
         gen.function_begin(reg.object_symbol(s))
-        gen.saves_frame = kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0
+        gen.saves_frame = kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0
     elif c == 8:
         s = n_()
         i = 0
@@ -197,9 +197,9 @@ def run(c):
     elif c == 19:
         s = n_()
         kernel.scope_begin()
-        for i in range(kernel.sym_params[s]):
+        for i in range(kernel.byte_of(s, kernel.C_PARAMS)):
             v = kernel.sym_add(kernel.SCOPE_LOCAL, script.name(), kernel.K_LOCAL)
-            kernel.sym_type[v] = kernel.member_type[kernel.sym_members[s] + i]
+            kernel.set_byte(v, kernel.C_TYPE, kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + i))
         inline.save(s)
         kernel.local_names = kernel.name_top
         kernel.scope_end()
@@ -234,7 +234,7 @@ def run(c):
         expr.init()
     elif c == 33:
         s = n_()
-        kernel.sym_value[s] = n_()
+        kernel.set_word(s, kernel.C_VALUE, n_())
     elif c == 34:
         expr.data_region = script.name()
 

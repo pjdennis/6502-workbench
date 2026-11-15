@@ -31,11 +31,11 @@
 ;   | END_WORD: byte strings               |                                   | a value         |
 ;   | (BASE[m] + offset) & 0xFF            | BASE[m] + offset                  | a byte wraps    |
 ;   | op, _ = opcode(...)                  | op, ok = ...                      | no `_`          |
-;   | kernel.sym_find(kernel.sym_value[s], | lo(kernel.sym_value[s])           | a scope is a    |
+;   | kernel.sym_find(word_of(s, C_VALUE), | lo(word_of(s, C_VALUE))           | a scope is a    |
 ;   | member)                              |                                   | byte            |
-;   | kernel.sym_value[s] & 0xFFFF         | kernel.sym_value[s]               | a word is 16    |
+;   | word_of(s, C_VALUE) & 0xFFFF         | word_of(s, C_VALUE)               | a word is 16    |
 ;   |                                      |                                   | bits            |
-;   | found_slot = kernel.sym_value[s]     | lo(kernel.sym_value[s])           | a slot is a     |
+;   | found_slot = word_of(s, C_VALUE)     | lo(word_of(s, C_VALUE))           | a slot is a     |
 ;   |                                      |                                   | byte            |
 ;   | storage, a slot when below           | lo(storage) where it is given to  | (the same)      |
 ;   | VARIABLE_STORAGE                     | reg as a slot                     |                 |
@@ -59,9 +59,9 @@ import err (E_ASM_BRANCH, E_ASM_DIRECTIVE, E_ASM_LABEL_USE, E_ASM_MNEMONIC, E_AS
 import fbuf (as_written, branch, FIX_ADDRESS, FIX_HIGH, FIX_LOW, FIX_ZERO_PAGE, jump,
              keep_as_written, new_label, NO_SLOT, op, op_byte, op_fix, OP_RTS, op_word, place,
              runs_on)
-import kernel (K_CONST, K_FUNC, K_LOCAL, K_MODULE, K_VAR, module_find, name_add, name_begin,
-               name_end, SCOPE_LOCAL, SCOPE_MODULE, SF_AT, SF_EXTERN, SF_NOZP, SF_ZP, sym_flags,
-               sym_kind, sym_lookup, sym_scope, sym_type, sym_value)
+import kernel (byte_of, C_FLAGS, C_KIND, C_SCOPE, C_TYPE, C_VALUE, K_CONST, K_FUNC, K_LOCAL,
+               K_MODULE, K_VAR, module_find, name_add, name_begin, name_end, SCOPE_LOCAL,
+               SCOPE_MODULE, set_byte, SF_AT, SF_EXTERN, SF_NOZP, SF_ZP, sym_lookup, word_of)
 import lex (character, fold, is_digit, is_letter, next, number, resume, T_END, T_NL, tok)
 import out (call, NO_OUTER)
 import reg (CLASS_NOT_ZP, CLASS_ZP, forget, object_symbol, own, slot_class, use_slot, use_variable)
@@ -349,7 +349,7 @@ func name_operand(name: word, member: word): byte
   if not found then
     err.fatal(err.E_UNDEFINED)
   end
-  if kernel.sym_kind[s] == kernel.K_MODULE then
+  if kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE then
     if member == 0 then
       err.fatal(err.E_DOT_EXPECTED)
     end
@@ -363,24 +363,24 @@ func name_operand(name: word, member: word): byte
   found_storage = NO_STORAGE
   found_function = false
   found_slot = fbuf.NO_SLOT
-  kind = kernel.sym_kind[s]
-  if kind == kernel.K_CONST and typetab.is_array(kernel.sym_type[s]) then
+  kind = kernel.byte_of(s, kernel.C_KIND)
+  if kind == kernel.K_CONST and typetab.is_array(kernel.byte_of(s, kernel.C_TYPE)) then
     found_symbol = reg.object_symbol(s)
     return X_ADDRESS
   end
   if kind == kernel.K_CONST then
-    found_value = kernel.sym_value[s]
+    found_value = kernel.word_of(s, kernel.C_VALUE)
     return X_NUMBER
   end
   if kind == kernel.K_LOCAL then
     found_symbol = reg.own
-    found_slot = lo(kernel.sym_value[s])
+    found_slot = lo(kernel.word_of(s, kernel.C_VALUE))
     found_storage = found_slot
     return X_ADDRESS
   end
   if kind == kernel.K_VAR then
-    if kernel.sym_flags[s] & kernel.SF_AT != 0 then
-      found_value = kernel.sym_value[s]
+    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0 then
+      found_value = kernel.word_of(s, kernel.C_VALUE)
       return X_NUMBER
     end
     found_symbol = reg.object_symbol(s)
@@ -390,8 +390,8 @@ func name_operand(name: word, member: word): byte
   if kind != kernel.K_FUNC then
     err.fatal(err.E_TYPE)
   end
-  if kernel.sym_flags[s] & kernel.SF_EXTERN != 0 then
-    found_value = kernel.sym_value[s]
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_EXTERN != 0 then
+    found_value = kernel.word_of(s, kernel.C_VALUE)
     return X_NUMBER
   end
   found_symbol = reg.object_symbol(s)
@@ -418,16 +418,16 @@ func storage_used(storage: word, zero_page: bool)
   end
   s = storage - VARIABLE_STORAGE
   reg.use_variable(s)
-  if not zero_page or kernel.sym_flags[s] & kernel.SF_ZP != 0 then
+  if not zero_page or kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_ZP != 0 then
     return
   end
-  if kernel.sym_flags[s] & kernel.SF_NOZP != 0 then
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_NOZP != 0 then
     err.fatal(err.E_ASM_NOT_ZP)
   end
-  if kernel.sym_scope[s] != kernel.SCOPE_MODULE and kernel.sym_scope[s] != kernel.SCOPE_LOCAL then
+  if kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_LOCAL then
     err.fatal(err.E_ASM_NOT_ZP)
   end
-  kernel.sym_flags[s] = kernel.sym_flags[s] | kernel.SF_ZP
+  kernel.set_byte(s, kernel.C_FLAGS, kernel.byte_of(s, kernel.C_FLAGS) | kernel.SF_ZP)
 end
 
 ; ---- Expressions -------------------------------------------------------------------------

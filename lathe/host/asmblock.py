@@ -293,7 +293,7 @@ def name_operand(name, member):
     s, found = kernel.sym_lookup(name)
     if not found:
         err.fatal(err.E_UNDEFINED)
-    if kernel.sym_kind[s] == kernel.K_MODULE:
+    if kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE:
         if member == 0:
             err.fatal(err.E_DOT_EXPECTED)
         s, found = kernel.module_find(s, member)
@@ -304,29 +304,29 @@ def name_operand(name, member):
     found_storage = NO_STORAGE
     found_function = False
     found_slot = fbuf.NO_SLOT
-    kind = kernel.sym_kind[s]
-    if kind == kernel.K_CONST and typetab.is_array(kernel.sym_type[s]):
+    kind = kernel.byte_of(s, kernel.C_KIND)
+    if kind == kernel.K_CONST and typetab.is_array(kernel.byte_of(s, kernel.C_TYPE)):
         found_symbol = reg.object_symbol(s)
         return X_ADDRESS
     if kind == kernel.K_CONST:
-        found_value = kernel.sym_value[s] & 0xFFFF
+        found_value = kernel.word_of(s, kernel.C_VALUE) & 0xFFFF
         return X_NUMBER
     if kind == kernel.K_LOCAL:
         found_symbol = reg.own
-        found_slot = kernel.sym_value[s]
+        found_slot = kernel.word_of(s, kernel.C_VALUE)
         found_storage = found_slot
         return X_ADDRESS
     if kind == kernel.K_VAR:
-        if kernel.sym_flags[s] & kernel.SF_AT != 0:
-            found_value = kernel.sym_value[s]
+        if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0:
+            found_value = kernel.word_of(s, kernel.C_VALUE)
             return X_NUMBER
         found_symbol = reg.object_symbol(s)
         found_storage = VARIABLE_STORAGE + s
         return X_ADDRESS
     if kind != kernel.K_FUNC:
         err.fatal(err.E_TYPE)
-    if kernel.sym_flags[s] & kernel.SF_EXTERN != 0:
-        found_value = kernel.sym_value[s]
+    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_EXTERN != 0:
+        found_value = kernel.word_of(s, kernel.C_VALUE)
         return X_NUMBER
     found_symbol = reg.object_symbol(s)
     found_function = True
@@ -348,13 +348,13 @@ def storage_used(storage, zero_page):
         return
     s = storage - VARIABLE_STORAGE
     reg.use_variable(s)
-    if not zero_page or kernel.sym_flags[s] & kernel.SF_ZP != 0:
+    if not zero_page or kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_ZP != 0:
         return
-    if kernel.sym_flags[s] & kernel.SF_NOZP != 0:
+    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_NOZP != 0:
         err.fatal(err.E_ASM_NOT_ZP)
-    if kernel.sym_scope[s] != kernel.SCOPE_MODULE and kernel.sym_scope[s] != kernel.SCOPE_LOCAL:
+    if kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_LOCAL:
         err.fatal(err.E_ASM_NOT_ZP)
-    kernel.sym_flags[s] = kernel.sym_flags[s] | kernel.SF_ZP
+    kernel.set_byte(s, kernel.C_FLAGS, kernel.byte_of(s, kernel.C_FLAGS) | kernel.SF_ZP)
 
 
 # ---- Expressions -------------------------------------------------------------------------

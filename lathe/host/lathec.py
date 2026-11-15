@@ -93,8 +93,8 @@ def cpu_option(place):
 def constant(name, t, value):
     """Predeclare the constant `name`: it can be used everywhere, `#if` included."""
     s = kernel.sym_add(kernel.SCOPE_PREDECLARED, name, kernel.K_CONST)
-    kernel.sym_type[s] = t
-    kernel.sym_value[s] = value
+    kernel.set_byte(s, kernel.C_TYPE, t)
+    kernel.set_word(s, kernel.C_VALUE, value)
 
 
 def decimal(place):

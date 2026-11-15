@@ -38,7 +38,7 @@ def read_map(path):
 
 # The tables the small build makes smaller (script_host.SMALL), as (host module, capacity, bytes
 # an element, the array's name in the map) for one array each capacity sizes.
-FULL_TABLES = (('kernel', 'NAME_HEAP_SIZE', 1, 'kernel.names'), ('kernel', 'MAX_SYMS', 1, 'kernel.sym_kind'),
+FULL_TABLES = (('kernel', 'NAME_HEAP_SIZE', 1, 'kernel.names'), ('kernel', 'MAX_SYMS', 7, 'kernel.sym_bytes'),
                ('kernel', 'MAX_MEMBERS', 1, 'kernel.member_type'), ('kernel', 'TEXT_SIZE', 1, 'kernel.text'),
                ('kernel', 'TOKEN_SIZE', 1, 'kernel.tokens'), ('fbuf', 'BUFFER_SIZE', 1, 'fbuf.buffer'),
                ('fbuf', 'MAX_LABELS', 1, 'fbuf.label_note'), ('fbuf', 'MAX_WEIGHTS', 1, 'fbuf.weight_slot'),
@@ -61,11 +61,12 @@ class Banked(unittest.TestCase):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
     def bank_of(self, module):
-        """The banks of the module's functions in the map: {N, ...}, 0 for fixed."""
+        """The banks of the module's functions in the map: {N, ...}, 0 for fixed; a function of
+        a placed module kept in fixed memory (k=N: it has a `with` block) counts as in bank N."""
         found = set()
         for kind, address, size, name, rest in self.map:
             if kind == 'F' and name.split('.')[0] == module:
-                b = [int(r[2:]) for r in rest if r.startswith('b=')]
+                b = [int(r[2:]) for r in rest if r.startswith(('b=', 'k='))]
                 found.add(b[0] if b else 0)
         return found
 
@@ -99,18 +100,20 @@ class Banked(unittest.TestCase):
         banks = {name: [r for r in rest if r.startswith('b=')] for kind, address, size, name, rest
                  in self.map if kind in 'VD'}
         for table, bank in (('kernel.names', 'b=4'), ('fbuf.buffer', 'b=6'), ('lex.string', 'b=6'),
-                            ('kernel.tokens', 'b=6'), ('err.messages_1', 'b=6')):
+                            ('kernel.tokens', 'b=6'), ('err.messages_1', 'b=6'),
+                            ('out.table_fix_kind', 'b=6')):
             if table in banks:
                 self.assertEqual(banks[table], [bank], table)
 
-    def test_out_table_follows_out_into_its_bank(self):
-        """A table of more than 256 bytes indexed by a word, named only by its module's code,
-        goes into its module's bank: its address is formed only to reach an element (fix-up
-        kinds 7 and 8). GEN fills OUT's table through out.table_byte()."""
+    def test_out_table_is_in_its_region(self):
+        """OUT's constant table and its fix-ups are in the region OUTTAB, bank 6 (until
+        2026-11-15 the table followed OUT into bank 5: a table of more than 256 bytes indexed by
+        a word, named only by its module's code, goes into its module's bank, its address formed
+        only to reach an element, fix-up kinds 7 and 8). GEN fills it through out.table_byte()."""
         banks = {name: [r for r in rest if r.startswith('b=')] for kind, address, size, name, rest
                  in self.map if kind == 'V'}
         if 'out.table' in banks:
-            self.assertEqual(banks['out.table'], ['b=5'])
+            self.assertEqual(banks['out.table'], ['b=6'])      # in the region OUTTAB
 
     def test_resident_code_is_within_the_goal(self):
         """Fixed code, constant data that is not err's messages, and the stubs."""

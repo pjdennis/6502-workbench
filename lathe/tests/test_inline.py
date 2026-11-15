@@ -69,10 +69,10 @@ class InProcess(unittest.TestCase):
         return s
 
     def flags(self, f):
-        return env.mem[kernel.sym_value[f] + inline.R_FLAGS]
+        return env.mem[kernel.word_of(f, kernel.C_VALUE) + inline.R_FLAGS]
 
     def assigned(self, f):
-        return [env.mem[inline.param(f, i) + 2] for i in range(kernel.sym_params[f])]
+        return [env.mem[inline.param(f, i) + 2] for i in range(kernel.byte_of(f, kernel.C_PARAMS))]
 
     def tokens_of(self, start, limit, line):
         """The tokens LEX gives from a source in memory, or a saved run, with their places."""
@@ -115,7 +115,7 @@ class SaveTest(InProcess):
             + BODY + 'end\n'
         self.compile(source)
         g = self.function('g')
-        r = kernel.sym_value[g]
+        r = kernel.word_of(g, kernel.C_VALUE)
         start = r + inline.R_PARAMS + 2 * inline.PARAM_SIZE
         replayed = self.tokens_of(start, inline.word_at(r + inline.R_END), inline.word_at(r + inline.R_LINE))
         begin, end = support.put_text(BODY.encode(), 0xA000)

@@ -176,6 +176,11 @@ end
 ;
 ; A handler that far-calls while the main program is inside a block finds the window as the
 ; block left it, and puts it back when it returns (`now`, above).
+;
+; Unlike rt_bank's, map() has no test for the value 0, which the linker gives a region kept in
+; fixed memory (`region NAME fixed`): here 0 is sideways slot 0, where the compiler's SYMS is
+; (lathe/src/compiler-bbc-bank.env). A fixed region would so map slot 0 for nothing, which is
+; harmless, since all that runs inside a block is fixed code, and costs only the switch.
 
 ; Map `value` into the window; give the value of what was there. X and Y are lost.
 pub asm func map(value: byte in a): byte in a

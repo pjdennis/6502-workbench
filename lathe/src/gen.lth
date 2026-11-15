@@ -57,10 +57,10 @@ import err (E_ARRAY_VALUE, E_BYTE_INDEX, E_CALLS_FULL, E_ELEMENT_SIZE, E_INITS_F
 import fbuf (begin, call_label, finish, FIRST_TEMP, FIX_ADDRESS, FIX_LOW, new_label, NO_SLOT, op,
              op_fix, OP_JMP_INDIRECT, OP_JSR, op_word, runs_on, tail_call, used)
 import fold (ADD, BAND, BOR, BXOR, DIV, exact, GE, LT, MUL, NE, REM, SHL, SHR, SUB, typed)
-import kernel (K_FUNC, K_TYPE, member_add, member_count, member_type, member_value, module_count,
-               module_name, name_add, name_begin, name_end, NO_OBJ, NO_SYM, SF_ASM, SF_AT,
-               SF_EXTERN, SF_RECURSIVE, SF_ZP, sym_add, sym_find, sym_flags, sym_kind, sym_members,
-               sym_obj, sym_params, sym_results, sym_type, sym_value)
+import kernel (byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_OBJ, C_PARAMS, C_RESULTS, C_TYPE, C_VALUE,
+               K_FUNC, K_TYPE, member_add, member_count, member_type_of, member_value_of,
+               module_count, module_name, name_add, name_begin, name_end, NO_OBJ, NO_SYM, set_byte,
+               set_word, SF_ASM, SF_AT, SF_EXTERN, SF_RECURSIVE, SF_ZP, sym_add, sym_find, word_of)
 import out (call, CALL_POINTER, CALL_SAVES, function_begin, function_end, imported, NO_OUTER, slot,
             SYM_DATA, SYM_FUNCTION, symbol, table_byte, table_fix)
 import reg (A, accepts, accumulator, alu, apart, assignable, become, begin, branch, claim, CLASS_ZP,
@@ -275,9 +275,9 @@ pub func function_address()
   settle()
   i = reg.depth - 1
   f = reg.op_var[i]
-  if kernel.sym_flags[f] & kernel.SF_EXTERN != 0 then
+  if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_EXTERN != 0 then
     reg.describe(i, reg.O_CONST, typetab.NUMBER_TYPE)
-    reg.op_value[i] = kernel.sym_value[f]
+    reg.op_value[i] = kernel.word_of(f, kernel.C_VALUE)
     return
   end
   reg.describe(i, reg.O_ADDR, typetab.NO_TYPE)
@@ -288,22 +288,22 @@ end
 ; Push variable `s`, which lives for the whole program or is at a fixed address.
 pub func variable(s: word)
   settle()
-  if kernel.sym_flags[s] & kernel.SF_AT != 0 then
-    reg.push_memory(kernel.sym_type[s], kernel.NO_OBJ, fbuf.NO_SLOT, kernel.sym_value[s], 0,
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0 then
+    reg.push_memory(kernel.byte_of(s, kernel.C_TYPE), kernel.NO_OBJ, fbuf.NO_SLOT, kernel.word_of(s, kernel.C_VALUE), 0,
         kernel.NO_SYM)
   else
-    reg.push_memory(kernel.sym_type[s], reg.object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
+    reg.push_memory(kernel.byte_of(s, kernel.C_TYPE), reg.object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
   end
 end
 
 ; Push the constant table `s`: constant data, which can be read but not assigned to.
 pub func table(s: word)
   settle()
-  reg.push_memory(kernel.sym_type[s], reg.object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
+  reg.push_memory(kernel.byte_of(s, kernel.C_TYPE), reg.object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
 end
 
 func zp_flag(s: word): byte
-  if kernel.sym_flags[s] & kernel.SF_ZP != 0 then
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_ZP != 0 then
     return reg.F_ZP
   end
   return 0
@@ -321,7 +321,7 @@ end
 pub func parameter(f: word, i: byte)
   var t: byte
   settle()
-  t = kernel.member_type[kernel.sym_members[f] + i]
+  t = kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + i)
   if saving(f) then
     if argument_count == MAX_ARGUMENTS then
       err.fatal(err.E_OPERANDS_FULL)
@@ -331,7 +331,7 @@ pub func parameter(f: word, i: byte)
     argument_count += 1
     return
   end
-  reg.push_memory(kernel.member_type[kernel.sym_members[f] + i], reg.object_symbol(f), i, 0, 0,
+  reg.push_memory(kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + i), reg.object_symbol(f), i, 0, 0,
       kernel.NO_SYM)
   if i > 0 and not in_register(f, i - 1) then
     outer = reg.object_symbol(f)
@@ -730,7 +730,7 @@ end
 ; Operand `i` is taken as a value of the type of parameter `p` of `f`, which has its size.
 func as_parameter(f: word, p: byte, i: byte)
   var t: byte
-  t = kernel.member_type[kernel.sym_members[f] + p]
+  t = kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + p)
   if typetab.size(t) == 1 then
     reg.op_size[i] = 1  ; a widened byte as the byte it is
   end
@@ -792,10 +792,10 @@ func math_function(n: byte): word
       kernel.member_add(MATH_TYPES[3 * n + k], where)
     end
   end
-  kernel.sym_obj[s] = math_obj[n]
-  kernel.sym_members[s] = math_member[n]
-  kernel.sym_params[s] = 2
-  kernel.sym_results[s] = 1
+  kernel.set_word(s, kernel.C_OBJ, math_obj[n])
+  kernel.set_word(s, kernel.C_MEMBERS, math_member[n])
+  kernel.set_byte(s, kernel.C_PARAMS, 2)
+  kernel.set_byte(s, kernel.C_RESULTS, 1)
   return s
 end
 
@@ -1759,11 +1759,11 @@ func register_of(f: word, i: byte): byte
   var m: word
   var wide: bool
   var j: byte
-  m = kernel.sym_members[f]
+  m = kernel.word_of(f, kernel.C_MEMBERS)
   if by_registers(f) then
-    return kernel.member_value[m + i]
+    return kernel.member_value_of(m + i)
   end
-  wide = typetab.size(kernel.member_type[m]) == 2
+  wide = typetab.size(kernel.member_type_of(m)) == 2
   if i == 0 and wide then
     return REG_AX
   end
@@ -1771,7 +1771,7 @@ func register_of(f: word, i: byte): byte
     return REG_NONE
   end
   for j = 1 until i + 1 do
-    if typetab.size(kernel.member_type[m + j]) != 1 then
+    if typetab.size(kernel.member_type_of(m + j)) != 1 then
       return REG_NONE
     end
   end
@@ -1791,7 +1791,7 @@ end
 func register_count(f: word): byte
   var n: byte
   n = 0
-  while n < kernel.sym_params[f] and register_of(f, n) != REG_NONE do
+  while n < kernel.byte_of(f, kernel.C_PARAMS) and register_of(f, n) != REG_NONE do
     n += 1
   end
   return n
@@ -1853,7 +1853,7 @@ pub func receive(f: word)
   var where: byte
   for i = 0 until register_count(f) do
     where = register_of(f, i)
-    reg.push_slot(kernel.member_type[kernel.sym_members[f] + i], i)
+    reg.push_slot(kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + i), i)
     if where == REG_AX then
       reg.store(reg.A, reg.depth - 1, 0)
       reg.store(reg.X, reg.depth - 1, 1)
@@ -1869,11 +1869,11 @@ end
 pub func result(f: word)
   var m: word
   var where: byte
-  if kernel.sym_results[f] == 0 then
+  if kernel.byte_of(f, kernel.C_RESULTS) == 0 then
     return
   end
-  m = kernel.sym_members[f] + kernel.sym_params[f]
-  where = kernel.member_value[m]
+  m = kernel.word_of(f, kernel.C_MEMBERS) + kernel.byte_of(f, kernel.C_PARAMS)
+  where = kernel.member_value_of(m)
   if where == REG_C then
     cond.push(OP_BCS)
     return
@@ -1890,12 +1890,12 @@ pub func result(f: word)
     fbuf.op(OP_TAX)
     fbuf.op(OP_PLA)
   end
-  reg.push_register(kernel.member_type[m])
+  reg.push_register(kernel.member_type_of(m))
 end
 
 ; True if function `f` takes its arguments in registers: an `extern` or `asm` function.
 func by_registers(f: word): bool
-  return kernel.sym_flags[f] & (kernel.SF_EXTERN | kernel.SF_ASM) != 0
+  return kernel.byte_of(f, kernel.C_FLAGS) & (kernel.SF_EXTERN | kernel.SF_ASM) != 0
 end
 
 ; The newest operand, a value of a function type, is to be called through. It becomes the
@@ -1915,7 +1915,7 @@ pub func through_pointer()
   s = reg.op_var[i]
   whole = reg.op_symbol[i] == kernel.NO_OBJ or (reg.op_value[i] == 0 and (
       reg.op_flags[i] & reg.F_TEMP != 0 or (reg.op_symbol[i] == reg.own and reg.slot_size[reg.op_slot[i]] == 2) or
-      (s != kernel.NO_SYM and typetab.size(kernel.sym_type[s]) == 2)))
+      (s != kernel.NO_SYM and typetab.size(kernel.byte_of(s, kernel.C_TYPE)) == 2)))
   if reg.op_kind[i] != reg.O_VAR or reg.op_mode[i] != reg.M_DIRECT or not whole then
     to_temporary(i, false)
   end
@@ -1926,7 +1926,7 @@ end
 
 ; True if `f` is a function type: a call of it is through a pointer.
 pub func through(f: word): bool
-  return kernel.sym_kind[f] == kernel.K_TYPE
+  return kernel.byte_of(f, kernel.C_KIND) == kernel.K_TYPE
 end
 
 ; The label of the JMP (pointer) for the callee operand `i`, a call through a pointer:
@@ -1957,9 +1957,9 @@ pub func saving(f: word): bool
     return false
   end
   if through(f) then
-    return typetab.is_recursive(kernel.sym_type[f])
+    return typetab.is_recursive(kernel.byte_of(f, kernel.C_TYPE))
   end
-  return kernel.sym_flags[f] & kernel.SF_RECURSIVE != 0
+  return kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0
 end
 
 ; The symbols of rt_frame.push and rt_frame.pop_y, and the IMP record of rt_frame, which
@@ -2040,7 +2040,7 @@ func save_frame(f: word, first: byte)
   if through(f) and reg.op_flags[first - 1] & reg.F_TEMP != 0 then
     skip = reg.op_slot[first - 1]
   end
-  base = argument_count - kernel.sym_params[f]
+  base = argument_count - kernel.byte_of(f, kernel.C_PARAMS)
   saved_count = 0
   for n = 0 until fbuf.FIRST_TEMP + reg.temp_count do
     if n < reg.local_count or (n >= fbuf.FIRST_TEMP and reg.slot_busy[n] and n != skip and
@@ -2057,7 +2057,7 @@ func save_frame(f: word, first: byte)
     out.call(frame_push, 0, outer)
   end
   count = register_count(f)
-  for p = count until kernel.sym_params[f] do
+  for p = count until kernel.byte_of(f, kernel.C_PARAMS) do
     n = argument_slot[base + p]
     for k = 0 until reg.slot_size[n] do
       slot_byte(OP_LDA, reg.own, n, k)
@@ -2072,7 +2072,7 @@ func save_frame(f: word, first: byte)
       end
     end
   end
-  for p = 0 until kernel.sym_params[f] do
+  for p = 0 until kernel.byte_of(f, kernel.C_PARAMS) do
     reg.slot_busy[argument_slot[base + p]] = false
   end
   argument_count = base
@@ -2111,7 +2111,7 @@ pub func call(f: word, first: byte, wanted: bool)
   if reg.owner != reg.NONE and reg.owner < first then
     reg.spill(byte(reg.owner))  ; before the arguments are loaded over it
   end
-  if kernel.sym_params[f] > 0 and in_register(f, 0) then
+  if kernel.byte_of(f, kernel.C_PARAMS) > 0 and in_register(f, 0) then
     load_registers(f, first, reg.depth - first)
     while reg.depth > first do
       reg.pop()
@@ -2123,8 +2123,8 @@ pub func call(f: word, first: byte, wanted: bool)
     save_frame(f, first)
     flags = out.CALL_SAVES
   end
-  if kernel.sym_flags[f] & kernel.SF_EXTERN != 0 then
-    fbuf.op_word(fbuf.OP_JSR, kernel.sym_value[f])
+  if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_EXTERN != 0 then
+    fbuf.op_word(fbuf.OP_JSR, kernel.word_of(f, kernel.C_VALUE))
   elif through(f) then
     fbuf.call_label(stub(first - 1))
     out.call(reg.object_symbol(f), flags | out.CALL_POINTER, outer)
@@ -2340,13 +2340,13 @@ pub func initial(s: word, source: word, slot: byte, value: word)
   end
   init_source[init_count] = source
   init_slot[init_count] = slot
-  init_symbol[init_count] = kernel.sym_obj[s]
+  init_symbol[init_count] = kernel.word_of(s, kernel.C_OBJ)
   init_address[init_count] = 0
-  if kernel.sym_flags[s] & kernel.SF_AT != 0 then
-    init_address[init_count] = kernel.sym_value[s]
+  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0 then
+    init_address[init_count] = kernel.word_of(s, kernel.C_VALUE)
   end
   init_flags[init_count] = zp_flag(s)
-  init_type[init_count] = kernel.sym_type[s]
+  init_type[init_count] = kernel.byte_of(s, kernel.C_TYPE)
   init_value[init_count] = value
   init_count += 1
 end

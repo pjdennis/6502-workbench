@@ -65,8 +65,8 @@ def show_slot(n):
 
 def symbol(scope, name, kind, t, value):
     s = kernel.sym_add(scope, name, kind)
-    kernel.sym_type[s] = t
-    kernel.sym_value[s] = value
+    kernel.set_byte(s, kernel.C_TYPE, t)
+    kernel.set_word(s, kernel.C_VALUE, value)
     script.show_word(s)
     return s
 
@@ -93,13 +93,13 @@ def run(c):
         d = s_()
         v = n_()
         s = symbol(d, script.name(), kernel.K_VAR, a, v)
-        kernel.sym_flags[s] = b
+        kernel.set_byte(s, kernel.C_FLAGS, b)
     elif c == 1:
         n = script.name()
         a = s_()
         b = s_()
         s = symbol(a, n, kernel.K_FUNC, typetab.NO_TYPE, n_())
-        kernel.sym_flags[s] = b
+        kernel.set_byte(s, kernel.C_FLAGS, b)
     elif c == 2:
         n = script.name()
         a = s_()
@@ -121,7 +121,7 @@ def run(c):
     elif c == 6:
         n = script.name()
         s = symbol(kernel.SCOPE_LOCAL, n, kernel.K_VAR, typetab.WORD_TYPE, 0)
-        kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, module_m, name_f, n)
+        kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, module_m, name_f, n))
     elif c == 7:
         symbol(kernel.SCOPE_MODULE, script.name(), kernel.K_TYPE, typetab.NO_TYPE, 0)
     elif c == 8:
@@ -130,7 +130,7 @@ def run(c):
         reg.loop_depth = s_()
     elif c == 10:
         s = n_()
-        kernel.sym_weight[s] = s_()
+        kernel.set_byte(s, kernel.C_WEIGHT, s_())
     elif c == 11:
         a = s_()
         reg.load_const(a, s_())
@@ -157,8 +157,8 @@ def run(c):
             show_slot(a)
     elif c == 16:
         s = n_()
-        script.show_byte(kernel.sym_weight[s])
-        script.show_byte(kernel.sym_flags[s])
+        script.show_byte(kernel.byte_of(s, kernel.C_WEIGHT))
+        script.show_byte(kernel.byte_of(s, kernel.C_FLAGS))
     elif c == 17:
         out.end_module()
     elif c == 18:

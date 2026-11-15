@@ -80,10 +80,10 @@ class SymbolTableTest(KernelTest):
         n = name(b'main')
         s = kernel.sym_add(kernel.SCOPE_MODULE, n, kernel.K_FUNC)
         self.assertEqual(kernel.sym_find(kernel.SCOPE_MODULE, n), (s, True))
-        self.assertEqual(kernel.sym_name[s], n)
-        self.assertEqual(kernel.sym_kind[s], kernel.K_FUNC)
-        self.assertEqual(kernel.sym_obj[s], kernel.NO_OBJ)
-        self.assertEqual(kernel.sym_flags[s], 0)
+        self.assertEqual(kernel.word_of(s, kernel.C_NAME), n)
+        self.assertEqual(kernel.byte_of(s, kernel.C_KIND), kernel.K_FUNC)
+        self.assertEqual(kernel.word_of(s, kernel.C_OBJ), kernel.NO_OBJ)
+        self.assertEqual(kernel.byte_of(s, kernel.C_FLAGS), 0)
 
     def test_the_kinds_of_symbol_are_all_different(self):
         kinds = [kernel.K_MODULE, kernel.K_FUNC, kernel.K_CONST, kernel.K_VAR, kernel.K_LOCAL, kernel.K_BUILTIN,
@@ -98,10 +98,10 @@ class SymbolTableTest(KernelTest):
     def test_a_symbol_starts_with_no_weight_even_where_another_was(self):
         kernel.scope_begin()
         s = kernel.sym_add(kernel.SCOPE_LOCAL, name(b'n'), kernel.K_VAR)
-        kernel.sym_weight[s] = 200
+        kernel.set_byte(s, kernel.C_WEIGHT, 200)
         kernel.scope_end()
         again = kernel.sym_add(kernel.SCOPE_MODULE, name(b'm'), kernel.K_VAR)
-        self.assertEqual((again, kernel.sym_weight[again]), (s, 0))
+        self.assertEqual((again, kernel.byte_of(again, kernel.C_WEIGHT)), (s, 0))
 
     def test_an_unknown_name_is_not_found(self):
         _, found = kernel.sym_find(kernel.SCOPE_MODULE, name(b'nothing'))
@@ -166,7 +166,7 @@ class SymbolTableTest(KernelTest):
         kernel.scope_begin()
         inner = kernel.sym_add(kernel.SCOPE_LOCAL, n, kernel.K_CONST)
         self.assertEqual(kernel.name_symbol(n), inner)
-        self.assertEqual(kernel.sym_link[inner], outer)
+        self.assertEqual(kernel.word_of(inner, kernel.C_LINK), outer)
 
     def test_symbols_above_a_mark_can_be_released_and_their_names_kept(self):
         a, b = name(b'a'), name(b'b')
@@ -196,7 +196,7 @@ class SymbolTableTest(KernelTest):
         first = kernel.member_add(3, 1)
         second = kernel.member_add(5, 7)
         self.assertEqual(second, first + 1)
-        self.assertEqual((kernel.member_type[second], kernel.member_value[second]), (5, 7))
+        self.assertEqual((kernel.member_type_of(second), kernel.member_value_of(second)), (5, 7))
 
     def test_too_many_members_is_error_72(self):
         def fill():

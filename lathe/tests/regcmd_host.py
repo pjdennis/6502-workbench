@@ -41,8 +41,8 @@ def members(s):
     for _ in range(p + r):
         t = script.small()
         kernel.member_add(t, script.small())
-    kernel.sym_params[s] = p
-    kernel.sym_results[s] = r
+    kernel.set_byte(s, kernel.C_PARAMS, p)
+    kernel.set_byte(s, kernel.C_RESULTS, r)
 
 
 def show_entry(i):
@@ -97,16 +97,16 @@ def run(c):
         d = s_()
         v = n_()
         s = kernel.sym_add(d, script.name(), kernel.K_VAR)
-        kernel.sym_type[s] = a
-        kernel.sym_flags[s] = b
-        kernel.sym_value[s] = v
+        kernel.set_byte(s, kernel.C_TYPE, a)
+        kernel.set_byte(s, kernel.C_FLAGS, b)
+        kernel.set_word(s, kernel.C_VALUE, v)
         script.show_word(s)
     elif c == 4:
         n = script.name()
         a = s_()
         b = s_()
         s = kernel.sym_add(a, n, kernel.K_FUNC)
-        kernel.sym_flags[s] = b
+        kernel.set_byte(s, kernel.C_FLAGS, b)
         members(s)
         script.show_word(s)
     elif c == 5:
@@ -115,7 +115,7 @@ def run(c):
         s = kernel.sym_add(kernel.SCOPE_MODULE, n, kernel.K_TYPE)
         members(s)
         a = typetab.declared(typetab.FORM_FUNC, s)
-        kernel.sym_type[s] = a
+        kernel.set_byte(s, kernel.C_TYPE, a)
         if b & 1 != 0:
             typetab.make_recursive(a)
         script.show_word(s)
@@ -330,8 +330,8 @@ def run(c):
         script.show_byte(typetab.array_of(a, v, script.flag()))
     elif c == 75:
         s = n_()
-        script.show_byte(kernel.sym_weight[s])
-        script.show_byte(kernel.sym_flags[s])
+        script.show_byte(kernel.byte_of(s, kernel.C_WEIGHT))
+        script.show_byte(kernel.byte_of(s, kernel.C_FLAGS))
     elif c == 76:
         show_slots()
     elif c == 77:

@@ -140,15 +140,29 @@ end
 ; Both disable interrupts while they change the port, so a handler that far-calls into a bank
 ; while the main program is inside a block finds the port as the block left it, and puts it
 ; back when it returns.
+;
+; A region in fixed memory has the bank value 0 (the linker's kind 6 fix-up): its block maps
+; nothing. map(0) touches no port and gives FIXED, which no bank has (map() gives bits 0-4), and
+; unmap(FIXED) returns at once. Such a block costs 32 cycles, against 94 for a bank and the 90
+; it cost when map(0) mapped bank 0 (all in one, with rt_with, 24: test_farcall.py, WithBlocks).
+; Both test the flags their argument's load set: the compiler calls them right after its
+; LDA #bank and its LDY temporary.
+const FIXED: byte = $80             ; what map(0) gives: bit 7 set, for unmap's BMI
 
 ; Map bank `value` into the window, keeping bits 5-7; give the bank that was there. select().
+; Entered with the flags of `value` (Z set for 0, a region in fixed memory: nothing is mapped).
 pub asm func map(value: byte in a): byte in a
+  BEQ .fixed
   JMP select
+.fixed
+  LDA #FIXED
 end
 
 ; Put back bank `value`, which map() gave, keeping bits 5-7. A, X, Y and the flags are kept, so
-; that a result on its way out of the block (A, X, the carry) is not lost.
+; that a result on its way out of the block (A, X, the carry) is not lost. Entered with the
+; flags of `value` (N set for FIXED: nothing to put back).
 pub asm func unmap(value: byte in y)
+  BMI .fixed
   PHP
   SEI
   PHA
@@ -159,6 +173,7 @@ pub asm func unmap(value: byte in y)
   STA PORT
   PLA
   PLP
+.fixed
 end
 
 ; Load the file named at `name` to `dest` and on, to its end. Returns true if it cannot be opened.

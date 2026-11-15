@@ -7,7 +7,8 @@ alone in a module image by lathe/host/driver/bbcrom.py and started by its * comm
 placed in banks go to main RAM with the rest (lathe/docs/bbc.md, "Step 3, as built: the ROM
 form", has the numbers). Each section of each script must give what the Python twin gives at the
 small build's capacities, with the error output joined to the output as on the BBC; the files
-written must be the same. All of it takes about 15 seconds."""
+written must be the same. gentest also at the full capacities (GenRomFull), against the twin at
+its own. All of it takes about 15 seconds."""
 import concurrent.futures
 import os
 import shutil
@@ -30,11 +31,12 @@ class InTheRom:
     """One program, built for the ROM form and put in a module image in setUpClass (a mixin)."""
     NAME = None
     SCRIPT = None
+    SPLIT = None                    # the full capacities, with the fixed variables from here
 
     @classmethod
     def setUpClass(cls):
         cls.dir = tempfile.mkdtemp(prefix='lathe-bbc-rom-src-')
-        run_env = bbc.bank_env(cls.NAME, os.path.join(cls.dir, cls.NAME + '-run.env'))
+        run_env = bbc.bank_env(cls.NAME, os.path.join(cls.dir, cls.NAME + '-run.env'), cls.SPLIT)
         cls.env = os.path.join(cls.dir, cls.NAME + '.env')
         bbcrom.rom_env(run_env, cls.env, 1)
         cls.command = cls.NAME.upper()
@@ -82,7 +84,7 @@ class InTheRom:
         windows = [(name, bank) for kind, address, size, name, bank in self.map if kind == 'W']
         for kind, address, size, name, bank in self.map:
             if kind == 'V' and bank is not None:
-                self.assertIn(bank, (32, 33), name)
+                self.assertIn(bank, (32, 33, 34, 35), name)
             if kind in 'FDTVS' and bank is None and address >= 0x0800:
                 self.assertLessEqual(address + size, TOP, name)
             if bank is not None and kind in 'FD' and bank < 16:
@@ -93,7 +95,8 @@ class InTheRom:
         self.assertEqual(sorted(roms), ['1', '2', '3', '4', '5'][:len(roms)])
         self.assertGreaterEqual(len(roms), 2)
         tables = {name: bank for kind, address, size, name, bank in self.map if kind in 'VD'}
-        for table, bank in (('kernel.names', 32), ('fbuf.buffer', 33), ('err.messages_1', 33)):
+        for table, bank in (('kernel.names', 32), ('fbuf.buffer', 33), ('err.messages_1', 33),
+                            ('kernel.sym_bytes', 34)):
             self.assertEqual(tables.get(table), bank, table)
 
     def test_every_script(self):
@@ -108,7 +111,7 @@ class InTheRom:
         for (title, text, path, made), (status, out, said, _) in zip(runs, lathe):
             with self.subTest(section=title.decode()):
                 host = bbc.host_run(self.main(), [os.path.basename(path), os.path.basename(made) + 'P'],
-                                    self.dir)
+                                    self.dir, small=self.SPLIT is None)
                 if out != host[1]:
                     self.fail(script.first_difference(text, out, host[1]))
                 self.assertEqual((status, said), (host[0], b''))
@@ -146,6 +149,14 @@ class GenRom(InTheRom, unittest.TestCase):
     NAME = 'gentest'
     SCRIPT = 'gen'
     main = banked.GenBanked.main
+
+
+@unittest.skipUnless(HAVE_TOOLS, 'emulator or compiler missing')
+class GenRomFull(GenRom):
+    """At the full capacities (SMALL 0), with the split of the banked run: since the symbol
+    table, OUT's table and DECL's import rows are in regions, the variables of the modules in
+    ROM banks fit main RAM beside the rest."""
+    SPLIT = banked.FULL_SPLIT['gentest']
 
 
 if __name__ == '__main__':

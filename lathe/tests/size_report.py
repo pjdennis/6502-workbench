@@ -35,7 +35,7 @@ import script_host
 
 LAYERS = ('err', 'kernel', 'src', 'lex')         # measured first, by lextest
 MODULES = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen',
-           'asmblock', 'inline', 'expr', 'decl', 'lathec')
+           'asmblock', 'inline', 'parts', 'expr', 'decl', 'lathec')
 TWIN = {'inline': 'inlines'}    # a twin whose module has another name: `inline` is a keyword
 PROGRAMS = ('lextest', 'errtest', 'kerneltest', 'srctest', 'typetest', 'foldtest', 'fbuftest',
             'outtest', 'regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest', 'exprtest', 'lathec')

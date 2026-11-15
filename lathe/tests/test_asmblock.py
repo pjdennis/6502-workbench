@@ -129,14 +129,14 @@ class AsmTest(unittest.TestCase):
     def function(self, text, extern_at=None):
         s = kernel.sym_add(kernel.SCOPE_MODULE, name(text), kernel.K_FUNC)
         if extern_at is not None:
-            kernel.sym_flags[s] = kernel.SF_EXTERN
-            kernel.sym_value[s] = extern_at
+            kernel.set_byte(s, kernel.C_FLAGS, kernel.SF_EXTERN)
+            kernel.set_word(s, kernel.C_VALUE, extern_at)
         return s
 
     def constant(self, text, value):
         s = kernel.sym_add(kernel.SCOPE_MODULE, name(text), kernel.K_CONST)
-        kernel.sym_type[s] = typetab.NUMBER_TYPE
-        kernel.sym_value[s] = value
+        kernel.set_byte(s, kernel.C_TYPE, typetab.NUMBER_TYPE)
+        kernel.set_word(s, kernel.C_VALUE, value)
 
 
 class TableTest(AsmTest):
@@ -307,7 +307,7 @@ class OperandTest(AsmTest):
     def test_a_function_of_another_module(self):
         kernel.module_add(name(b'util'))
         s = kernel.sym_add(kernel.SCOPE_MODULE, name(b'util'), kernel.K_MODULE)
-        kernel.sym_value[s] = 1
+        kernel.set_word(s, kernel.C_VALUE, 1)
         kernel.sym_add(1, name(b'go'), kernel.K_FUNC)
         self.assertEqual(self.assemble(b'  JSR util.go\n'), b'\x20\x00\x00\x60')
         self.assertEqual(self.fixups, [(1, 1, 1, 0xFF, 0)])
@@ -490,14 +490,14 @@ class NameOperandTest(AsmTest):
     def test_a_dot_with_no_member_is_error_21_at_the_operand(self):
         kernel.module_add(name(b'util'))
         s = kernel.sym_add(kernel.SCOPE_MODULE, name(b'util'), kernel.K_MODULE)
-        kernel.sym_value[s] = 1
+        kernel.set_word(s, kernel.C_VALUE, 1)
         self.fails(b'  LDA util.\n', err.E_NAME_EXPECTED, 2, 7)
         self.fails(b'  LDA #<util. \n', err.E_NAME_EXPECTED, 2, 9)
 
     def test_a_module_needs_a_member(self):
         kernel.module_add(name(b'util'))
         s = kernel.sym_add(kernel.SCOPE_MODULE, name(b'util'), kernel.K_MODULE)
-        kernel.sym_value[s] = 1
+        kernel.set_word(s, kernel.C_VALUE, 1)
         with self.assertRaises(SystemExit):
             asmblock.name_operand(name(b'util'), 0)
         self.assertIn('error 36:', support.error_text())
@@ -509,55 +509,55 @@ class TablesTest(AsmTest):
 
     def variable(self, text, flags=0, scope=kernel.SCOPE_MODULE, inner=0):
         s = kernel.sym_add(scope, name(text), kernel.K_VAR)
-        kernel.sym_type[s] = typetab.WORD_TYPE
-        kernel.sym_flags[s] = flags
+        kernel.set_byte(s, kernel.C_TYPE, typetab.WORD_TYPE)
+        kernel.set_byte(s, kernel.C_FLAGS, flags)
         if flags & kernel.SF_AT == 0:
-            kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, name(b'm'), inner, name(text))
+            kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, name(b'm'), inner, name(text)))
         return s
 
     def slot(self, text, zp_class=reg.CLASS_EITHER, kind=reg.SLOT_LOCAL):
         """A slot of the function, made once its frame has begun (from assemble's `before`)."""
         s = kernel.sym_add(kernel.SCOPE_LOCAL, name(text), kernel.K_LOCAL)
-        kernel.sym_type[s] = typetab.WORD_TYPE
-        kernel.sym_value[s] = reg.new_slot(2, zp_class, kind, name(text))
+        kernel.set_byte(s, kernel.C_TYPE, typetab.WORD_TYPE)
+        kernel.set_word(s, kernel.C_VALUE, reg.new_slot(2, zp_class, kind, name(text)))
         return s
 
     def imported(self, text, flags=0):
         kernel.module_add(name(b'util'))
         u = kernel.sym_add(kernel.SCOPE_MODULE, name(b'util'), kernel.K_MODULE)
-        kernel.sym_value[u] = 1
+        kernel.set_word(u, kernel.C_VALUE, 1)
         s = kernel.sym_add(1, name(text), kernel.K_VAR)
-        kernel.sym_type[s] = typetab.BYTE_TYPE
-        kernel.sym_flags[s] = flags
+        kernel.set_byte(s, kernel.C_TYPE, typetab.BYTE_TYPE)
+        kernel.set_byte(s, kernel.C_FLAGS, flags)
         return s
 
     def test_a_module_variable_is_its_symbol_through_a_two_byte_fix_up(self):
         v = self.variable(b'v')
         code = self.assemble(b'  LDA v\n  STA v+1\n')
         self.assertEqual(code, b'\xad\x00\x00\x8d\x00\x00\x60')
-        self.assertEqual(self.fixups, [(1, 5, kernel.sym_obj[v], fbuf.NO_SLOT, 0),
-                                       (4, 5, kernel.sym_obj[v], fbuf.NO_SLOT, 1)])
-        self.assertEqual(kernel.sym_weight[v], 2)
-        self.assertEqual(kernel.sym_flags[v] & kernel.SF_ZP, 0)
+        self.assertEqual(self.fixups, [(1, 5, kernel.word_of(v, kernel.C_OBJ), fbuf.NO_SLOT, 0),
+                                       (4, 5, kernel.word_of(v, kernel.C_OBJ), fbuf.NO_SLOT, 1)])
+        self.assertEqual(kernel.byte_of(v, kernel.C_WEIGHT), 2)
+        self.assertEqual(kernel.byte_of(v, kernel.C_FLAGS) & kernel.SF_ZP, 0)
 
     def test_name_operand_finds_a_variable_and_storage_used_counts_it(self):
         v = self.variable(b'v')
         self.assertEqual(asmblock.name_operand(name(b'v'), 0), asmblock.X_ADDRESS)
         self.assertEqual((asmblock.found_symbol, asmblock.found_slot, asmblock.found_function),
-                         (kernel.sym_obj[v], fbuf.NO_SLOT, False))
+                         (kernel.word_of(v, kernel.C_OBJ), fbuf.NO_SLOT, False))
         self.assertNotEqual(asmblock.found_storage, asmblock.NO_STORAGE)
         asmblock.storage_used(asmblock.found_storage, False)
-        self.assertEqual(kernel.sym_weight[v], 1)
+        self.assertEqual(kernel.byte_of(v, kernel.C_WEIGHT), 1)
         asmblock.storage_used(asmblock.found_storage, True)
-        self.assertEqual(kernel.sym_weight[v], 2)
-        self.assertNotEqual(kernel.sym_flags[v] & kernel.SF_ZP, 0)
+        self.assertEqual(kernel.byte_of(v, kernel.C_WEIGHT), 2)
+        self.assertNotEqual(kernel.byte_of(v, kernel.C_FLAGS) & kernel.SF_ZP, 0)
 
     def test_an_indirect_mode_makes_a_module_variable_class_0(self):
         v = self.variable(b'v')
         code = self.assemble(b'  LDA (v),Y\n')
         self.assertEqual(code, b'\xb1\x00\x60')
-        self.assertEqual(self.fixups, [(1, 4, kernel.sym_obj[v], fbuf.NO_SLOT, 0)])
-        self.assertNotEqual(kernel.sym_flags[v] & kernel.SF_ZP, 0)
+        self.assertEqual(self.fixups, [(1, 4, kernel.word_of(v, kernel.C_OBJ), fbuf.NO_SLOT, 0)])
+        self.assertNotEqual(kernel.byte_of(v, kernel.C_FLAGS) & kernel.SF_ZP, 0)
 
     def test_a_static_variable_is_its_own_symbol(self):
         code = self.assemble(b'  INC st\n', before=self.make_static)
@@ -567,11 +567,11 @@ class TablesTest(AsmTest):
     def make_static(self):
         kernel.scope_begin()
         s = self.variable(b'st', 0, kernel.SCOPE_LOCAL, name(b'f'))
-        self.static_obj = kernel.sym_obj[s]
+        self.static_obj = kernel.word_of(s, kernel.C_OBJ)
 
     def test_a_variable_at_a_fixed_address_is_its_address(self):
         v = self.variable(b'hw', kernel.SF_AT)
-        kernel.sym_value[v] = 0x0080
+        kernel.set_word(v, kernel.C_VALUE, 0x0080)
         self.assertEqual(self.assemble(b'  LDA hw+1\n  STA (hw),Y\n'), b'\xa5\x81\x91\x80\x60')
         self.assertEqual(self.fixups, [])
 
@@ -605,9 +605,9 @@ class TablesTest(AsmTest):
 
     def test_weights_stop_at_255(self):
         v = self.variable(b'v')
-        kernel.sym_weight[v] = 250
+        kernel.set_byte(v, kernel.C_WEIGHT, 250)
         self.assemble(b'  LDA v\n  LDA v\n  LDA v\n  LDA v\n  LDA v\n  LDA v\n')
-        self.assertEqual(kernel.sym_weight[v], 255)
+        self.assertEqual(kernel.byte_of(v, kernel.C_WEIGHT), 255)
 
     def test_a_variable_of_another_module_is_its_symbol(self):
         self.imported(b'w')

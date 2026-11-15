@@ -38,9 +38,9 @@ import err (E_CREATE, E_OPEN_SOURCE, E_SOURCE_NAME, E_USAGE, fatal, init, positi
 import expr (init)
 import gen (cpu, init)
 import inlines (init)
-import kernel (init, K_CONST, keep_argument, module_add, module_name, name_add, name_begin,
-               name_end, name_token, path_add, path_add_name, path_add_text, path_begin, path_end,
-               SCOPE_PREDECLARED, sym_add, sym_type, sym_value)
+import kernel (C_TYPE, C_VALUE, init, K_CONST, keep_argument, module_add, module_name, name_add,
+               name_begin, name_end, name_token, path_add, path_add_name, path_add_text, path_begin,
+               path_end, SCOPE_PREDECLARED, set_byte, set_word, sym_add)
 import lex (fold, init, is_digit, is_letter)
 import out (end_module, init, open)
 import src (init, open_file)
@@ -145,8 +145,8 @@ end
 func constant(name: word, t: byte, value: word)
   var s: word
   s = kernel.sym_add(kernel.SCOPE_PREDECLARED, name, kernel.K_CONST)
-  kernel.sym_type[s] = t
-  kernel.sym_value[s] = value
+  kernel.set_byte(s, kernel.C_TYPE, t)
+  kernel.set_word(s, kernel.C_VALUE, value)
 end
 
 ; The number written in decimal at `place`, to the end of the text.

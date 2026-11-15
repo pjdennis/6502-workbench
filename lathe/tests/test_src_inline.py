@@ -76,7 +76,7 @@ def show_token():
 
 
 def show_record(f):
-    r = kernel.sym_value[f]
+    r = kernel.word_of(f, kernel.C_VALUE)
     script.show_word(r - inline.saved_start)
     script.show_word(inline.word_at(r + inline.R_END) - inline.saved_start)
     script.show_word(inline.word_at(r + inline.R_LINE))
@@ -84,12 +84,12 @@ def show_record(f):
     env.put_byte(0x20)
     script.show_byte(env.mem[r + inline.R_FLAGS])
     script.show_word(inline.word_at(r + inline.R_WRITTEN))
-    for i in range(kernel.sym_params[f]):
+    for i in range(kernel.byte_of(f, kernel.C_PARAMS)):
         p = inline.param(f, i)
         script.show_word(inline.word_at(p))
         script.show_byte(env.mem[p + 2])
     env.put_byte(ord('|'))
-    p = r + inline.R_PARAMS + kernel.sym_params[f] * inline.PARAM_SIZE
+    p = r + inline.R_PARAMS + kernel.byte_of(f, kernel.C_PARAMS) * inline.PARAM_SIZE
     while p < inline.word_at(r + inline.R_END):
         script.show_byte(env.mem[p])
         p += 1
@@ -101,8 +101,8 @@ def members(s):
     for n in range(p + r):
         t = script.small()
         kernel.member_add(t, script.small())
-    kernel.sym_params[s] = p
-    kernel.sym_results[s] = r
+    kernel.set_byte(s, kernel.C_PARAMS, p)
+    kernel.set_byte(s, kernel.C_RESULTS, r)
 
 
 def show_found(s, found):
@@ -151,11 +151,11 @@ def show_state():
 
 def show_symbols(first):
     for s in range(first, kernel.sym_count):
-        script.show_word(kernel.sym_name[s])
-        script.show_byte(kernel.sym_scope[s])
-        script.show_byte(kernel.sym_kind[s])
-        script.show_byte(kernel.sym_type[s])
-        script.show_word(kernel.sym_value[s])
+        script.show_word(kernel.word_of(s, kernel.C_NAME))
+        script.show_byte(kernel.byte_of(s, kernel.C_SCOPE))
+        script.show_byte(kernel.byte_of(s, kernel.C_KIND))
+        script.show_byte(kernel.byte_of(s, kernel.C_TYPE))
+        script.show_word(kernel.word_of(s, kernel.C_VALUE))
         env.put_byte(ord(','))
 
 
@@ -184,15 +184,15 @@ def run(c):
         a = s_()
         b = s_()
         s = kernel.sym_add(a, n, kernel.K_FUNC)
-        kernel.sym_flags[s] = b
+        kernel.set_byte(s, kernel.C_FLAGS, b)
         members(s)
         script.show_word(s)
     elif c == 6:
         s = n_()
         kernel.scope_begin()
-        for a in range(kernel.sym_params[s]):
+        for a in range(kernel.byte_of(s, kernel.C_PARAMS)):
             v = kernel.sym_add(kernel.SCOPE_LOCAL, script.name(), kernel.K_LOCAL)
-            kernel.sym_type[v] = kernel.member_type[kernel.sym_members[s] + a]
+            kernel.set_byte(v, kernel.C_TYPE, kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + a))
     elif c == 7:
         s = n_()
         inline.save(s)
@@ -208,9 +208,9 @@ def run(c):
         e = s_()
         v = n_()
         s = kernel.sym_add(b, script.name(), a)
-        kernel.sym_flags[s] = d
-        kernel.sym_type[s] = e
-        kernel.sym_value[s] = v
+        kernel.set_byte(s, kernel.C_FLAGS, d)
+        kernel.set_byte(s, kernel.C_TYPE, e)
+        kernel.set_word(s, kernel.C_VALUE, v)
         script.show_word(s)
     elif c == 10:
         s = n_()

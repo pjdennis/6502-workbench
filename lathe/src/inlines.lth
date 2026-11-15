@@ -39,7 +39,7 @@
 ;   | memory, with p a number              |                                   | sys.lth,        |
 ;   |                                      |                                   | "Pointers"      |
 ;   | kernel.token_byte(p): p a number     | p a ^byte; a record is ^byte(     | (the same)      |
-;   |                                      | kernel.sym_value[f]), kept in a   |                 |
+;   |                                      | word_of(f, C_VALUE)), kept in a   |                 |
 ;   |                                      | local `r` or `q`                  |                 |
 ;   | saved_start, saved_top: numbers      | ^byte                             | (the same)      |
 ;   | param(f, i): i * PARAM_SIZE          | word(i) * PARAM_SIZE              | no byte wraps   |
@@ -62,13 +62,13 @@ import err (E_BAD_INTERFACE, E_END_EXPECTED, E_INLINE_DEEP, E_INLINE_FULL, E_INL
             E_UNDEFINED, E_WANTS_FULL, fatal)
 import fbuf (new_label, NO_SLOT)
 import gen (local, must_protect, protect, store, variable)
-import kernel (get, get_word, K_CONST, K_FUNC, K_LOCAL, K_MODULE, K_VAR, local_base, member_type,
-               module_find, name_add, name_begin, name_char, name_end, name_length, name_symbol,
-               NO_OBJ, NO_SYM, put, put_name, put_word, SCOPE_LOCAL, SCOPE_MODULE,
-               SCOPE_PREDECLARED, set_token_byte, SF_LIST, SF_NOZP, SF_PUB, SF_ZP, sym_add,
-               sym_count, sym_find, sym_flags, sym_kind, sym_link, sym_lookup, sym_members,
-               sym_name, sym_params, sym_release, sym_results, sym_scope, sym_type, sym_value,
-               text_reserve, token_byte, token_start)
+import kernel (byte_of, C_FLAGS, C_KIND, C_LINK, C_MEMBERS, C_NAME, C_PARAMS, C_RESULTS, C_SCOPE,
+               C_TYPE, C_VALUE, get, get_word, K_CONST, K_FUNC, K_LOCAL, K_MODULE, K_VAR,
+               local_base, member_type_of, module_find, name_add, name_begin, name_char, name_end,
+               name_length, name_symbol, NO_OBJ, NO_SYM, put, put_name, put_word, SCOPE_LOCAL,
+               SCOPE_MODULE, SCOPE_PREDECLARED, set_byte, set_token_byte, set_word, SF_LIST,
+               SF_NOZP, SF_PUB, SF_ZP, sym_add, sym_count, sym_find, sym_lookup, sym_release,
+               text_reserve, token_byte, token_start, word_of)
 import src (name, open_saved)                      ; before lex, whose interface imports it too
 import lex (col, line, MAX_COLUMN, next, SAVED_LINE, string_byte, string_length, T_ADDRESS, T_ARROW,
             T_ASM, T_ASSIGN, T_CASE, T_COMMA, T_CRITICAL, T_DOT, T_END, T_EOF, T_FOR, T_HASH_IF,
@@ -172,19 +172,19 @@ end
 
 ; Where the record of inline function `f` has its parameter `i`.
 pub func param(f: word, i: byte): ^byte
-  return ^byte(kernel.sym_value[f]) + R_PARAMS + word(i) * PARAM_SIZE
+  return ^byte(kernel.word_of(f, kernel.C_VALUE)) + R_PARAMS + word(i) * PARAM_SIZE
 end
 
 ; Start the record of inline function `f`, whose tokens follow.
 func begin_record(f: word, line: word, file_name: ^byte)
   var i: byte
-  kernel.sym_value[f] = word(saved_top)
+  kernel.set_word(f, kernel.C_VALUE, word(saved_top))
   put_word(0)
   put_word(line)
   put_word(word(file_name))
   put(0)
   put_word(0)
-  for i = 0 until kernel.sym_params[f] do
+  for i = 0 until kernel.byte_of(f, kernel.C_PARAMS) do
     put_word(0)
     put(0)
   end
@@ -195,7 +195,7 @@ end
 ; The number of the parameter of `f` called `name`, or $FF.
 func parameter_number(f: word, name: word): byte
   var i: byte
-  for i = 0 until kernel.sym_params[f] do
+  for i = 0 until kernel.byte_of(f, kernel.C_PARAMS) do
     if word_at(param(f, i)) == name then
       return i
     end
@@ -235,8 +235,8 @@ func check_name(f: word, name: word)
   if not found then
     err.fatal(err.E_UNDEFINED)
   end
-  if kernel.sym_flags[f] & kernel.SF_PUB != 0 and kernel.sym_scope[s] == kernel.SCOPE_MODULE and
-      kernel.sym_kind[s] != kernel.K_MODULE and kernel.sym_flags[s] & kernel.SF_PUB == 0 then
+  if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_PUB != 0 and kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and
+      kernel.byte_of(s, kernel.C_KIND) != kernel.K_MODULE and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB == 0 then
     err.fatal(err.E_INLINE_PRIVATE)
   end
 end
@@ -246,7 +246,7 @@ func calls(name: word): bool
   var s: word
   var found: bool
   s, found = kernel.sym_lookup(name)
-  return found and kernel.sym_kind[s] == kernel.K_FUNC
+  return found and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC
 end
 
 ; The current token is an assignment operator, after `before` (with `before_value`). If the
@@ -280,7 +280,7 @@ func assignment(f: word, before: byte, before_value: word)
     return
   end
   s, found = kernel.sym_lookup(target)      ; check_name() has found it
-  if kernel.sym_kind[s] != kernel.K_VAR or (indexed and typetab.is_pointer(kernel.sym_type[s])) or
+  if kernel.byte_of(s, kernel.C_KIND) != kernel.K_VAR or (indexed and typetab.is_pointer(kernel.byte_of(s, kernel.C_TYPE))) or
       (scan_written != 0 and scan_written != target) then
     scan_flags = scan_flags & ~PURE
   else
@@ -355,8 +355,8 @@ pub func save(f: word)
   var s: word
   var found: bool
   begin_record(f, lex.line, src.name)
-  for i = 0 until kernel.sym_params[f] do
-    set_word_at(param(f, i), kernel.sym_name[kernel.local_base + i])
+  for i = 0 until kernel.byte_of(f, kernel.C_PARAMS) do
+    set_word_at(param(f, i), kernel.word_of(kernel.local_base + i, kernel.C_NAME))
   end
   local_count = 0
   scan_flags = PURE
@@ -376,7 +376,7 @@ pub func save(f: word)
     if token == lex.T_EOF then
       err.fatal(err.E_END_EXPECTED)
     end
-    if token == lex.T_NAME and dotted != kernel.NO_SYM and kernel.sym_flags[dotted] & kernel.SF_LIST != 0 then
+    if token == lex.T_NAME and dotted != kernel.NO_SYM and kernel.byte_of(dotted, kernel.C_FLAGS) & kernel.SF_LIST != 0 then
       kernel.module_find(dotted, lex.value)     ; `m.name`: in m's list (error 101)
     end
     if token == lex.T_ASM or token == lex.T_STATIC or token == lex.T_HASH_IF or
@@ -435,7 +435,7 @@ pub func save(f: word)
     named = kernel.NO_SYM
     if token == lex.T_NAME and before != lex.T_DOT and not is_own(f, lex.value) then
       s, found = kernel.sym_lookup(lex.value)
-      if found and kernel.sym_kind[s] == kernel.K_MODULE then
+      if found and kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE then
         named = s
       end
     end
@@ -452,7 +452,7 @@ pub func save(f: word)
   if returns == 1 and last == lex.T_RETURN then
     scan_flags = scan_flags | LAST_RETURN
   end
-  r = ^byte(kernel.sym_value[f])
+  r = ^byte(kernel.word_of(f, kernel.C_VALUE))
   set_word_at(r + R_END, word(saved_top))
   kernel.set_token_byte(r + R_FLAGS, scan_flags)
   if scan_flags & PURE != 0 then
@@ -490,7 +490,7 @@ pub func write(stream: byte, f: word)
   var token: byte
   var size: word
   var k: word
-  r = ^byte(kernel.sym_value[f])
+  r = ^byte(kernel.word_of(f, kernel.C_VALUE))
   name = ^byte(word_at(r + R_FILE))
   length = 0
   while name[length] != 0 do
@@ -508,11 +508,11 @@ pub func write(stream: byte, f: word)
     kernel.put(stream, 1)
     kernel.put_name(stream, word_at(r + R_WRITTEN))
   end
-  for i = 0 until kernel.sym_params[f] do
+  for i = 0 until kernel.byte_of(f, kernel.C_PARAMS) do
     kernel.put_name(stream, word_at(param(f, i)))
     kernel.put(stream, kernel.token_byte(param(f, i) + 2))
   end
-  p = r + R_PARAMS + word(kernel.sym_params[f]) * PARAM_SIZE
+  p = r + R_PARAMS + word(kernel.byte_of(f, kernel.C_PARAMS)) * PARAM_SIZE
   while p < ^byte(word_at(r + R_END)) do
     token = kernel.token_byte(p)
     kernel.put(stream, token)
@@ -635,9 +635,9 @@ pub func write_uses(stream: byte, f: word)
   var i: byte
   local_count = 0
   use_count = 0
-  r = ^byte(kernel.sym_value[f])
+  r = ^byte(kernel.word_of(f, kernel.C_VALUE))
   last = ^byte(word_at(r + R_END))
-  p = r + R_PARAMS + word(kernel.sym_params[f]) * PARAM_SIZE
+  p = r + R_PARAMS + word(kernel.byte_of(f, kernel.C_PARAMS)) * PARAM_SIZE
   before = lex.T_NL
   while p < last do
     token = kernel.token_byte(p)
@@ -649,15 +649,15 @@ pub func write_uses(stream: byte, f: word)
       elif not is_own(f, name) then
         s, found = kernel.sym_lookup(name)
         q = p + 2 + token_size(p)
-        if found and kernel.sym_kind[s] == kernel.K_MODULE then
+        if found and kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE then
           if q < last and kernel.token_byte(q) == lex.T_DOT then
             q += 2
             if q < last and kernel.token_byte(q) == lex.T_NAME then
               use(name, word_at(q + 2))
             end
           end
-        elif found and kernel.sym_scope[s] == kernel.SCOPE_MODULE and
-            kernel.sym_kind[s] >= kernel.K_FUNC and kernel.sym_kind[s] <= kernel.K_VAR then
+        elif found and kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and
+            kernel.byte_of(s, kernel.C_KIND) >= kernel.K_FUNC and kernel.byte_of(s, kernel.C_KIND) <= kernel.K_VAR then
           use(0, name)
         end
       end
@@ -695,14 +695,14 @@ pub func read(stream: byte, f: word)
   end
   name[length] = 0
   begin_record(f, kernel.get_word(stream), name)
-  r = ^byte(kernel.sym_value[f])
+  r = ^byte(kernel.word_of(f, kernel.C_VALUE))
   b, at_end = kernel.get(stream)
   kernel.set_token_byte(r + R_FLAGS, b)
   written, at_end = kernel.get(stream)
   if written != 0 then
     set_word_at(r + R_WRITTEN, read_name(stream))
   end
-  for i = 0 until kernel.sym_params[f] do
+  for i = 0 until kernel.byte_of(f, kernel.C_PARAMS) do
     set_word_at(param(f, i), read_name(stream))
     b, at_end = kernel.get(stream)
     kernel.set_token_byte(param(f, i) + 2, b)
@@ -751,21 +751,21 @@ pub func lookup(name: word): word, bool
     return kernel.sym_lookup(name)
   end
   scope = SCOPE_INLINE + level
-  home = kernel.sym_scope[expanding[level]]
+  home = kernel.byte_of(expanding[level], kernel.C_SCOPE)
   s = kernel.name_symbol(name)
-  while s != kernel.NO_SYM and kernel.sym_scope[s] != scope and kernel.sym_scope[s] != home and
-      kernel.sym_scope[s] != kernel.SCOPE_PREDECLARED do
-    s = kernel.sym_link[s]
+  while s != kernel.NO_SYM and kernel.byte_of(s, kernel.C_SCOPE) != scope and kernel.byte_of(s, kernel.C_SCOPE) != home and
+      kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_PREDECLARED do
+    s = kernel.word_of(s, kernel.C_LINK)
   end
-  if home != kernel.SCOPE_MODULE and (s == kernel.NO_SYM or kernel.sym_scope[s] == kernel.SCOPE_PREDECLARED) then
+  if home != kernel.SCOPE_MODULE and (s == kernel.NO_SYM or kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_PREDECLARED) then
     ; An imported module's symbol may be frozen, or thawed under another entry of the name.
     t, found = kernel.sym_find(home, name)
     if found then
       s = t
     end
   end
-  if s != kernel.NO_SYM and kernel.sym_kind[s] == K_ALIAS then
-    s = kernel.sym_value[s]
+  if s != kernel.NO_SYM and kernel.byte_of(s, kernel.C_KIND) == K_ALIAS then
+    s = kernel.word_of(s, kernel.C_VALUE)
   end
   return s, s != kernel.NO_SYM
 end
@@ -818,7 +818,7 @@ forward func copy_aliases()
 pub func enter(f: word, results_wanted: bool)
   var r: ^byte
   var d: byte
-  r = ^byte(kernel.sym_value[f])
+  r = ^byte(kernel.word_of(f, kernel.C_VALUE))
   if kernel.token_byte(r + R_FLAGS) & PURE == 0 or word_at(r + R_WRITTEN) != 0 then
     copy_aliases()
   end
@@ -859,8 +859,8 @@ pub func argument_symbol(f: word, i: byte)
   var value: word
   var stands: bool              ; for a variable
   var s: word
-  r = ^byte(kernel.sym_value[f])
-  t = kernel.member_type[kernel.sym_members[f] + i]
+  r = ^byte(kernel.word_of(f, kernel.C_VALUE))
+  t = kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + i)
   j = reg.depth - 1
   kind = kernel.K_LOCAL
   value = 0
@@ -877,7 +877,7 @@ pub func argument_symbol(f: word, i: byte)
         value = reg.op_slot[j]
         stands = true
       elif reg.op_var[j] != kernel.NO_SYM and kernel.token_byte(r + R_FLAGS) & PURE != 0 and
-          kernel.sym_name[reg.op_var[j]] != word_at(r + R_WRITTEN) then
+          kernel.word_of(reg.op_var[j], kernel.C_NAME) != word_at(r + R_WRITTEN) then
         kind = K_ALIAS
         value = reg.op_var[j]
         stands = true
@@ -893,8 +893,8 @@ pub func argument_symbol(f: word, i: byte)
     reg.pop()
   end
   s = kernel.sym_add(SCOPE_INLINE + depth, word_at(param(f, i)), kind)
-  kernel.sym_type[s] = t
-  kernel.sym_value[s] = value
+  kernel.set_byte(s, kernel.C_TYPE, t)
+  kernel.set_word(s, kernel.C_VALUE, value)
   if stands then
     if alias_count == MAX_ALIASES then
       err.fatal(err.E_OPERANDS_FULL)
@@ -916,17 +916,17 @@ pub func copy_aliases()
   gen.protect()
   for n = 0 until alias_count do
     s = alias[n]
-    t = kernel.sym_type[s]
+    t = kernel.byte_of(s, kernel.C_TYPE)
     slot = own_slot(typetab.size(t))
     gen.local(t, slot)
-    if kernel.sym_kind[s] == K_ALIAS then
-      gen.variable(kernel.sym_value[s])
+    if kernel.byte_of(s, kernel.C_KIND) == K_ALIAS then
+      gen.variable(kernel.word_of(s, kernel.C_VALUE))
     else
-      gen.local(t, lo(kernel.sym_value[s]))
+      gen.local(t, lo(kernel.word_of(s, kernel.C_VALUE)))
     end
     gen.store()
-    kernel.sym_kind[s] = kernel.K_LOCAL
-    kernel.sym_value[s] = slot
+    kernel.set_byte(s, kernel.C_KIND, kernel.K_LOCAL)
+    kernel.set_word(s, kernel.C_VALUE, slot)
   end
   alias_count = 0
 end
@@ -941,8 +941,8 @@ pub func body_begin(f: word)
   var r: ^byte
   alias_count = alias_base[depth]
   level = depth
-  r = ^byte(kernel.sym_value[f])
-  src.open_saved(r + R_PARAMS + word(kernel.sym_params[f]) * PARAM_SIZE, ^byte(word_at(r + R_END)),
+  r = ^byte(kernel.word_of(f, kernel.C_VALUE))
+  src.open_saved(r + R_PARAMS + word(kernel.byte_of(f, kernel.C_PARAMS)) * PARAM_SIZE, ^byte(word_at(r + R_END)),
       ^byte(word_at(r + R_FILE)), word_at(r + R_LINE))
 end
 
@@ -954,8 +954,8 @@ pub func leaves_operand(): bool
   var f: word
   var r: ^byte
   f = expanding[level]
-  r = ^byte(kernel.sym_value[f])
-  return wanted[level] and kernel.sym_results[f] == 1 and kernel.token_byte(r + R_FLAGS) & LAST_RETURN != 0 and
+  r = ^byte(kernel.word_of(f, kernel.C_VALUE))
+  return wanted[level] and kernel.byte_of(f, kernel.C_RESULTS) == 1 and kernel.token_byte(r + R_FLAGS) & LAST_RETURN != 0 and
       owned_count == owned_base[level]
 end
 

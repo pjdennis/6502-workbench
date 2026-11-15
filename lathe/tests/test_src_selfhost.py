@@ -1,15 +1,15 @@
 """Stage 11, step 11, the gate of stage 7: the compiler written in Lathe (lathe/src/lathec.lth with
-the twins of the sixteen host modules), built banked on Wendy 2 at its full capacities
+the twins of the seventeen host modules), built banked on Wendy 2 at its full capacities
 (lathe/src/compiler-bank.env, SMALL 0: the big tables in data banks), compiles its own modules,
-err kernel src lex typetab fold fbuf out reg cond gen asmblock inlines expr decl lathec and
-sys, each as lathe/src/compiler.env's options compile it, to object and interface files
+err kernel src lex typetab fold fbuf out reg cond gen asmblock inlines parts expr decl lathec
+and sys, each as lathe/src/compiler.env's options compile it, to object and interface files
 byte-identical to those of the host compiler (lathe/host/lathec.py) at the same capacities.
 
 Each module is compiled in a directory of its own that holds its source and the interfaces of
 the modules it imports, made by the host compiler: `lathec OPTIONS NAME.lth .` on Wendy 2 with
 --disk, and the same command with the host. Status, output, error output and the files written
 must be the same. By default the five smallest (QUICK) run, about 9 s; LATHE_SELFHOST=1 runs all
-seventeen, about a minute (776 million CPU cycles of Wendy 2 in all, 2026-11-14).
+eighteen, about a minute (815 million CPU cycles of Wendy 2 in all, 2026-11-15).
 LATHE_SELFHOST_REPORT=1 prints the cycles of each compile."""
 import os
 import re
@@ -25,7 +25,7 @@ import memory_report
 ALL = os.environ.get('LATHE_SELFHOST') == '1'
 REPORT = os.environ.get('LATHE_SELFHOST_REPORT') == '1'
 MODULES = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen',
-           'asmblock', 'inlines', 'expr', 'decl', 'lathec', 'sys')
+           'asmblock', 'inlines', 'parts', 'expr', 'decl', 'lathec', 'sys')
 QUICK = ('err', 'src', 'fold', 'typetab', 'sys')     # run by default: the smallest
 CYCLE_CAP = 40000000000     # oscillator ticks, 2 a CPU cycle: 20 G cycles a compile
 

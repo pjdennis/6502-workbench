@@ -1,6 +1,6 @@
 # Lathe: configurations (stage 11)
 
-Status (2026-11-14): design, after spike L5, and steps 1 to 10 of the order of work built: the spike in `lathe/tests/spike_l5/`; files on Wendy 2 (section 1), the far-call run-time modules, the linker's side, which links the same object files all in one, with code in banks on Wendy 2, or with code in overlays on the default machine (section 5, "As built"); banked data, `in REGION` and `with REGION do … end` ("As built: banked data"; the form is provisional, 2026-11-14, awaiting the owner's agreement); and the compiler's own placement with its big tables in data banks at full size ("Step 10: the tables in data banks"). The gate of step 11 is met: the Lathe-written compiler, banked on Wendy 2 at full capacities, compiles its own sixteen modules and `sys` byte-identically to the host compiler (`test_src_selfhost.py`). Every number is marked **measured** (by a program in this repository, named) or **estimated** (worked out from measured numbers, with the method given).
+Status (2026-11-14): design, after spike L5, and steps 1 to 10 of the order of work built: the spike in `lathe/tests/spike_l5/`; files on Wendy 2 (section 1), the far-call run-time modules, the linker's side, which links the same object files all in one, with code in banks on Wendy 2, or with code in overlays on the default machine (section 5, "As built"); banked data, `in REGION` and `with REGION do … end` ("As built: banked data"; the form is provisional, 2026-11-14, awaiting the owner's agreement); and the compiler's own placement with its big tables in data banks at full size ("Step 10: the tables in data banks"). The gate of step 11 is met: the Lathe-written compiler, banked on Wendy 2 at full capacities, compiles its own sixteen modules and `sys` byte-identically to the host compiler (`test_src_selfhost.py`); since 2026-11-15 kernel's symbol table, OUT's constant table and DECL's import rows are in regions too, and EXPR is two modules ("The symbol table in a region"). Every number is marked **measured** (by a program in this repository, named) or **estimated** (worked out from measured numbers, with the method given).
 
 A KB here is 1,024 bytes.
 
@@ -267,7 +267,7 @@ The compiler reads none of these (it reads `cpu` and `define` only), so an objec
 - **The rule of use** is in the compiler: a name of a region, used or with its address taken anywhere (expressions, `asm` operands, inline expansions), must be inside a `with` block of its region, and the innermost block decides (error 118). The check is at `reg.object_symbol`, the one place every use of a variable or table goes through.
 - **Nesting.** A block inside a block of the same region is free: no code. A block of another region maps its bank; inside it only that region's names can be used, which is what one window allows. Leaving several blocks by `return`, `break` or `continue` unmaps once, with the temporary of the outermost block left (of the function, or inside the nearest loop): it holds the bank found before all of them.
 - **The bank symbol.** `LDA #bank` names the first variable or table of the region the block uses (the fbuf entry is filled in at the block's end), or if it uses none, the first the module declares (`expr.region_symbol`); a block with neither is error 184. (Until 2026-11-14 a block that used none was error 183, now retired: the linker learns a bank only from a variable or table of the region, but any the module declares will do.)
-- **map and unmap.** The compiler calls `rt_with.map` and `rt_with.unmap` and writes an `IMP` record of `rt_with`. With a `farcall MODULE` entry, the linker reads every name `rt_with.X` as `MODULE.X` (`lk_name.rename_farcall`, and the hash in `mark_object`), and `build.py` compiles MODULE for the `IMP`; with none, `build.py` links `lathe/rt/rt_with.lth`, two lone `RTS`. So the object files are the same in every configuration, and the stage A text path renders all-in-one links unchanged (kind 6 is `#$00`). `rt_bank.map` is `JMP select`; `rt_bank.unmap` takes the bank in Y and keeps A, X, Y and the flags, so a result and a status pass through a `return`. `rt_ovl.map` and `unmap` are lone `RTS`: a region cannot be in an overlay.
+- **map and unmap.** The compiler calls `rt_with.map` and `rt_with.unmap` and writes an `IMP` record of `rt_with`. With a `farcall MODULE` entry, the linker reads every name `rt_with.X` as `MODULE.X` (`lk_name.rename_farcall`, and the hash in `mark_object`), and `build.py` compiles MODULE for the `IMP`; with none, `build.py` links `lathe/rt/rt_with.lth`, two lone `RTS`. So the object files are the same in every configuration, and the stage A text path renders all-in-one links unchanged (kind 6 is `#$00`). `rt_bank.map` is `JMP select` (and does nothing for the value 0, a region in fixed memory, since 2026-11-15: "The symbol table in a region"); `rt_bank.unmap` takes the bank in Y and keeps A, X, Y and the flags, so a result and a status pass through a `return`. `rt_ovl.map` and `unmap` are lone `RTS`: a region cannot be in an overlay.
 - **Placement.** A region's constants go in its bank from the window's first address, in object order with the bank's code; its variables at the bank's top going down, as a placed module's (step 8). The fit is judged as for code banks. A bank that holds constants of a region must have a file, which start-up loads (link error 59); a bank of variables only needs none, and the map shows it as `W 8000 0000 N -`. A region bank may also hold code: code in it can never name the region (only fixed functions have `with` blocks), and code that runs inside a block is all fixed (below).
 - **Without placed code.** A program with something in a region in a bank uses the far-call module even if no code is placed: `lk_envf.placed()` is true, start-up calls `start` to load bank files, and `call` and `back` are kept though nothing calls them (about 100 bytes; `lk_graph` roots them).
 - **Checks** (link errors): until 2026-11-14 a function with a `with` block (a kind 6 fix-up, `lk_tab.F_WITH`) placed in a window (55) and a call flagged inside a block that reaches a function in a window (56); both are retired, because such functions are now kept in fixed memory ("Functions kept in fixed memory, and read-only banks", below); an interrupt context that reaches a function with a `with` block (57), and `with` in an interrupt function is a compile error (119), a conservative rule: the routines would be safe there; a region in an overlay, or in another window than code or another region (58); a region in a bank with no `farcall` entry (54); overflow (45).
@@ -703,6 +703,137 @@ The rest of the module stays in its bank. A kept function's copies for interrupt
 - **What else stays fixed, and why.** Code: the run-time modules (`disk`, `sys`, `rt_bank`, `rt_math`, `rt_frame`) and the start-up. Constants (456 bytes): `lex`'s two keyword strings (269), named by `lex.init`, which is kept (its block holds the keywords); `$banks` (87); the module and function names `gen`, `expr` and `lathec` pass to OUT (`gen.frame_module`, `expr.map_name` and the like, 64), whose address is taken; `disk`'s and `err`'s small tables, named by fixed or kept code. Variables: kernel's symbol columns (12,702 bytes), named by modules in banks 1, 2, 3 and 5; reg's 901 and fbuf's 688, named from more than one bank or by kept code; the run-time's and `disk`'s. The placed modules keep 10,769 bytes of variables in their banks on Wendy 2 (bank 1 419, bank 2 2,871, bank 3 902, bank 5 6,491, bank 7 86); in read-only banks those go to fixed memory too.
 - **The cost**: 28,127 more far calls in compiling `gen.lth`, from the code of banks 1, 2, 3 and 5 calling the functions of kernel, lex, fbuf and src that stayed in bank 7 (lex's token functions above all); 4.7 % more cycles. The blocks are the same.
 - **The linker** grew by 720 bytes of code in `lktest4` (`lk_scan.keep_called`, the `rom` entry, the map's marks), which no longer fitted `lathe/src/linker.env`, whose split between code and variables moved from `$9500` to `$9860` (with the `exit return ADDR` of the BBC work beside it; 44 bytes of code and 63 of variables are left); `linker-bank.env` needed no change.
+
+## The symbol table in a region
+
+Built and measured 2026-11-15, for the BBC Model B+128 ([`bbc.md`](bbc.md), "Measured before designing"): main memory there must hold every variable that is not in a region and every function that runs while a region is mapped, and it held 38,406 bytes against 26,111 available. The tables that could leave it were kernel's symbol and member columns (10,384 bytes) and OUT's constant table and its fix-ups (4,096), which about 400 places in eight modules and the test programs read directly.
+
+### What is in which region
+
+| Region | What | Bytes | Used inside blocks of | Wendy 2 (`compiler-bank.env`) |
+|---|---|---|---|---|
+| `SYMS` | kernel's `sym_bytes` (the seven byte columns, one after another), `sym_words` (the five word columns), `member_type`, `member_value` | 10,384 | kernel: `byte_of`, `word_of`, `set_byte`, `set_word`, `member_type_of`, `member_value_of`, `chain_walk`, `member_add` | `region SYMS fixed`: where they were |
+| `OUTTAB` | `out.table` and its five fix-up columns | 4,096 | out: `table_begin`, `table_byte`, `table_fix`, `table_end` | bank 6 |
+| `WANTS` | DECL's rows of what an import wants (`want_*`) | 1,600 | decl: `add_want`, `listed`, `not_exported`, `wanted`, `pending`, `check_found` | bank 6 |
+
+`WANTS` was not in the brief: without it main memory came to 24,272 bytes, 272 over the goal (the steps are below).
+
+### The access
+
+**The interface**, in host and twin alike: `kernel.byte_of(s, kernel.C_KIND)`, `word_of(s, C_VALUE)`, `set_byte(s, C_FLAGS, v)`, `set_word(s, C_OBJ, v)`, and `member_type_of(m)`, `member_value_of(m)`. A column is numbered (`C_SCOPE` to `C_RESULTS` for the bytes, `C_NAME` to `C_LINK` for the words) because the byte columns are one array and the word columns another; `byte_base` and `word_base` (24 bytes, filled by `init()`) say where each column starts, so an accessor is one lookup and one index, `sym_bytes[byte_base[column] + s]`, inside one block. The Python has the same arrays and functions, without the blocks. A call is `LDA s` / `LDX s+1` / `LDY #column` / `JSR`, 11 bytes, where the in-line access to a column of 560 rows was about 13: the compiler's code is 3,346 bytes smaller (below).
+
+**Kernel's own functions.** There is one window: on the BBC the names and the symbols are in two sideways banks, so no function may read a pointer into the name heap while `SYMS` is mapped. Only the six accessors, `chain_walk()` (the walk of a name's chain of symbols, which `chain_find()` calls inside `sym_find`'s block of `NAMES`: a block of another region inside a block happens only through a call, which maps back what it found) and `member_add()` have blocks of `SYMS`. `sym_new`, `sym_release`, `thaw`, `module_find`, `sym_lookup` and `built_loaded` read and write the columns through the accessors (`thaw` first reads the frozen entry into locals in its block of `NAMES`; `name_set_symbol()` is new, the other half of `name_symbol()`), so that on the BBC they need no block of their own and stay in their ROM bank: 4,116 bytes of kernel's code are kept in fixed memory, against 4,270 before and 4,994 when those functions had blocks.
+
+**OUT and DECL.** Each function that uses a table of the region has one block around the whole operation. DECL's `pending()` reads a row inside a block and calls `kernel.sym_find()` after it: a call inside a block keeps everything it reaches in fixed memory (`thaw`, `sym_new` and the rest), so nothing that thaws is called inside one. `enter()` takes the row's name from `row_name`, which `wanted()` sets with `entry_row`; the loop `import_line()` had over the rows is `check_found()`.
+
+**Pointers.** Nothing checks that a pointer into a region is used only inside its block (as in step 10). None is taken of these tables. What shows that the rule holds is a compile with the regions in banks of their own: `bank_report.py --selfhost --all-placed gen` puts `SYMS` in bank 7, apart from `NAMES` (bank 4) and `FUNCBUF` (bank 6), and compiles `gen.lth` to the host's files. (Wendy 2 has banks 1 to 7. A `bank WIN 8 $18` entry links, and the program then runs with a bank that is not there: the first try of that measurement ran until it was stopped.)
+
+### The forms weighed
+
+| Form | Kept in fixed memory | Functions | Cycles | |
+|---|---|---|---|---|
+| One accessor per column read and one per column written: `kind_of(s)`, `set_kind(s, v)`, ... (23) | about 830 bytes (estimated: a byte getter is 31, as `member_type_of` is; a word getter or a setter 35 to 40) | +23 | about 12 a call fewer: no lookup of the column | built (commit 2477b8d), and dropped: the whole compiler then has 808 functions, and the linker holds 800 (`lk_tab.MAX_FUNCS`, link error 11); raising that raises its tables, whose ceiling only comes down (`test_lk_memory.py`) |
+| **A column by number** (chosen) | 291 bytes: `byte_of` 52, `word_of` 60, `set_byte` 54, `set_word` 63, `member_type_of` and `member_value_of` 31 each | +6 | | |
+| A row copied into fixed variables (one or two current symbols, written back) | about 150 (estimated) | +2 | a block a symbol, not a field | not built: a caller would have to load again after every call that might load another, at about 400 sites in host and twin, and a missed one gives wrong code without a sign; the accessors are fast enough |
+| Coarser operations in kernel | | | | done for kernel's own walk (`chain_walk`), not yet for the callers. Counted in the self-compile (the host, every access): 473,271 reads and 94,386 writes, 135,000 of them inside kernel; the busiest callers are `gen.register_of` (70,521), `out.is_foreign_variable` (54,890), `reg.object_symbol` (45,938), `expr.designator` (40,191) and `gen.by_registers` (38,718). Moving those into kernel would save about a third of the blocks, at the price of kernel knowing GEN's and OUT's rules |
+
+### A block of a region in fixed memory
+
+`test_farcall.py`, `WithBlocks`, measures a block against a plain read of a fixed variable, per call:
+
+| | before | after |
+|---|---|---|
+| region in a bank (`rt_bank`) | 90 cycles | 94 |
+| region `fixed`, with `farcall rt_bank` | 90: `map(0)` mapped bank 0, harmless since all that runs in a block is fixed, but a whole switch and its undoing | **32** |
+| all in one (`rt_with`, two lone `RTS`) | 24 cycles, 12 bytes | 24, 12 |
+
+`rt_bank.map` now gives `FIXED` (`$80`) for the value 0 without touching the port, and `unmap` returns at once on it. Both test the flags their argument's load set, which the compiler's sequences (`LDA #bank` / `JSR map`, `LDY temporary` / `JSR unmap`) give them; a block of a bank costs 4 cycles more. A block of a fixed region could cost nothing: the compiler cannot know a region is fixed, and the linker, which does, sees the kind 6 fix-up of the `LDA` but not where the block's calls of `unmap` are, so taking the code out would need the object file to mark them. Not done: all in one, the 24 cycles and 12 bytes a block remain. `rt_bbc.map` has no such test, and must not: on the BBC the value 0 is sideways slot 0, where the compiler's `SYMS` is (`compiler-bbc-bank.env`); a region kept fixed there would map slot 0 for nothing, which is harmless (everything inside a block is fixed code) and costs only the switch.
+
+### Measured: main memory on the BBC
+
+`python3 lathe/tests/bank_report.py DIR --selfhost --all-placed gen` (kernel, lex, fbuf, err and src placed in bank 7, and `SYMS` there too, as above), with the variables in a region counted from what the sources declare `in` one:
+
+| In main RAM | Before (`bbc.md`) | After |
+|---|---|---|
+| Variables not in a region | 25,841 | 9,787 |
+| Code kept fixed | 9,111 (kernel 4,270, fbuf 3,174, lex 1,023, err 556, src 88) | 10,113 (kernel 4,116, fbuf 3,168, lex 1,023, decl 675, err 556, out 487, src 88) |
+| Other fixed code (file calls, arithmetic, far calls, start-up) | 1,462 | 1,472 |
+| Stubs | 1,536 (256) | 1,530 (255) |
+| Fixed constants | 456 | 456 |
+| **Total** | **38,406** | **23,358** |
+| Available: `$1900-$7BFF` and `$0401-$06FF` | 26,111 | 26,111: 2,753 to spare |
+
+By step: the accessors, with `SYMS` in its region and kernel's functions keeping their blocks, 28,759; `OUTTAB`, 24,823; `sym_new`, `sym_release` and `thaw` through the accessors, 24,272; `WANTS`, 23,349; `parts` split from `expr`, 23,358. Of the 9,787 bytes of variables, 4,740 are fixed (kernel's 2,342, of them the text memory, 2,048, which the MOS reads file names from; reg's 901 and fbuf's 688) and 5,047 belong to modules in code banks (bank 2, GEN and REG, 2,871). The three regions are 16,080 bytes: one sideways bank, with 272 to spare, or `SYMS` in one and the others beside the function buffer. Compiling `gen.lth` so takes 137,836,606 cycles on Wendy 2, against 122,785,615 before: there a block of `SYMS` in a bank costs 94 cycles.
+
+### Measured: the self-compile on Wendy 2 as committed
+
+`bank_report.py DIR --selfhost MODULE...` on the commit before this work (5d67792) and after, with `compiler-bank.env` (`SYMS` fixed); every compile gives the host's files. The cycles are the plain banked build's; the far calls and blocks the counting copy's.
+
+| Module | Cycles before | Far calls | Blocks | Cycles after | Far calls | Blocks | |
+|---|---|---|---|---|---|---|---|
+| err | 19,811,208 | 9,572 | 11,036 | 19,921,049 | 4,063 | 26,598 | +0.6 % |
+| kernel | 46,068,493 | 11,585 | 23,408 | 51,198,391 | 12,815 | 54,093 | +11.1 % |
+| src | 11,919,607 | 1,677 | 8,158 | 12,049,623 | 1,678 | 12,862 | +1.1 % |
+| lex | 33,843,164 | 11,299 | 19,989 | 35,520,741 | 10,988 | 43,011 | +5.0 % |
+| typetab | 15,388,852 | 3,804 | 8,446 | 15,774,300 | 3,805 | 16,192 | +2.5 % |
+| fold | 17,583,320 | 4,391 | 9,710 | 18,036,728 | 4,392 | 18,553 | +2.6 % |
+| fbuf | 38,047,026 | 11,012 | 19,491 | 39,629,243 | 11,008 | 40,957 | +4.2 % |
+| out | 26,157,772 | 6,296 | 15,198 | 27,685,505 | 6,531 | 34,326 | +5.8 % |
+| reg | 72,861,129 | 23,876 | 38,135 | 77,103,000 | 24,628 | 99,358 | +5.8 % |
+| cond | 30,641,888 | 8,521 | 18,607 | 32,346,879 | 8,522 | 42,133 | +5.6 % |
+| gen | 117,244,094 | 36,891 | 59,739 | 125,214,540 | 37,379 | 168,776 | +6.8 % |
+| asmblock | 45,916,696 | 13,820 | 28,080 | 48,253,522 | 13,603 | 60,225 | +5.1 % |
+| inlines | 56,509,271 | 15,479 | 33,472 | 59,385,681 | 16,355 | 77,980 | +5.1 % |
+| parts | | | | 28,617,676 | 5,976 | 44,788 | new |
+| expr | 117,702,743 | 28,999 | 59,774 | 110,004,026 | 25,494 | 147,501 | −6.5 % |
+| decl | 98,043,883 | 27,796 | 52,948 | 106,565,646 | 30,517 | 148,181 | +8.7 % |
+| lathec | 20,648,420 | 4,366 | 18,076 | 21,351,995 | 4,375 | 29,227 | +3.4 % |
+| sys | 9,310,395 | 1,460 | 2,597 | 9,247,005 | 1,461 | 5,432 | −0.7 % |
+| **total** | **777,697,961** | **220,844** | **426,864** | **837,905,550** | **223,590** | **1,070,193** | **+7.7 %** |
+
+Where the 60.2 million go: 643,000 more blocks, 20.6 million at 32 cycles, and the calls of the accessors around them (the accessors alone, with the columns still public and no blocks, cost 17.8 million, 2.3 %, at commit d2cd34d); and `parts` is an eighteenth run, which loads the banks and reads its imports again: `expr` and `parts` take 138.6 million where `expr` took 117.7. With the blocks of a fixed region at 90 cycles, as before `rt_bank` knew one, it would have been +12.5 %.
+
+### Measured: module sizes
+
+Code of each module in the map of the banked compiler, relinked for the BBC's CPU and zero page as `bbc.md` measured it (`cpu 6502`, `zeropage $00 $8F`, `exit loop`, with the placement of `--all-placed`), and on Wendy 2 as committed (65C02, zero page `$00-$FF`):
+
+| Module | BBC before | BBC after | | Wendy 2 before | Wendy 2 after | |
+|---|---|---|---|---|---|---|
+| err | 608 | 608 | | 608 | 608 | |
+| kernel | 5,508 | 5,573 | +65 | 5,347 | 5,480 | +133 |
+| src | 389 | 377 | −12 | 377 | 377 | |
+| lex | 2,484 | 2,440 | −44 | 2,440 | 2,440 | |
+| typetab | 947 | 947 | | 947 | 947 | |
+| fold | 1,304 | 1,299 | −5 | 1,299 | 1,299 | |
+| fbuf | 3,683 | 3,639 | −44 | 3,623 | 3,613 | −10 |
+| out | 2,210 | 2,133 | −77 | 2,185 | 2,116 | −69 |
+| reg | 7,779 | 7,223 | −556 | 7,589 | 7,085 | −504 |
+| cond | 2,472 | 2,465 | −7 | 2,455 | 2,453 | −2 |
+| gen | 12,967 | 12,385 | −582 | 12,779 | 12,225 | −554 |
+| asmblock | 3,761 | 3,623 | −138 | 3,721 | 3,533 | −188 |
+| inlines | 5,782 | 5,275 | −507 | 5,725 | 5,194 | −531 |
+| parts | | 1,500 | new | | 1,482 | new |
+| expr | 17,492 | **15,229** | −2,263 | 16,842 | 14,539 | −2,303 |
+| decl | 10,569 | 10,059 | −510 | 10,524 | 9,745 | −779 |
+| lathec | 1,043 | 1,022 | −21 | 1,043 | 1,022 | −21 |
+| sys | 190 | 190 | | 190 | 190 | |
+| **total** | **79,188** | **75,987** | **−3,201** | **77,694** | **74,348** | **−3,346** |
+
+With its 18 bytes of constants `expr` was 17,510 bytes for the BBC, over a bank (16,300) and over 15,900; the accessors brought it to 16,747, still over, and `parts` to 15,229. Every other module is under 12,600 with its constants.
+
+### The split of EXPR
+
+EXPR and STMT call each other: a statement holds expressions, and an `inline` call in an expression replays the function's statements (`expand()` calls `body()`). Lathe forbids import cycles, so two modules can call each other only through a function pointer: the lower would hold a variable of a `recursive` function type, which the upper sets to `@body` at start-up, and call through it. The twin could do that; the host could not, since its rules have no values but numbers and the two must stay line for line, so it would need a new rule for the Python and a check of it in `test_shape.py`. The cut chosen needs neither. Of EXPR's 84 functions, 46 are on a cycle of calls (14,082 bytes for the BBC) and 36 reach none (2,355). The 18 of those whose state is their own (1,500 bytes: type keywords, names and fields, the operators of each level and `apply`, a string as a value, a `for` loop's variable and step, and the code of `with` blocks, with `with_entry`, now `parts.with_entry`) are the module `parts`, below `expr`, in host and twin; `expr.init()` calls `parts.init()`. The six that DECL calls as `expr.X` (`new_name`, `zp_class`, `layout`, `region_name`, `no_record`, `not_in_region`) stay, so DECL is unchanged. `parts` is placed beside `expr` in bank 1, so no far call is added. If EXPR outgrows a bank again, the function pointer is the next cut: STMT above EXPR, about 7 KB each.
+
+### What else changed
+
+- `compiler-bank.env`: `region SYMS fixed`, `OUTTAB` and `WANTS` in bank 6 (14,656 bytes of variables there, beside 5,494 of messages), `place parts WIN 1`, and the split between variables and fixed code from `$4280` to `$3C00`: kernel's accessors and OUT's and DECL's kept functions are fixed code on Wendy 2, and `lathec` has 547 bytes free above its code and 1,326 at `$F810`, where 700 bytes of variables now are.
+- `compiler-bbc.env`: the split from `$5200` to `$5400`, for `kerneltest`, which its test of the accessors made 133 bytes too long.
+- `test_memory.py`: the ceiling from 43,179 to 43,203, for `byte_base` and `word_base`.
+- The compiler links 796 functions of the linker's 800 (`lk_tab.MAX_FUNCS`; 19 of them `bbc`'s, which every build compiles and links though only the BBC calls them). The next few functions need room there first.
+- Name heap and symbols: `expr.lth` peaks at 7,068 bytes and 455 symbols (8,099 and 535 before); the corpus's highest symbol count is now `gen.lth`'s, 460 of 560.
+
+**Faults found in existing code**: none in the compiler or the linker. `rt_bank.map(0)`, which every block of a fixed region calls, mapped bank 0 for nothing (above: now 32 cycles, `WithBlocks`).
 
 ## Decisions for the owner
 

@@ -580,7 +580,7 @@ class WeightTest(RegTest):
         reg.push_memory(WORD, 7, fbuf.NO_SLOT, 0, 0, s)
         reg.load(A, 0, 0)
         reg.load(X, 0, 1)
-        self.assertEqual(kernel.sym_weight[s], 2)
+        self.assertEqual(kernel.byte_of(s, kernel.C_WEIGHT), 2)
 
     def test_a_load_that_is_left_out_is_not_a_use(self):
         reg.push_slot(BYTE, self.slot(BYTE))
@@ -803,7 +803,7 @@ class ElementTest(RegTest):
         mine = self.variable(WORD, b'mine')
         reg.push_memory(WORD, 10, fbuf.NO_SLOT, 0, 0, mine)
         self.assertTrue(reg.dereferenced(2))
-        self.assertTrue(kernel.sym_flags[mine] & kernel.SF_ZP)
+        self.assertTrue(kernel.byte_of(mine, kernel.C_FLAGS) & kernel.SF_ZP)
 
     def test_an_index_temporary_is_free_again_when_its_element_is_popped(self):
         self.slots()

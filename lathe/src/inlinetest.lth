@@ -16,11 +16,11 @@ import inlines (alias, alias_base, alias_count, argument_symbol, body_begin, cop
                 saved_start, saved_top, slot_name, sym_base, wanted, word_at, write)
 import sys (exit, put_byte)                      ; sys and src before kernel and lex, whose interfaces import
 import src (close, init, push)                      ; them too: a module is imported again if named after that
-import kernel (close, freeze, K_FUNC, K_LOCAL, keep_argument, local_names, member_add, member_type,
-               module_add, name_add, name_begin, name_char, name_length, name_top, open_in,
-               open_memory, open_out, put, scope_begin, scope_end, SCOPE_LOCAL, sym_add, sym_count,
-               sym_flags, sym_kind, sym_members, sym_name, sym_params, sym_results, sym_scope,
-               sym_type, sym_value, text_top, token_byte)
+import kernel (byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_NAME, C_PARAMS, C_RESULTS, C_SCOPE, C_TYPE,
+               C_VALUE, close, freeze, K_FUNC, K_LOCAL, keep_argument, local_names, member_add,
+               member_type_of, module_add, name_add, name_begin, name_char, name_length, name_top,
+               open_in, open_memory, open_out, put, scope_begin, scope_end, SCOPE_LOCAL, set_byte,
+               set_word, sym_add, sym_count, text_top, token_byte, word_of)
 import lex (col, init, line, next, open_brackets, string_byte, string_length, T_EOF, T_NAME, T_NL,
             T_NUMBER, T_STRING, tok, value)
 import listing
@@ -96,7 +96,7 @@ func show_record(f: word)
   var r: ^byte
   var p: ^byte
   var i: byte
-  r = ^byte(kernel.sym_value[f])
+  r = ^byte(kernel.word_of(f, kernel.C_VALUE))
   script.show_word(r - inlines.saved_start)
   script.show_word(^byte(inlines.word_at(r + inlines.R_END)) - inlines.saved_start)
   script.show_word(inlines.word_at(r + inlines.R_LINE))
@@ -104,13 +104,13 @@ func show_record(f: word)
   sys.put_byte(' ')
   script.show_byte(kernel.token_byte(r + inlines.R_FLAGS))
   script.show_word(inlines.word_at(r + inlines.R_WRITTEN))
-  for i = 0 until kernel.sym_params[f] do
+  for i = 0 until kernel.byte_of(f, kernel.C_PARAMS) do
     p = inlines.param(f, i)
     script.show_word(inlines.word_at(p))
     script.show_byte(kernel.token_byte(p + 2))
   end
   sys.put_byte('|')
-  p = r + inlines.R_PARAMS + word(kernel.sym_params[f]) * inlines.PARAM_SIZE
+  p = r + inlines.R_PARAMS + word(kernel.byte_of(f, kernel.C_PARAMS)) * inlines.PARAM_SIZE
   while p < ^byte(inlines.word_at(r + inlines.R_END)) do
     script.show_byte(kernel.token_byte(p))
     p += 1
@@ -130,8 +130,8 @@ func members(s: word)
     t = script.small()
     kernel.member_add(t, script.small())
   end
-  kernel.sym_params[s] = p
-  kernel.sym_results[s] = r
+  kernel.set_byte(s, kernel.C_PARAMS, p)
+  kernel.set_byte(s, kernel.C_RESULTS, r)
 end
 
 func show_found(s: word, found: bool)
@@ -192,11 +192,11 @@ end
 func show_symbols(first: word)
   var s: word
   for s = first until kernel.sym_count do
-    script.show_word(kernel.sym_name[s])
-    script.show_byte(kernel.sym_scope[s])
-    script.show_byte(kernel.sym_kind[s])
-    script.show_byte(kernel.sym_type[s])
-    script.show_word(kernel.sym_value[s])
+    script.show_word(kernel.word_of(s, kernel.C_NAME))
+    script.show_byte(kernel.byte_of(s, kernel.C_SCOPE))
+    script.show_byte(kernel.byte_of(s, kernel.C_KIND))
+    script.show_byte(kernel.byte_of(s, kernel.C_TYPE))
+    script.show_word(kernel.word_of(s, kernel.C_VALUE))
     sys.put_byte(',')
   end
 end
@@ -237,15 +237,15 @@ func run(c: byte)
     a = script.small()
     b = script.small()
     s = kernel.sym_add(a, n, kernel.K_FUNC)
-    kernel.sym_flags[s] = b
+    kernel.set_byte(s, kernel.C_FLAGS, b)
     members(s)
     script.show_word(s)
   of 6
     s = script.number()
     kernel.scope_begin()
-    for a = 0 until kernel.sym_params[s] do
+    for a = 0 until kernel.byte_of(s, kernel.C_PARAMS) do
       v = kernel.sym_add(kernel.SCOPE_LOCAL, script.name(), kernel.K_LOCAL)
-      kernel.sym_type[v] = kernel.member_type[kernel.sym_members[s] + a]
+      kernel.set_byte(v, kernel.C_TYPE, kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + a))
     end
   of 7
     s = script.number()
@@ -262,9 +262,9 @@ func run(c: byte)
     e = script.small()
     v = script.number()
     s = kernel.sym_add(b, script.name(), a)
-    kernel.sym_flags[s] = d
-    kernel.sym_type[s] = e
-    kernel.sym_value[s] = v
+    kernel.set_byte(s, kernel.C_FLAGS, d)
+    kernel.set_byte(s, kernel.C_TYPE, e)
+    kernel.set_word(s, kernel.C_VALUE, v)
     script.show_word(s)
   of 10
     s = script.number()

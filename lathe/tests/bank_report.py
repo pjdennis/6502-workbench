@@ -37,7 +37,10 @@ the host's interfaces of its imports, checked to give the host compiler's files:
 the CPU cycles, far calls and `with` blocks of each compile. With --all-placed, kernel, lex,
 fbuf, err and src are placed too, in a seventh bank (ALL_PLACED), so that only what has to be
 fixed stays fixed: the functions with a `with` block and those called inside one, which the
-linker keeps in fixed memory (configurations.md, "Functions kept in fixed memory").
+linker keeps in fixed memory (configurations.md, "Functions kept in fixed memory"); the regions
+compiler-bank.env keeps fixed (SYMS) go in bank 7 too, apart from the others, as on the BBC; and
+the report adds what main memory must hold where code banks are ROM (bbc.md, "Measured before
+designing"): the variables not in a region, kept and other fixed code, stubs, fixed constants.
 
 The map's report lists the fixed code by module, and the code each placed module has kept in
 fixed memory (F lines that end in k=N).
@@ -73,6 +76,8 @@ COUNTING_MAP = '''pub asm func map(value: byte in a): byte in a
   BNE .counted
   INC disk.withs+2
 .counted
+  CMP #$00                          ; the INCs changed the flags map() tests
+  BEQ .fixed
   JMP select
 '''
 
@@ -99,7 +104,7 @@ def counting_copies(where, count_argument=2):
     with open(os.path.join(support.LATHE, 'rt', 'rt_bank.lth')) as f:
         text = f.read()
     assert 'pub asm func call()\n  PHP\n  SEI\n' in text
-    marker = 'pub asm func map(value: byte in a): byte in a\n  JMP select\n'
+    marker = 'pub asm func map(value: byte in a): byte in a\n  BEQ .fixed\n  JMP select\n'
     assert marker in text
     text = text.replace(marker, COUNTING_MAP)
     # The counters are disk's: add them to rt_bank's import list of disk.
@@ -142,20 +147,63 @@ def flat_wendy_env(name, path):
         f.write(''.join(lines))
 
 
-ALL_PLACED = ('kernel', 'lex', 'fbuf', 'err', 'src')    # typetab is placed already
+ALL_PLACED = ('kernel', 'lex', 'fbuf', 'err', 'src')    # typetab and out are placed already
 ALL_PLACED_BANK = 'bank      WIN 7 $17 LATHE7.BIN   ; --all-placed: kernel, lex, fbuf, err, src\n'
+# The regions that compiler-bank.env keeps fixed go in bank 7 too, apart from the names and the
+# function buffer, as the BBC has them in a sideways bank of their own: so that a compile shows
+# that nothing reads them outside their blocks. (Wendy 2 has banks 1 to 7 only.)
+REGION_BANK = 7
 
 
 def all_placed_env(name, path):
-    """support.banked_env, with the modules of ALL_PLACED placed in bank 7. Returns PATH."""
+    """support.banked_env, with the modules of ALL_PLACED placed in bank 7, and the regions that
+    are fixed there in bank REGION_BANK. Returns PATH."""
     support.banked_env(name, path)
     with open(path) as f:
         lines = f.readlines()
     at = next(i for i, l in enumerate(lines) if l.startswith('region'))
     lines[at:at] = [ALL_PLACED_BANK] + ['place     %s WIN 7\n' % m for m in ALL_PLACED]
+    lines = [re.sub(r'^region(\s+)(\w+)(\s+)fixed', r'region\1\2\3WIN %d' % REGION_BANK, l) for l in lines]
     with open(path, 'w') as f:
         f.write(''.join(lines))
     return path
+
+
+REGION_VAR = re.compile(r'^(?:pub )?var (\w+):[^;\n]*\bin [A-Za-z_]\w*', re.M)
+
+
+def region_variables():
+    """{'module.name'} of every variable declared `in` a region in lathe/src/ and lathe/rt/."""
+    found = set()
+    for d in (support.SRC, os.path.join(support.LATHE, 'rt')):
+        for f in os.listdir(d):
+            if f.endswith('.lth'):
+                with open(os.path.join(d, f), encoding='latin-1') as source:
+                    for m in REGION_VAR.finditer(source.read()):
+                        found.add((f[:-4] + '.' + m.group(1)).lower())
+    return found
+
+
+def budget_report(path):
+    """What main memory must hold on a machine whose code banks are ROM and whose regions are
+    in sideways RAM (bbc.md, "Measured before designing"): every variable not in a region, the
+    code kept in fixed memory and the other fixed code, the stubs and the fixed constant data.
+    Returns the rows, (what, bytes), and the total."""
+    items = read_map(path)
+    regions = region_variables()
+
+    def banked(i):
+        return any(r.startswith('b=') for r in i[4])
+    fixed = [i for i in items if i[0] in 'FDT' and i[1] < 0x8000 and not banked(i)]
+    variables = sum(i[2] for i in items if i[0] == 'V' and i[3].lower() not in regions)
+    kept = sum(i[2] for i in fixed if i[0] == 'F' and any(r.startswith('k=') for r in i[4]))
+    rows = [('variables not in a region', variables), ('kept code', kept),
+            ('other fixed code', sum(i[2] for i in fixed if i[0] == 'F') - kept),
+            ('stubs', 6 * sum(1 for i in fixed if i[0] == 'T')),
+            ('fixed constants', sum(i[2] for i in fixed if i[0] == 'D'))]
+    total = sum(n for _, n in rows)
+    print('main memory: %s: %d bytes' % (', '.join('%s %d' % r for r in rows), total))
+    return rows, total
 
 
 def read_map(path):
@@ -297,6 +345,8 @@ def selfhost_report(out_dir, names, all_placed):
     support.build.build(os.path.join(support.SRC, 'lathec.lth'), image,
                         env=os.path.join(banked, 'lathec.env'), keep=os.path.join(banked, 'work'))
     map_report(os.path.join(banked, 'work', 'lathec.map'))
+    if all_placed:
+        budget_report(os.path.join(banked, 'work', 'lathec.map'))
     counting = os.path.join(out_dir, 'counting')
     os.makedirs(counting, exist_ok=True)
     counting_copies(counting, 5)       # OPTIONS (three: memory_report.options_of) NAME.lth . farcalls

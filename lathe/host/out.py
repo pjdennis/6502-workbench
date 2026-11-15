@@ -323,16 +323,16 @@ def function_end():
 
 def is_foreign_variable(s):
     """True if kernel symbol `s` is a variable of another module that this one used."""
-    return kernel.sym_kind[s] == kernel.K_VAR and kernel.sym_scope[s] != kernel.SCOPE_MODULE \
-        and kernel.sym_scope[s] != kernel.SCOPE_LOCAL and kernel.sym_obj[s] != kernel.NO_OBJ \
-        and kernel.sym_weight[s] != 0
+    return kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_MODULE \
+        and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_LOCAL and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ \
+        and kernel.byte_of(s, kernel.C_WEIGHT) != 0
 
 
 def foreign_weight(s):
     """The weight of variable `s` in the WGT record."""
-    kernel.put_word(stream, kernel.sym_obj[s])
+    kernel.put_word(stream, kernel.word_of(s, kernel.C_OBJ))
     kernel.put(stream, fbuf.NO_SLOT)
-    kernel.put(stream, kernel.sym_weight[s])
+    kernel.put(stream, kernel.byte_of(s, kernel.C_WEIGHT))
 
 
 def foreign_weights():
@@ -356,13 +356,13 @@ def foreign_weights():
     while True:
         best = kernel.NO_SYM
         for s in range(kernel.thaw_top, kernel.MAX_SYMS):
-            if is_foreign_variable(s) and kernel.sym_obj[s] >= after \
-                    and (best == kernel.NO_SYM or kernel.sym_obj[s] < kernel.sym_obj[best]):
+            if is_foreign_variable(s) and kernel.word_of(s, kernel.C_OBJ) >= after \
+                    and (best == kernel.NO_SYM or kernel.word_of(s, kernel.C_OBJ) < kernel.word_of(best, kernel.C_OBJ)):
                 best = s
         if best == kernel.NO_SYM:
             break
         foreign_weight(best)
-        after = kernel.sym_obj[best] + 1
+        after = kernel.word_of(best, kernel.C_OBJ) + 1
 
 
 def end_module():

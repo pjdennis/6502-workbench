@@ -24,14 +24,17 @@
 ;   |                                      | word                              | storage         |
 ;   | put_part used before it is defined   | a forward declaration             | declare before  |
 ;   |                                      |                                   | use             |
+;   | table and its fix-ups: arrays        | `in OUTTAB`, a region: used only  | on the BBC, out |
+;   |                                      | inside `with OUTTAB do ... end`,  | of main memory  |
+;   |                                      | one block for each whole operation|                 |
 module out
 
 import err (E_CALLS_FULL, E_CLASS_MEMBERS_FULL, E_DATA_FULL, fatal)
 import fbuf (code_length, fix_count, NO_SLOT, put_code, put_fixups, weight_count, weight_slot,
              weight_symbol, weight_value)
-import kernel (close, K_VAR, MAX_SYMS, name_char, name_length, NO_OBJ, NO_SYM, open_out, put,
-               put_name, put_word, SCOPE_LOCAL, SCOPE_MODULE, sym_count, sym_kind, sym_obj,
-               sym_scope, sym_weight, thaw_top)
+import kernel (byte_of, C_KIND, C_OBJ, C_SCOPE, C_WEIGHT, close, K_VAR, MAX_SYMS, name_char,
+               name_length, NO_OBJ, NO_SYM, open_out, put, put_name, put_word, SCOPE_LOCAL,
+               SCOPE_MODULE, sym_count, thaw_top, word_of)
 
 const VERSION = 4
 
@@ -95,12 +98,14 @@ var call_count: byte = 0
 var member_class: [MAX_MEMBERS]word     ; the MEMB records written, so that each is written once
 var member_function: [MAX_MEMBERS]word
 var member_count: byte = 0
-pub var table: [MAX_TABLE]byte nozp     ; a constant table: its bytes, and its fix-ups, until it ends
-var table_fix_offset: [MAX_TABLE_FIXES]word
-var table_fix_kind: [MAX_TABLE_FIXES]byte
-var table_fix_symbol: [MAX_TABLE_FIXES]word
-var table_fix_slot: [MAX_TABLE_FIXES]byte
-var table_fix_addend: [MAX_TABLE_FIXES]word
+; A constant table: its bytes, and its fix-ups, until it ends. In the region OUTTAB: used only
+; inside the blocks of table_begin(), table_byte(), table_fix() and table_end().
+var table: [MAX_TABLE]byte nozp in OUTTAB
+var table_fix_offset: [MAX_TABLE_FIXES]word in OUTTAB
+var table_fix_kind: [MAX_TABLE_FIXES]byte in OUTTAB
+var table_fix_symbol: [MAX_TABLE_FIXES]word in OUTTAB
+var table_fix_slot: [MAX_TABLE_FIXES]byte in OUTTAB
+var table_fix_addend: [MAX_TABLE_FIXES]word in OUTTAB
 var table_fix_count: word = 0
 pub var with_region: word = 0       ; the region of the innermost `with` block being compiled, or 0
 pub var with_used: word = kernel.NO_OBJ ; the first variable or table of it used there (reg.object_symbol)
@@ -205,15 +210,19 @@ pub func table_begin(length: word)
   if length > MAX_TABLE then
     err.fatal(err.E_DATA_FULL)
   end
-  for i = 0 until length do
-    table[i] = 0
+  with OUTTAB do
+    for i = 0 until length do
+      table[i] = 0
+    end
   end
   table_fix_count = 0
 end
 
 ; Make byte `i` of the table `value`.
 pub func table_byte(i: word, value: byte)
-  table[i] = value
+  with OUTTAB do
+    table[i] = value
+  end
 end
 
 ; Byte `offset` of the table is a byte of an address, which the linker fills in.
@@ -223,11 +232,13 @@ pub func table_fix(offset: word, kind: byte, symbol_number: word, slot: byte, ad
     err.fatal(err.E_DATA_FULL)
   end
   i = byte(table_fix_count)
-  table_fix_offset[i] = offset
-  table_fix_kind[i] = kind
-  table_fix_symbol[i] = symbol_number
-  table_fix_slot[i] = slot
-  table_fix_addend[i] = addend
+  with OUTTAB do
+    table_fix_offset[i] = offset
+    table_fix_kind[i] = kind
+    table_fix_symbol[i] = symbol_number
+    table_fix_slot[i] = slot
+    table_fix_addend[i] = addend
+  end
   table_fix_count += 1
 end
 
@@ -238,21 +249,25 @@ pub func table_end(symbol_number: word, length: word)
   var i: word
   if table_fix_count != 0 then
     begin_record(R_DFIX, 8 * table_fix_count)
-    for where = 0 until length do
-      for i = 0 until table_fix_count do
-        if table_fix_offset[byte(i)] == where then
-          kernel.put_word(stream, where)
-          kernel.put(stream, table_fix_kind[byte(i)])
-          kernel.put_word(stream, table_fix_symbol[byte(i)])
-          kernel.put(stream, table_fix_slot[byte(i)])
-          kernel.put_word(stream, table_fix_addend[byte(i)])
+    with OUTTAB do
+      for where = 0 until length do
+        for i = 0 until table_fix_count do
+          if table_fix_offset[byte(i)] == where then
+            kernel.put_word(stream, where)
+            kernel.put(stream, table_fix_kind[byte(i)])
+            kernel.put_word(stream, table_fix_symbol[byte(i)])
+            kernel.put(stream, table_fix_slot[byte(i)])
+            kernel.put_word(stream, table_fix_addend[byte(i)])
+          end
         end
       end
     end
   end
   data(symbol_number, length)
-  for i = 0 until length do
-    data_byte(table[i])
+  with OUTTAB do
+    for i = 0 until length do
+      data_byte(table[i])
+    end
   end
 end
 
@@ -378,18 +393,18 @@ end
 
 ; True if kernel symbol `s` is a variable of another module that this one used.
 func is_foreign_variable(s: word): bool
-  return kernel.sym_kind[s] == kernel.K_VAR and kernel.sym_scope[s] != kernel.SCOPE_MODULE and
-      kernel.sym_scope[s] != kernel.SCOPE_LOCAL and kernel.sym_obj[s] != kernel.NO_OBJ and
-      kernel.sym_weight[s] != 0
+  return kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_MODULE and
+      kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_LOCAL and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ and
+      kernel.byte_of(s, kernel.C_WEIGHT) != 0
 end
 
 ; A WGT record of the weight this module's uses gave the variables of other modules, if
 ; it used any.
 ; The weight of variable `s` in the WGT record.
 func foreign_weight(s: word)
-  kernel.put_word(stream, kernel.sym_obj[s])
+  kernel.put_word(stream, kernel.word_of(s, kernel.C_OBJ))
   kernel.put(stream, fbuf.NO_SLOT)
-  kernel.put(stream, kernel.sym_weight[s])
+  kernel.put(stream, kernel.byte_of(s, kernel.C_WEIGHT))
 end
 
 ; A WGT record of the weight this module's uses gave the variables of other modules, if
@@ -422,8 +437,8 @@ func foreign_weights()
   loop
     best = kernel.NO_SYM
     for s = kernel.thaw_top until kernel.MAX_SYMS do
-      if is_foreign_variable(s) and kernel.sym_obj[s] >= after and
-          (best == kernel.NO_SYM or kernel.sym_obj[s] < kernel.sym_obj[best]) then
+      if is_foreign_variable(s) and kernel.word_of(s, kernel.C_OBJ) >= after and
+          (best == kernel.NO_SYM or kernel.word_of(s, kernel.C_OBJ) < kernel.word_of(best, kernel.C_OBJ)) then
         best = s
       end
     end
@@ -431,7 +446,7 @@ func foreign_weights()
       break
     end
     foreign_weight(best)
-    after = kernel.sym_obj[best] + 1
+    after = kernel.word_of(best, kernel.C_OBJ) + 1
   end
 end
 

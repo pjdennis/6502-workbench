@@ -12,9 +12,9 @@ module asmtest
 import asmblock
 import err (init)
 import fbuf (begin, finish)
-import kernel (init, K_CONST, K_FUNC, K_LOCAL, K_MODULE, K_TYPE, K_VAR, keep_argument, module_add,
-               scope_begin, SCOPE_LOCAL, SCOPE_MODULE, sym_add, sym_flags, sym_obj, sym_type,
-               sym_value, sym_weight)
+import kernel (byte_of, C_FLAGS, C_OBJ, C_TYPE, C_VALUE, C_WEIGHT, init, K_CONST, K_FUNC, K_LOCAL,
+               K_MODULE, K_TYPE, K_VAR, keep_argument, module_add, scope_begin, SCOPE_LOCAL,
+               SCOPE_MODULE, set_byte, set_word, sym_add)
 import lex (col, init, line, next, T_ASM, T_NL, tok)
 import listing
 import out (end_module, init, open, SYM_FUNCTION, SYM_VARIABLE, symbol)
@@ -67,8 +67,8 @@ end
 func symbol(scope: byte, name: word, kind: byte, t: byte, value: word): word
   var s: word
   s = kernel.sym_add(scope, name, kind)
-  kernel.sym_type[s] = t
-  kernel.sym_value[s] = value
+  kernel.set_byte(s, kernel.C_TYPE, t)
+  kernel.set_word(s, kernel.C_VALUE, value)
   script.show_word(s)
   return s
 end
@@ -104,13 +104,13 @@ func run(c: byte)
     d = script.small()
     v = script.number()
     s = symbol(d, script.name(), kernel.K_VAR, a, v)
-    kernel.sym_flags[s] = b
+    kernel.set_byte(s, kernel.C_FLAGS, b)
   of 1
     n = script.name()
     a = script.small()
     b = script.small()
     s = symbol(a, n, kernel.K_FUNC, typetab.NO_TYPE, script.number())
-    kernel.sym_flags[s] = b
+    kernel.set_byte(s, kernel.C_FLAGS, b)
   of 2
     n = script.name()
     a = script.small()
@@ -132,7 +132,7 @@ func run(c: byte)
   of 6
     n = script.name()
     s = symbol(kernel.SCOPE_LOCAL, n, kernel.K_VAR, typetab.WORD_TYPE, 0)
-    kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, module_m, name_f, n)
+    kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, module_m, name_f, n))
   of 7
     s = symbol(kernel.SCOPE_MODULE, script.name(), kernel.K_TYPE, typetab.NO_TYPE, 0)
   of 8
@@ -141,7 +141,7 @@ func run(c: byte)
     reg.loop_depth = script.small()
   of 10
     s = script.number()
-    kernel.sym_weight[s] = script.small()
+    kernel.set_byte(s, kernel.C_WEIGHT, script.small())
   of 11
     a = script.small()
     reg.load_const(a, script.small())
@@ -172,8 +172,8 @@ func run(c: byte)
     end
   of 16
     s = script.number()
-    script.show_byte(kernel.sym_weight[s])
-    script.show_byte(kernel.sym_flags[s])
+    script.show_byte(kernel.byte_of(s, kernel.C_WEIGHT))
+    script.show_byte(kernel.byte_of(s, kernel.C_FLAGS))
   of 17
     out.end_module()
   of 18

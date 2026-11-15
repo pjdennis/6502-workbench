@@ -254,7 +254,7 @@ class CallsTest(support.GenTest):
         other = self.function(b'other')
         for f in (helper, other, helper):
             gen.call(f, 0, False)
-        self.assertEqual((kernel.sym_obj[helper], kernel.sym_obj[other]), (1, 2))
+        self.assertEqual((kernel.word_of(helper, kernel.C_OBJ), kernel.word_of(other, kernel.C_OBJ)), (1, 2))
         self.listing()
         symbols = [body for kind, body in self.records() if kind == SYM]
         self.assertEqual(symbols, [b'\x01\x03m.f', b'\x01\x0butil.helper', b'\x01\x07m.other'])
@@ -463,7 +463,7 @@ class InitialValuesTest(support.GenTest):
     def variable_with_symbol(self, t, text, flags=0, address=0):
         s = self.variable(t, text, flags, address)
         if flags & kernel.SF_AT == 0:
-            kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, name(b'm'), 0, name(text))
+            kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, name(b'm'), 0, name(text)))
         return s
 
     def test_the_function_stores_each_value_and_loads_equal_ones_once(self):

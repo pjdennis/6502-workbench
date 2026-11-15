@@ -37,7 +37,7 @@ import env  # noqa: E402
 BUDGET = 20 * 1024
 CAPACITY = (156, 165, 166)    # errors outside 70 to 98 that are about a capacity of the compiler
 MODULES = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen',
-           'asmblock', 'inline', 'expr', 'decl', 'lathec')
+           'asmblock', 'inline', 'parts', 'expr', 'decl', 'lathec')
 
 
 def module(name):
@@ -132,8 +132,7 @@ def watch():
     return found
 
 
-SYM_COLUMNS = ('sym_name', 'sym_scope', 'sym_kind', 'sym_flags', 'sym_type', 'sym_value', 'sym_obj',
-               'sym_weight', 'sym_members', 'sym_params', 'sym_results', 'sym_link')
+SYM_COLUMNS = ('sym_bytes', 'sym_words')     # each MAX_SYMS rows a column
 LABEL_COLUMNS = ('label_offset', 'label_alias', 'label_uses', 'label_note')
 TABLE_FIXES = ('table_fix_offset', 'table_fix_kind', 'table_fix_symbol', 'table_fix_slot',
                'table_fix_addend')

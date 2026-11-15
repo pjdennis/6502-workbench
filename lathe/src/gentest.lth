@@ -16,8 +16,8 @@ import gen (accept, address, anonymous, arguments_end, as_value, assign, binary,
             parameter, part, pend_op, pend_type, protect, receive, record_of, resolve, result, ret,
             saves_frame, saving, settle, size_of, step, store, store_arrow, store_pair, table,
             table_element, test_left, test_right, through, through_pointer, variable)
-import kernel (K_CONST, K_TYPE, keep_argument, module_add, SCOPE_MODULE, sym_add, sym_type,
-               sym_value)
+import kernel (C_TYPE, C_VALUE, K_CONST, K_TYPE, keep_argument, module_add, SCOPE_MODULE, set_byte,
+               set_word, sym_add)
 import listing
 import out (table_begin, table_end)
 import reg (object_symbol)
@@ -208,7 +208,7 @@ func run_more(c: byte)
   of 64
     a = script.small()
     s = kernel.sym_add(kernel.SCOPE_MODULE, script.name(), kernel.K_CONST)
-    kernel.sym_type[s] = a
+    kernel.set_byte(s, kernel.C_TYPE, a)
     script.show_word(s)
   of 65
     script.show_byte(kernel.module_add(script.name()))
@@ -223,7 +223,7 @@ func run_more(c: byte)
   of 68
     s = kernel.sym_add(kernel.SCOPE_MODULE, script.name(), kernel.K_TYPE)
     a = typetab.declared(typetab.FORM_RECORD, s)
-    kernel.sym_type[s] = a
+    kernel.set_byte(s, kernel.C_TYPE, a)
     v = typetab.grow(a, script.number())
     script.show_word(s)
     script.show_byte(a)
@@ -231,7 +231,7 @@ func run_more(c: byte)
     script.show_bool(gen.must_protect())
   of 70
     s = script.number()
-    kernel.sym_value[s] = script.number()
+    kernel.set_word(s, kernel.C_VALUE, script.number())
   end
 end
 

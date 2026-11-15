@@ -144,13 +144,13 @@ class OutTest(unittest.TestCase):
         kernel.module_add(name(b'm'))
         util = kernel.module_add(name(b'util'))
         v = kernel.sym_add(util, name(b'v'), kernel.K_VAR)
-        kernel.sym_obj[v] = out.symbol(out.SYM_VARIABLE, name(b'util'), 0, name(b'v'))
-        kernel.sym_weight[v] = 17
+        kernel.set_word(v, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, name(b'util'), 0, name(b'v')))
+        kernel.set_byte(v, kernel.C_WEIGHT, 17)
         w = kernel.sym_add(util, name(b'w'), kernel.K_VAR)          # imported, not used: no symbol
-        kernel.sym_weight[w] = 0
+        kernel.set_byte(w, kernel.C_WEIGHT, 0)
         own = kernel.sym_add(kernel.SCOPE_MODULE, name(b'x'), kernel.K_VAR)
-        kernel.sym_obj[own] = out.symbol(out.SYM_VARIABLE, name(b'm'), 0, name(b'x'))
-        kernel.sym_weight[own] = 5                              # in its own VAR record
+        kernel.set_word(own, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, name(b'm'), 0, name(b'x')))
+        kernel.set_byte(own, kernel.C_WEIGHT, 5)                              # in its own VAR record
         self.assertEqual(self.written()[-2:], [(WGT, b'\x00\x00\xff\x11'), (END, b'')])
 
     def test_a_class_gives_each_parameter_its_size_and_an_empty_name(self):

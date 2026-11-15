@@ -1,5 +1,5 @@
 """The compiler written in Lathe: lathe/src/lathec.lth, the main module, with the twins of all
-sixteen host modules, built banked on Wendy 2 with --disk (lathe/src/compiler-bank.env with
+seventeen host modules, built banked on Wendy 2 with --disk (lathe/src/compiler-bank.env with
 SMALL 1: the small build's capacities; test_src_selfhost.py runs it at full size) and run on the emulator over the corpus, against the host compiler
 (lathe/host/lathec.py) at the same capacities (lathec_small.py, script_host.SMALL).
 
