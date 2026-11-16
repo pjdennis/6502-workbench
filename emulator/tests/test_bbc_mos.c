@@ -887,6 +887,167 @@ TEST osgbpb_reads_and_writes_blocks(void) {
     PASS();
 }
 
+/* ---- --bbc-fs dfs: the names and limits of the Acorn DFS ---- */
+
+static struct bbc_config dfs_cfg = { .dfs = 1 };
+
+/* OSFIND with A = $6F on the name at $0400; the handle in $6E */
+static uint8_t find_code[] = {
+    LDA_ZP(0x6F), LDX_IMM(0x00), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x6E), RTS };
+
+static int dfs_find(uint8_t mode, const char *name) {
+    fresh();
+    put_text(0x0400, name);
+    mem.ram[0x6F] = mode;
+    return run(find_code, sizeof find_code, NULL, NULL, &dfs_cfg);
+}
+
+/* OSFILE `call` on the name; a save (0) saves `data` from $5000 */
+static int dfs_osfile(uint8_t call, const char *name, const char *data) {
+    fresh();
+    put_text(0x0400, name);
+    uint32_t s = 0x5000, e = 0x5000 + (data ? (uint32_t)strlen(data) : 0);
+    if (data) memcpy(mem.ram + 0x5000, data, strlen(data));
+    osfile_block(call, 0x0400, 0x1900, 0x1900, s, e);
+    return run(osfile_code, sizeof osfile_code, NULL, NULL, &dfs_cfg);
+}
+
+TEST dfs_names_are_checked_as_the_dfs_checks_them(void) {
+    make_disk();
+    const char *good[] = { "A", "ABCDEFG", "L.EXPR", "l.expr", "$.ABC", ":0.A", ":3.O.X", "!.~}|",
+                           "_", "L._" };
+    for (int i = 0; i < 10; i++) {
+        ASSERT_EQ_FMT(0, dfs_osfile(5, good[i], NULL), "%d");
+        ASSERT_EQ(0, mem.ram[0x6E]);          /* not there: A = 0, no error */
+    }
+    const char *bad[] = { "ABCDEFGH", "expr.lth", "./L.X", "A.", ".A", "A#", "A*", "\"A", "L.EX.P",
+                          "LL.X", ":1.", ":1", ":1.LONGNAME", "A:B", "../x",
+                          "a/b" };   /* a real DFS takes "a/b"; the host directory cannot hold it */
+    for (int i = 0; i < 16; i++) {
+        ASSERT_EQ_FMT(1, dfs_osfile(5, bad[i], NULL), "%d");
+        ASSERT_STR_EQ("Bad name\n", err_text);
+    }
+    const char *drive[] = { ":4.A", ":A.B", ":.A" };
+    for (int i = 0; i < 3; i++) {
+        ASSERT_EQ(1, dfs_osfile(5, drive[i], NULL));
+        ASSERT_STR_EQ("Bad drive\n", err_text);
+    }
+    ASSERT_EQ(1, dfs_find(0x40, "expr.lth"));    /* OSFIND too */
+    ASSERT_STR_EQ("Bad name\n", err_text);
+    fresh();                                     /* and *RUN, *LOAD and *SAVE */
+    ASSERT_EQ(1, run(NULL, 0, NULL, "LOAD expr.lth 5000", &dfs_cfg));
+    ASSERT_STR_EQ("Bad name\n", err_text);
+    fresh();
+    ASSERT_EQ(1, run(NULL, 0, NULL, "SAVE TOOLONGX 5000 5001", &dfs_cfg));
+    ASSERT_STR_EQ("Bad name\n", err_text);
+    remove_disk();
+    PASS();
+}
+
+TEST dfs_files_are_kept_as_dir_dot_name_and_found_in_any_case(void) {
+    make_disk();
+    ASSERT_EQ(0, dfs_osfile(0, "l.expr", "abc"));
+    char buf[64];
+    ASSERT_EQ(3, read_host("l.expr", buf, sizeof buf));   /* the case it was created in */
+    read_host("l.expr.inf", buf, sizeof buf);
+    ASSERT_STR_EQ("l.expr 00001900 00001900 00000003\n", buf);
+    ASSERT_EQ(0, dfs_osfile(0, "A", "a"));
+    ASSERT_EQ(1, read_host("$.A", buf, sizeof buf));      /* $ is the directory unless named */
+    ASSERT_EQ(0, dfs_osfile(0, ":2.O.X", "ox"));
+    ASSERT_EQ(2, read_host(":2/O.X", buf, sizeof buf));   /* drive 2: the subdirectory :2 */
+    ASSERT_EQ(0, dfs_osfile(5, "L.EXPR", NULL));          /* found whatever the case */
+    ASSERT_EQ(1, mem.ram[0x6E]);
+    ASSERT_EQ(3u, block32(10));
+    ASSERT_EQ(0, dfs_osfile(5, "$.a", NULL));
+    ASSERT_EQ(1, mem.ram[0x6E]);
+    ASSERT_EQ(0, dfs_osfile(5, ":0.a", NULL));
+    ASSERT_EQ(1, mem.ram[0x6E]);
+    ASSERT_EQ(0, dfs_osfile(5, "O.X", NULL));             /* not on drive 0 */
+    ASSERT_EQ(0, mem.ram[0x6E]);
+    ASSERT_EQ(0, dfs_find(0x40, "L.Expr"));
+    ASSERT_EQ(0x11, mem.ram[0x6E]);
+    ASSERT_EQ(0, dfs_osfile(0, "L.EXPR", "wxyz"));        /* saving again keeps the one file */
+    ASSERT_EQ(4, read_host("l.expr", buf, sizeof buf));
+    ASSERT_EQ(-1, read_host("L.EXPR", buf, sizeof buf));
+    ASSERT_EQ(0, dfs_find(0x80, "$.NEW"));                /* OSFIND creates as OSFILE saves */
+    ASSERT_EQ(0, read_host("$.NEW", buf, sizeof buf));
+    fresh();
+    write_host("$.PROG", (uint8_t[]){ RTS }, 1);
+    write_host("$.PROG.inf", "$.PROG 1900 1900\n", 17);
+    ASSERT_EQ(0, run(NULL, 0, NULL, "RUN prog", &dfs_cfg));
+    fresh();
+    ASSERT_EQ(0, run(NULL, 0, NULL, "LOAD L.EXPR 6000", &dfs_cfg));
+    ASSERT_MEM_EQ("wxyz", (char *)mem.ram + 0x6000, 4);
+    fresh();                                              /* the host's own names are not seen */
+    write_host("HOSTNAME", "h", 1);
+    ASSERT_EQ(0, dfs_osfile(5, "HOSTNAM", NULL));
+    ASSERT_EQ(0, mem.ram[0x6E]);
+    remove_disk();
+    PASS();
+}
+
+TEST dfs_has_five_files_open_at_most(void) {
+    make_disk();
+    fresh();
+    const char *names[] = { "A", "B", "C", "D", "E", "F" };
+    for (int i = 0; i < 6; i++) put_text((uint16_t)(0x0400 + 8 * i), names[i]);
+    uint8_t code[6 * 10 + 1];
+    size_t n = 0;
+    for (int i = 0; i < 6; i++) {
+        uint8_t one[] = { LDA_IMM(0x80), LDX_IMM(8 * i), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x60 + i) };
+        memcpy(code + n, one, sizeof one);
+        n += sizeof one;
+    }
+    code[n++] = RTS;
+    ASSERT_EQ(1, run(code, n, NULL, NULL, &dfs_cfg));
+    ASSERT_STR_EQ("Too many open\n", err_text);
+    ASSERT_EQ(0x11, mem.ram[0x60]);
+    ASSERT_EQ(0x15, mem.ram[0x64]);
+    ASSERT_EQ(5u, (unsigned)m.most_open);
+    ASSERT_EQ(5u, (unsigned)m.most_writing);
+    remove_disk();
+    PASS();
+}
+
+TEST dfs_catalogue_holds_31_files_a_drive(void) {
+    make_disk();
+    char name[16];
+    for (int i = 0; i < 31; i++) {
+        snprintf(name, sizeof name, "%c.F%02d", i < 20 ? '$' : 'O', i);
+        write_host(name, "x", 1);
+        snprintf(name, sizeof name, "%c.F%02d.inf", i < 20 ? '$' : 'O', i);
+        write_host(name, "x 0 0\n", 6);           /* .inf files are not entries */
+    }
+    write_host("NOT-DFS-NAME", "x", 1);           /* nor are host files of other names */
+    ASSERT_EQ(1, dfs_find(0x80, "NEW"));
+    ASSERT_STR_EQ("Cat full\n", err_text);
+    ASSERT_EQ(1, dfs_osfile(0, "L.NEW", "abc"));
+    ASSERT_STR_EQ("Cat full\n", err_text);
+    ASSERT_EQ(0, dfs_find(0x80, "O.F25"));        /* a file that is there can be written */
+    ASSERT_EQ(0x11, mem.ram[0x6E]);
+    ASSERT_EQ(0, dfs_find(0x80, ":1.NEW"));       /* another drive has its own catalogue */
+    ASSERT_EQ(0x11, mem.ram[0x6E]);
+    ASSERT_EQ(0, dfs_osfile(6, "$.F00", NULL));   /* deleting makes room */
+    ASSERT_EQ(0, dfs_find(0x80, "NEW"));
+    ASSERT_EQ(0x11, mem.ram[0x6E]);
+    remove_disk();
+    PASS();
+}
+
+TEST without_dfs_names_and_limits_are_as_before(void) {
+    make_disk();
+    fresh();
+    put_text(0x0400, "expr.lth");
+    mem.ram[0x6F] = 0x80;
+    ASSERT_EQ(0, run(find_code, sizeof find_code, NULL, NULL, NULL));
+    ASSERT_EQ(0x11, mem.ram[0x6E]);
+    char buf[8];
+    ASSERT_EQ(0, read_host("expr.lth", buf, sizeof buf));
+    ASSERT_EQ(1u, (unsigned)m.most_open);
+    remove_disk();
+    PASS();
+}
+
 /* ---- the trap and the checks ---- */
 
 TEST jumping_straight_to_a_trap_is_a_fault(void) {
@@ -1025,6 +1186,11 @@ SUITE(bbc_mos_suite) {
     RUN_TEST(osfind_missing_file_returns_0_and_bget_twice_at_eof_is_an_error);
     RUN_TEST(osargs_reads_and_writes_ptr_and_reads_ext);
     RUN_TEST(osgbpb_reads_and_writes_blocks);
+    RUN_TEST(dfs_names_are_checked_as_the_dfs_checks_them);
+    RUN_TEST(dfs_files_are_kept_as_dir_dot_name_and_found_in_any_case);
+    RUN_TEST(dfs_has_five_files_open_at_most);
+    RUN_TEST(dfs_catalogue_holds_31_files_a_drive);
+    RUN_TEST(without_dfs_names_and_limits_are_as_before);
     RUN_TEST(jumping_straight_to_a_trap_is_a_fault);
     RUN_TEST(a_jam_opcode_is_a_fault);
     RUN_TEST(writes_to_mos_memory_are_counted);

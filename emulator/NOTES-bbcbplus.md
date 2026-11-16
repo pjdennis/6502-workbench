@@ -123,5 +123,35 @@ to hold for MOS 2.00, which is itself a **memory** assumption.
 | OSARGS 1 with a handle returns A=0 if the file was extended, else `$FF` | checked | BeebWiki OSARGS; not done (A is left) |
 | OSGBPB: block +0 handle, +1 address, +5 count, +9 PTR; 1/3 use the PTR given, 2/4 the current; on exit address and PTR moved on, count what is left, C set if not 0, A=0 if supported | checked | BeebWiki OSGBPB |
 | OSFILE: block +0 name, +2 load, +6 exec, +10 start/length, +14 end/attributes; `$FF` loads at +2 if exec's low byte is 0; 0 saves; 1-4 write information; 5 reads it; 6 deletes (A=0 if missing); A on exit 0 none, 1 file, 2 directory; only load raises an error for a missing file | checked | BeebWiki OSFILE |
-| DFS names are up to seven characters with a directory (`$.NAME`) | memory | the emulator uses names as given |
+| DFS names are up to seven characters with a directory (`$.NAME`) | checked | BeebWiki Acorn DFS disc format (below); the emulator uses names as given unless `--bbc-fs dfs` |
 | `.inf` files: the data file's name plus `.inf`; `NAME LOAD EXEC`, hex of 1-8 digits, separated by spaces; an optional length after (bbcim) | checked | BeebWiki INF file format |
+
+## The DFS's names and limits (`--bbc-fs dfs`)
+
+Read on 2026-11-16: BeebWiki pages Acorn DFS disc format, OSFIND and System error messages;
+Wikipedia, "Disc Filing System"; the HDFS manual (knackered.org/~angus/beeb/hdfs.html: HDFS for the BBC, a
+hierarchical DFS that says its error numbers are those of Acorn's DNFS 1.20 "where possible").
+Acorn's own Disc System User Guide could not be read: its host is not reachable from this
+session. MMFS's source (a DFS-compatible filing system) could not be read: access to its
+repository was refused. So the error numbers below are checked only against a third party's
+manual and a table that does not say which filing system each message is from.
+
+| Fact | | Source |
+|---|---|---|
+| A file name is one to seven characters, `$20`-`$7E` but `.` `:` `"` `#` `*` and space; the directory is one such character; name and directory together are unique on the side | checked | BeebWiki Acorn DFS disc format |
+| The catalogue holds 31 files a side, whatever their directories | checked | BeebWiki Acorn DFS disc format; Wikipedia |
+| A side has ten 256-byte sectors a track, 40 or 80 tracks; at most 800 sectors (204,800 bytes) | checked | BeebWiki Acorn DFS disc format |
+| Case is kept but not significant | checked | Wikipedia ("case-preserving but not case-sensitive"); that the directory's case does not matter either is **memory** |
+| Four drives, 0 to 3; the two sides of a double-sided drive are two drives (0 and 2 for the first drive, 1 and 3 for the second) | partly | Wikipedia (four volumes; sides as drives); which number is which side: **memory** |
+| `:D.X.NAME`: the drive, then the directory, before the name | memory | |
+| Five files open at once | checked | BeebWiki OSFIND |
+| A new file opened for output is given 16 KB (`&4000`) of the disc; a file written over keeps its old space | checked | BeebWiki OSFIND |
+| A file can be open for input several times if it is not open for output, and for output only if it is not open at all | checked | BeebWiki OSFIND; **not enforced** by the emulator |
+| A file's data is one run of sectors; a file that grows to the start of the next is the error `Can't extend` | checked | Wikipedia; **not emulated** |
+| Bad name 204 (`&CC`), Too many open 192 (`&C0`), Cat full 190 (`&BE`), Bad drive 205 (`&CD`), Can't extend 191 (`&BF`), Open 194 (`&C2`) | partly | the HDFS manual gives these messages with these numbers; BeebWiki System error messages gives the same numbers for these texts among others, without saying whose |
+| A drive number out of range is `Bad drive` | partly | the HDFS manual; a forum post summarised in a search (not read: the forum refused the request) says Acorn's DFS gives `Bad name` there |
+| Whether a new file goes into the first gap between files that holds 16 KB, or after the last file | not checked | (matters for `Can't extend`: bbc.md, "File names on the BBC") |
+
+What the emulator does with them, and what it adds of its own: `emulator/README.md`, "bbcbplus",
+`--bbc-fs dfs`. Its own: `/` is refused as `Bad name` (a real DFS takes it; the host directory
+cannot hold it), and drive N is the subdirectory `:N` of `--disk`.

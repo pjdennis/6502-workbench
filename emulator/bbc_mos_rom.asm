@@ -350,6 +350,16 @@ e_bad_name:
 e_too_many_open:
   .byte $00, 192
   .asciiz "Too many open files"
+; --bbc-fs dfs: the DFS's own errors (emulator/NOTES-bbcbplus.md, "The filing system")
+e_dfs_too_many_open:
+  .byte $00, 192
+  .asciiz "Too many open"
+e_bad_drive:
+  .byte $00, 205
+  .asciiz "Bad drive"
+e_cat_full:
+  .byte $00, 190
+  .asciiz "Cat full"
 e_read_only:
   .byte $00, 193
   .asciiz "Read only"

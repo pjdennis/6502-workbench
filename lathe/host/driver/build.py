@@ -93,7 +93,9 @@ _building = threading.local()
 
 
 def find_module(name, main_dir):
-    for d in [main_dir] + getattr(_building, 'dirs', []) + [RT]:
+    # The board's directories come before lathe/rt/ also for a source in lathe/rt/ itself.
+    first = [] if os.path.abspath(main_dir) == RT else [main_dir]
+    for d in first + getattr(_building, 'dirs', []) + [RT]:
         p = os.path.join(d, name + '.lth')
         if os.path.isfile(p):
             return p

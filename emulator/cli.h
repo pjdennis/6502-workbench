@@ -135,6 +135,7 @@ struct emu_opts {
                                          * passed to OSCLI when the one before returns */
     int bbc_more_count;
     int bbc_strict;                     /* --bbc-strict: a failed check ends the run */
+    int bbc_dfs;                        /* --bbc-fs dfs: the filing system takes the DFS's names */
     int bbc_options;                    /* set when any --bbc-* option was given */
     const char *disk_dir;               /* --disk DIR (wendy2c only): host directory backing the
                                          * $F800+ file-I/O OS calls (the simulated SPI "disk").

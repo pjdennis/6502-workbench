@@ -2,6 +2,8 @@
 #include "bbc_mos.h"
 
 #include <ctype.h>
+#include <dirent.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -150,22 +152,13 @@ static uint16_t read_name(struct bbc_machine *m, uint16_t addr, char *name, size
         name[n++] = (char)c;
     }
     name[n] = 0;
+    if (m->cfg.dfs) return n ? addr : 0;   /* checked as the DFS checks it, by file_path() */
     size_t skip = 0;
     while (name[skip] == '.' && name[skip + 1] == '/') skip += 2;
     if (skip) memmove(name, name + skip, n - skip + 1);
     n -= skip;
     if (!n || strchr(name, '/') || strstr(name, "..")) return 0;
     return addr;
-}
-
-/* The host path of a name; 0 if there is no --disk (an error is raised) */
-static int host_path(struct bbc_machine *m, const char *name, const char *suffix, char *path, size_t size) {
-    if (!m->cfg.disk_dir) {
-        raise(BBC_MOS_E_NO_DISK);
-        return 0;
-    }
-    snprintf(path, size, "%s/%s%s", m->cfg.disk_dir, name, suffix);
-    return 1;
 }
 
 /* The .inf beside a file: "NAME LOAD EXEC [LENGTH]", in hex */
@@ -201,12 +194,105 @@ static int object_type(const char *path, uint32_t *length) {
     return S_ISDIR(st.st_mode) ? 2 : 1;
 }
 
+/* --bbc-fs dfs. A name is [:D.][X.]NAME: the drive D 0 to 3, the directory X one
+ * character ($ if none), NAME one to seven; a character is any from $21 to $7E but
+ * . : " # * (BeebWiki, "Acorn DFS disc format") and, here only, /, which a host
+ * file name cannot hold. Upper and lower case match. Drive 0 is the --disk
+ * directory, drive N its subdirectory ":N"; the file X.NAME is the host file
+ * "X.NAME", in the case it was created in, so that a file's host name is its full
+ * DFS name, and its .inf file "X.NAME.inf". A drive's catalogue holds 31 files. */
+static int dfs_char(int c) { return c > 0x20 && c < 0x7F && !strchr(".:\"#*/", c); }
+
+static int dfs_base_ok(const char *s) {
+    size_t n = 0;
+    while (s[n] && dfs_char((unsigned char)s[n])) n++;
+    return n >= 1 && n <= 7 && !s[n];
+}
+
+/* Whether a host file name is a DFS file's: X.NAME */
+static int dfs_entry(const char *s) {
+    return dfs_char((unsigned char)s[0]) && s[1] == '.' && dfs_base_ok(s + 2);
+}
+
+/* The drive, directory and name of a DFS name; 0, or the error to raise */
+static uint16_t dfs_parse(const char *s, int *drive, char *dir, const char **base) {
+    *drive = 0;
+    *dir = '$';
+    if (s[0] == ':') {
+        if (s[1] < '0' || s[1] > '3') return BBC_MOS_E_BAD_DRIVE;
+        if (s[2] != '.') return BBC_MOS_E_BAD_NAME;
+        *drive = s[1] - '0';
+        s += 3;
+    }
+    if (s[0] && s[1] == '.') {
+        if (!dfs_char((unsigned char)s[0])) return BBC_MOS_E_BAD_NAME;
+        *dir = s[0];
+        s += 2;
+    }
+    if (!dfs_base_ok(s)) return BBC_MOS_E_BAD_NAME;
+    *base = s;
+    return 0;
+}
+
+/* The host path of a name the 6502 code gave, and the name its .inf file records. With
+ * `creating` (a file about to be written), a DFS file that is not there must have room in
+ * its drive's catalogue. Returns 0, or the error to raise. */
+static uint16_t file_path(struct bbc_machine *m, const char *name, int creating, char *path, size_t size,
+                          char *inf_name, size_t inf_size) {
+    if (!m->cfg.disk_dir) return BBC_MOS_E_NO_DISK;
+    if (!m->cfg.dfs) {
+        snprintf(path, size, "%s/%s", m->cfg.disk_dir, name);
+        snprintf(inf_name, inf_size, "%s", name);
+        return 0;
+    }
+    int drive;
+    char dir;
+    const char *base;
+    uint16_t e = dfs_parse(name, &drive, &dir, &base);
+    if (e) return e;
+    char folder[1024], want[16];
+    if (drive) snprintf(folder, sizeof folder, "%s/:%d", m->cfg.disk_dir, drive);
+    else snprintf(folder, sizeof folder, "%s", m->cfg.disk_dir);
+    snprintf(want, sizeof want, "%c.%s", dir, base);
+    int entries = 0, found = 0;
+    DIR *d = opendir(folder);
+    if (d) {
+        for (struct dirent *de; (de = readdir(d));) {
+            if (!dfs_entry(de->d_name)) continue;    /* at most 9 characters */
+            char full[1100];
+            snprintf(full, sizeof full, "%s/%.9s", folder, de->d_name);
+            if (object_type(full, NULL) != 1) continue;
+            entries++;
+            if (!found && strcasecmp(de->d_name, want) == 0) {
+                memcpy(want, de->d_name, strlen(de->d_name) + 1);
+                found = 1;
+            }
+        }
+        closedir(d);
+    }
+    if (creating && !found) {
+        if (entries >= BBC_DFS_CATALOGUE) return BBC_MOS_E_CAT_FULL;
+        if (drive) mkdir(folder, 0777);
+    }
+    snprintf(path, size, "%s/%s", folder, want);
+    snprintf(inf_name, inf_size, "%s", want);
+    return 0;
+}
+
+/* file_path(), raising its error: 0 if it raised one (no --disk, a bad name, ...) */
+static int host_path(struct bbc_machine *m, const char *name, int creating, char *path, size_t size,
+                     char *inf_name, size_t inf_size) {
+    uint16_t e = file_path(m, name, creating, path, size, inf_name, inf_size);
+    if (e) raise(e);
+    return !e;
+}
+
 /* Load a file at its own load address (or at addr if use_addr). Raises
  * the error and returns -1 when it can't. */
 static int load_file(struct bbc_machine *m, const char *name, int use_addr, uint32_t addr,
                      uint32_t *load, uint32_t *exec, uint32_t *length) {
-    char path[1024];
-    if (!host_path(m, name, "", path, sizeof path)) return -1;
+    char path[1024], inf_name[256];
+    if (!host_path(m, name, 0, path, sizeof path, inf_name, sizeof inf_name)) return -1;
     if (object_type(path, NULL) != 1) {
         raise(BBC_MOS_E_FILE_NOT_FOUND);
         return -1;
@@ -223,8 +309,12 @@ static int load_file(struct bbc_machine *m, const char *name, int use_addr, uint
 
 static int save_file(struct bbc_machine *m, const char *name, uint32_t load, uint32_t exec,
                      uint32_t start, uint32_t end) {
-    char path[1024];
-    if (!host_path(m, name, "", path, sizeof path)) return -1;
+    char path[1024], inf_name[256];
+    if (end < start) {
+        raise(BBC_MOS_E_BAD_ADDRESS);
+        return -1;
+    }
+    if (!host_path(m, name, 1, path, sizeof path, inf_name, sizeof inf_name)) return -1;
     if (end < start) {
         raise(BBC_MOS_E_BAD_ADDRESS);
         return -1;
@@ -235,7 +325,7 @@ static int save_file(struct bbc_machine *m, const char *name, uint32_t load, uin
         return -1;
     }
     for (uint32_t a = start; a < end; a++) fputc(bus_rd(m, (uint16_t)a), f);
-    if (fclose(f) != 0 || write_inf(path, name, load, exec, end - start) != 0) {
+    if (fclose(f) != 0 || write_inf(path, inf_name, load, exec, end - start) != 0) {
         raise(BBC_MOS_E_DISC_FAULT);
         return -1;
     }
@@ -290,19 +380,19 @@ static void os_find(struct bbc_machine *m) {
         else close_file(bf);
         return;
     }
-    char name[256], path[1024];
+    char name[256], path[1024], inf_name[256];
     if (!read_name(m, xy(), name, sizeof name)) {
         raise(BBC_MOS_E_BAD_NAME);
         return;
     }
-    if (!host_path(m, name, "", path, sizeof path)) return;
-    int slot = 0;
-    while (slot < BBC_MAX_FILES && m->files[slot].f) slot++;
-    if (slot == BBC_MAX_FILES) {
-        raise(BBC_MOS_E_TOO_MANY_OPEN);
+    uint8_t mode = a & 0xC0;
+    if (!host_path(m, name, mode == 0x80, path, sizeof path, inf_name, sizeof inf_name)) return;
+    int most = m->cfg.dfs ? BBC_DFS_MAX_FILES : BBC_MAX_FILES, slot = 0;
+    while (slot < most && m->files[slot].f) slot++;
+    if (slot == most) {
+        raise(m->cfg.dfs ? BBC_MOS_E_DFS_TOO_MANY_OPEN : BBC_MOS_E_TOO_MANY_OPEN);
         return;
     }
-    uint8_t mode = a & 0xC0;
     FILE *f = NULL;
     if (object_type(path, NULL) != 2)
         f = fopen(path, mode == 0x40 ? "rb" : mode == 0x80 ? "w+b" : "r+b");
@@ -312,6 +402,13 @@ static void os_find(struct bbc_machine *m) {
     }
     m->files[slot] = (struct bbc_file){ f, mode, 0, 0 };
     m->files_opened++;
+    uint64_t open = 0, writing = 0;
+    for (int i = 0; i < BBC_MAX_FILES; i++) {
+        open += m->files[i].f != NULL;
+        writing += m->files[i].f && m->files[i].mode != 0x40;
+    }
+    if (open > m->most_open) m->most_open = open;
+    if (writing > m->most_writing) m->most_writing = writing;
     a = (uint8_t)(BBC_FIRST_HANDLE + slot);
 }
 
@@ -426,12 +523,12 @@ static void os_gbpb(struct bbc_machine *m) {
  * start or length, +14 end or attributes. */
 static void os_file(struct bbc_machine *m) {
     uint16_t blk = xy();
-    char name[256], path[1024];
+    char name[256], path[1024], inf_name[256];
     if (!read_name(m, peek16(m, blk), name, sizeof name)) {
         raise(BBC_MOS_E_BAD_NAME);
         return;
     }
-    if (!host_path(m, name, "", path, sizeof path)) return;
+    if (!host_path(m, name, 0, path, sizeof path, inf_name, sizeof inf_name)) return;
     uint32_t load, exec, length = 0;
     switch (a) {
     case 0xFF:   /* load: at +2 if the low byte of +6 is 0, else at the file's own address */
@@ -451,7 +548,7 @@ static void os_file(struct bbc_machine *m) {
         if (type == 1 && a >= 1 && a <= 3) {
             if (a != 3) load = peek32(m, (uint16_t)(blk + 2));
             if (a != 2) exec = peek32(m, (uint16_t)(blk + 6));
-            if (write_inf(path, name, load, exec, length) != 0) {
+            if (write_inf(path, inf_name, load, exec, length) != 0) {
                 raise(BBC_MOS_E_DISC_FAULT);
                 return;
             }
@@ -586,11 +683,10 @@ static void os_cli(struct bbc_machine *m) {
 /* No ROM claimed the command: a file of that name is run, else Bad command */
 static void os_cli_file(struct bbc_machine *m) {
     uint16_t p = command_start(m, peek16(m, 0xF2));
-    char name[256], path[1024];
+    char name[256], path[1024], inf_name[256];
     uint16_t end = read_name(m, p, name, sizeof name);
     if (end && m->cfg.disk_dir) {
-        host_path(m, name, "", path, sizeof path);
-        if (object_type(path, NULL) == 1) {
+        if (!file_path(m, name, 0, path, sizeof path, inf_name, sizeof inf_name) && object_type(path, NULL) == 1) {
             run_file(m, name, end);
             return;
         }

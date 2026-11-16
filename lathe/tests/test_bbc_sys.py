@@ -72,8 +72,10 @@ class Choice(unittest.TestCase):
         anything else of it is: bbc.lth must have none, so that other builds stay as they were."""
         work = tempfile.mkdtemp(prefix='lathe-bbc-init-')
         self.addCleanup(shutil.rmtree, work, True)
-        objects = build.compile_all([('bbc', os.path.join(RT, 'bbc.lth'))], work)
-        self.assertNotIn(b'bbc.$init', _read(objects[0], 'rb'))
+        objects = build.compile_all([('bbcfs', os.path.join(RT, 'bbcfs.lth')),
+                                     ('bbc', os.path.join(RT, 'bbc.lth'))], work)
+        self.assertNotIn(b'bbcfs.$init', _read(objects[0], 'rb'))     # which bbc.lth imports
+        self.assertNotIn(b'bbc.$init', _read(objects[1], 'rb'))
         objects = build.compile_all([('disk', os.path.join(RT, 'disk.lth'))], work)
         self.assertIn(b'disk.$init', _read(objects[0], 'rb'))       # the test can see one
 

@@ -1,0 +1,154 @@
+; The names a Lathe program's files have on the BBC's filing system (lathe/docs/bbc.md, "File
+; names on the BBC"). The compiler and the linker name their files as on every other machine
+; (expr.lth, ./expr.lo, LATHE1.BIN, prog.map); lathe/rt/bbc.lth's open and open_out give each
+; name to map() before OSFIND, so that the tools, their command lines and their files are the
+; same everywhere and only the BBC's own build knows the filing system's rules.
+;
+; The environment chooses the scheme with `define BBCFS N` (every BBC environment has one):
+;
+;   | BBCFS | Filing system | A name                                                        |
+;   |-------|---------------|---------------------------------------------------------------|
+;   | 0     | (none)        | as given: the emulator's --disk directory takes any name      |
+;   | 1     | Acorn DFS     | STEM.EXT is X.STEM, the directory X chosen by the extension   |
+;   |       |               | (TABLE), STEM in capitals and cut to its first seven          |
+;   |       |               | characters; a name with no "." is as given                    |
+;   | 2     | ADFS          | not built: #error below                                       |
+;
+; With BBCFS 1: every leading "./" is dropped; a leading "D/" with D a digit 0 to 3 is the drive,
+; ":D." in front (DFS); any other "/" left, a "." in the stem, an empty stem, or a result longer
+; than the DFS takes is no name: map() gives the empty name, which the filing system refuses
+; (Bad name), so that open gives 0, as for a file that is not there.
+;
+; Two stems that agree in their first seven characters name the same file. That is not caught
+; here (the disc keeps nothing more of a name); the files themselves record their module, and
+; the compiler and the linker refuse the wrong one: bbc.md, "When two names meet".
+;
+; lathe/rt/bbcfs.lth is the same module for every other machine, which compiles this module's
+; importer (lathe/rt/bbc.lth) only because build.py compiles every module an `import` line names
+; and never links it. lathe/host/driver/bbcfs.py is the host's twin of map(), which the tests use
+; to find the files the BBC wrote.
+module bbcfs
+
+#if BBCFS == 2
+#error "BBCFS 2 (ADFS) is not built: lathe/docs/bbc.md, File names on the BBC"
+#end
+#if BBCFS > 2
+#error "BBCFS is 0 (no mapping) or 1 (the DFS)"
+#end
+
+pub const MAPS = BBCFS == 1         ; bbc.lth calls map() only if true
+
+const CR: byte = 13
+const LONGEST = 7                   ; the DFS's longest name
+const OUT_SIZE = 13                 ; ":D.X.NAME" and the CR: 3 + 2 + 7 + 1
+const NONE: byte = 255              ; no "." in the name (a name is shorter than 255)
+; The directory of each extension: five bytes, the extension in small letters with 0 after it,
+; then the directory. Any other extension's directory is OTHER.
+const KINDS = 6
+const TABLE: [30]byte = ['l', 't', 'h', 0, 'L', 'l', 'o', 0, 0, 'O', 'l', 'i', 0, 0, 'I',
+                         'm', 'a', 'p', 0, 'M', 'e', 'n', 'v', 0, 'E', 'b', 'i', 'n', 0, 'B']
+const OTHER: byte = 'X'
+
+var out: [OUT_SIZE]byte
+
+; The DFS's name of the name at `name` (zero-terminated) in out: its length, or 0 if there is none.
+func made(name: ^byte): byte
+  var i: byte
+  var n: byte                       ; the length in out
+  var stem: byte                    ; where the stem starts
+  var dot: byte                     ; the last "."
+  var k: byte
+  var c: byte
+  stem = 0
+  while name[stem] == '.' and name[stem + 1] == '/' do
+    stem += 2
+  end
+  n = 0
+  c = name[stem]
+  if name[stem + 1] == '/' and c >= '0' and c <= '3' then
+    out[0] = ':'
+    out[1] = c
+    out[2] = '.'
+    n = 3
+    stem += 2
+  end
+  dot = NONE
+  i = stem
+  loop
+    c = name[i]
+    if c == 0 then
+      break
+    end
+    if c == '/' then
+      return 0
+    end
+    if c == '.' then
+      dot = i
+    end
+    i += 1
+  end
+  if dot == NONE then               ; as it is
+    while name[stem] != 0 do
+      if n == OUT_SIZE - 1 then
+        return 0
+      end
+      out[n] = name[stem]
+      n += 1
+      stem += 1
+    end
+    return n
+  end
+  if dot == stem then
+    return 0
+  end
+  out[n] = OTHER                    ; the directory, by the extension
+  k = 0
+  while k < KINDS * 5 do
+    i = 0
+    loop
+      c = name[dot + 1 + i]
+      if c >= 'A' and c <= 'Z' then
+        c += 32
+      end
+      if c != TABLE[k + i] then
+        break
+      end
+      if c == 0 then
+        out[n] = TABLE[k + 4]
+        break
+      end
+      i += 1
+    end
+    k += 5
+  end
+  out[n + 1] = '.'
+  n += 2
+  k = n + LONGEST                   ; the stem, in capitals, its first seven characters
+  while stem < dot do
+    c = name[stem]
+    if c == '.' then
+      return 0
+    end
+    if c >= 'a' and c <= 'z' then
+      c -= 32
+    end
+    if n < k then
+      out[n] = c
+      n += 1
+    end
+    stem += 1
+  end
+  return n
+end
+
+; The name at `name` (zero-terminated) as the filing system takes it, written back at `name` and
+; ended by CR: empty (the CR alone) if it is no name the filing system can take.
+pub func map(name: ^byte)
+  var n: byte
+  var i: byte
+  n = made(name)
+  out[n] = CR
+  for i = 0 to n do
+    name[i] = out[i]
+  end
+end

@@ -23,6 +23,8 @@
  * takes no emulated time beyond the two cycles counted for the trap. */
 
 #define BBC_MAX_FILES 15
+#define BBC_DFS_MAX_FILES 5     /* --bbc-fs dfs */
+#define BBC_DFS_CATALOGUE 31    /* entries in a DFS catalogue: one a drive */
 #define BBC_FIRST_HANDLE 0x11
 #define BBC_COMMAND_BUFFER 0x0700   /* where --bbc-command's text is put */
 #define BBC_MAX_REPORTED 8
@@ -41,6 +43,7 @@ struct bbc_config {
     uint16_t page;          /* OSBYTE 131: OSHWM ($1900) */
     int shadow;             /* --bbc-shadow: OSBYTE 132 answers $8000 (else $7C00) */
     int strict;             /* --bbc-strict: a failed check ends the run */
+    int dfs;                /* --bbc-fs dfs: names and limits of the Acorn DFS (bbc_mos.c) */
     const char *command;    /* --bbc-command: passed to OSCLI after reset, or NULL */
     const char *const *more_commands;   /* further --bbc-command lines, each passed to OSCLI from
                                          * $0700 when the one before it returns */
@@ -85,6 +88,8 @@ struct bbc_machine {
     uint64_t files_opened;             /* OSFIND opens that gave a handle */
     uint64_t bytes_read, bytes_written;/* by OSBGET, OSBPUT and OSGBPB: the file traffic, which the
                                         * emulator's MOS does not charge for in cycles */
+    uint64_t most_open, most_writing;  /* the most files open at once, and open for output or
+                                        * update at once */
     int next_command;                  /* the next of cfg.more_commands to run */
 };
 

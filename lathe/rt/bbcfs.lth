@@ -1,0 +1,11 @@
+; The module bbcfs for every machine but the BBC. lathe/rt/bbc.lth imports bbcfs, and build.py
+; compiles every module an `import` line names, so on the other machines, which compile bbc.lth
+; (lathe/src/sys.lth imports it under `#if PORTS == 2`) but never link it, this is what it finds:
+; the same names as lathe/rt/bbc/bbcfs.lth, which build.py finds first for the BBC
+; (lathe/host/driver/boards.py, `rt`), and no mapping. Nothing of it is ever linked.
+module bbcfs
+
+pub const MAPS = false
+
+pub func map(name: ^byte)
+end

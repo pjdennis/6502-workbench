@@ -55,7 +55,14 @@
 ; what does not fit is dropped; a name for open must be shorter than NAME_SIZE; read keeps
 ; the end of a file by its handle's low five bits (a filing system's handles lie within 32 of
 ; each other: the DFS's are $11-$15).
+;
+; File names. With `define BBCFS 1` in the environment, open and open_out give the name to
+; bbcfs.map (lathe/rt/bbc/bbcfs.lth), which makes `expr.lth` the DFS's `L.EXPR`; with BBCFS 0 the
+; name goes to OSFIND as it is, and the code is what it was before bbcfs (lathe/docs/bbc.md,
+; "File names on the BBC").
 module bbc
+
+import bbcfs
 
 extern func osrdch(): byte in a, bool in c                      at $FFE0
 extern func osbget(handle: byte in y): byte in a, bool in c     at $FFD7
@@ -155,7 +162,12 @@ func open_mode(name: ^byte, mode: byte): byte
     name_buf[i] = name[i]
     i += 1
   end
+#if bbcfs.MAPS
+  name_buf[i] = 0
+  bbcfs.map(@name_buf)              ; no name is the empty name: Bad name, caught, 0
+#else
   name_buf[i] = CR
+#end
   h = find(mode)
   ended[h & (HANDLES - 1)] = false  ; ended[0] is never read
   return h

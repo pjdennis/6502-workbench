@@ -1,6 +1,6 @@
 # Lathe on a BBC Model B+128
 
-Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"), and step 4: the compiler compiles itself on the B+128 at its full capacities, from the ROM and from the RAM module ("Step 4, as built"), and step 5: the linker in the same image, started by `*LLINK`, so that a program is compiled, linked and run on the B+128 with every file the host's tools write ("Step 5, as built"). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
+Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"), and step 4: the compiler compiles itself on the B+128 at its full capacities, from the ROM and from the RAM module ("Step 4, as built"), and step 5: the linker in the same image, started by `*LLINK`, so that a program is compiled, linked and run on the B+128 with every file the host's tools write ("Step 5, as built"), and file names for the DFS: with `define BBCFS 1` the BBC's build maps every name the tools give to an Acorn DFS name, and the chain and the self-compile run so under the emulator's DFS rules ("File names on the BBC", 2026-11-16). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
 
 ## The idea
 
@@ -420,9 +420,99 @@ The compiler's link (`lathec.lth` with `lathec-bbc.env`, measured by the host li
 - **What the emulator's MOS does not charge for**: a file call costs the 6502 code around it and 2 cycles of the MOS's own. A real MOS and DFS spend hundreds of cycles a byte; at 1,000 cycles a byte, outtest's 794 KB of traffic would add 794 million cycles, 6.6 minutes, nearly three times the link, and the 104 files it opens their seeks. The linker reads each object file several times (the passes of [`architecture.md`](architecture.md), "Memory in the linker"), so on a real disc reading, not linking, would be most of the time.
 - **On Wendy 2** (`lk_bank_report.py`, the regions fixed there): linking lextest takes 114.7 million cycles (109.4 before, +4.8 %: a block of a fixed region costs 32 cycles), with 7,468 far calls (18,159 before: `global_sym` is kept fixed); `lk_synthetic` 247.5 million (242.4, +2.1 %), 20,466 far calls (45,926); `farcall.lth` 22.3 million (22.1), 1,979 far calls (4,027). Its resident part is 8,020 bytes (9,895 when `spikes.md` measured it: `lk_err`'s messages are now in bank 1), with 28 bytes free below the code and 2,028 above it.
 
+## File names on the BBC
+
+**Built (2026-11-16)** for the Acorn DFS: `lathe/rt/bbc/bbcfs.lth` (the mapping), `lathe/rt/bbcfs.lth` (the same module for every other machine), the call in `lathe/rt/bbc.lth`, `define BBCFS` in every BBC environment, `lathe/env/bbc-dfs.env`, `lathe/host/driver/bbcfs.py` (the host's twin), the emulator's `--bbc-fs dfs` (`emulator/README.md`, "bbcbplus"), and the tests `lathe/tests/test_bbc_dfs.py`. The recipe is in [`boards.md`](boards.md), "The tool chain on the BBC".
+
+The tools name their files as on every other machine: `expr.lth`, `./expr.lo`, `./expr.li`, `LATHEC1.BIN`, `prog.map`. A DFS name is at most seven characters with a one-character directory before a `.`, and `.` is never part of a name, so `asmblock.lth` cannot exist on a DFS disc. The owner's decision: the BBC is targeted without making any other machine follow its naming. So the sources, the module names and the command lines stay as they are everywhere; only the BBC's build maps a name, when it opens a file.
+
+### The mapping, as built
+
+`bbc.open` and `bbc.open_out` copy the name, as before, and with `BBCFS 1` give the copy to `bbcfs.map`, which writes the DFS's name over it. Every file a Lathe program on the BBC opens goes through them (through `sys` for the tools): the compiler's sources, interfaces and objects, the linker's environment file, objects, image, map and bank files, and the bank files `rt_bbc` loads at start-up in the developer's form. The `*` commands the user types (`*LOAD`, `*SAVE`, `*RUN`, `*RUN LOADMOD MODULE`) are the MOS's and take DFS names as they are.
+
+| The tools' name | DFS name | Why |
+|---|---|---|
+| `expr.lth` | `L.EXPR` | a source |
+| `./expr.lo`, `expr.lo` | `O.EXPR` | an object file; every leading `./` is dropped |
+| `./expr.li` | `I.EXPR` | an interface |
+| `asmblock.lth`, `lk_alloc.lo` | `L.ASMBLOC`, `O.LK_ALLO` | the stem in capitals, its first seven characters |
+| `OUTTEST.map` | `M.OUTTEST` | the linker's map |
+| `outtest.env` | `E.OUTTEST` | an environment file |
+| `LATHE1.BIN`, `lathe33.bin` | `B.LATHE1`, `B.LATHE33` | a bank file (any `.bin`) |
+| `gen.txt`, `a.lthx` | `X.GEN`, `X.A` | any other extension |
+| `HELLO`, `LOADMOD`, `JUNKZ` | as given (`$.HELLO`) | no `.`: as it is, so an image keeps the name `*RUN` uses |
+| `2/expr.lo`, `./1/x.li`, `3/IMAGE` | `:2.O.EXPR`, `:1.I.X`, `:3.IMAGE` | a first directory that is one digit 0 to 3 is the drive |
+| `lib/k.li`, `4/x.lo`, `a.b.lth`, `.lth`, a result over 12 characters | none | no name: `map` gives the empty name, which the DFS refuses (Bad name), so `open` gives 0, as for a file that is not there |
+
+The extensions are compared without regard to case. The letters follow Acorn's own compilers, which kept `c.name`, `h.name` and `o.name` in directories named by the kind of file.
+
+**Where it lives.** `bbcfs` is a module of its own so that the tools can place it in a bank: `place bbcfs WIN 5` in `lathec-bbc.env` and `place bbcfs WIN 1` in `linker-bbc.env`, which change nothing with `BBCFS 0`. `bbc.open_mode` calls it only under `#if bbcfs.MAPS`, so with `BBCFS 0` the code is what it was: the compiler, the linker and every BBC program built with `BBCFS 0` are byte for byte what they were before `bbcfs` (images, bank files and maps compared), and so are the `PORTS` 0 and 1 builds. `lathe/rt/bbcfs.lth` exists because `build.py` compiles every module an `import` line names, so the other machines compile `bbc.lth` and need a `bbcfs` with the same names; it is never linked there. `build.py` finds `lathe/rt/bbc/bbcfs.lth` first for the BBC.
+
+**The choice, in the environment file.** `define BBCFS 0` (every BBC environment now says it): names as given, the emulator's directory as before. `define BBCFS 1`: the DFS's names; `lathe/env/bbc-dfs.env` is `bbc.env` so. `BBCFS 2`, ADFS, is a table entry that stops the compiler with `#error` (below).
+
+### Drives
+
+A host directory `0/` to `3/` at the front of a name is a drive. So the user chooses drives on the command line, in a form that reads the same on the host, where `1/` is a subdirectory: `*LATHE expr.lth 1` writes `:1.O.EXPR` and `:1.I.EXPR` and finds the interfaces of its imports there; `*LLINK env.env main IMAGE IMAGE.map 1/a.lo 1/b.lo` reads the objects from drive 1; the linker writes bank files beside the image, so `2/IMAGE` puts them on drive 2 as well. Any other directory is no name.
+
+Not chosen: a drive fixed by the extension (sources on 0, objects on 1, interfaces on 2). The compiler writes the object and the interface into the same directory, and a self-compile's 58 files of three kinds would need three sides that way; with the drive on the command line two sides hold them by count (31 + 27). It costs nothing in `map` beyond the two characters, and the user does what a DFS user does anyway.
+
+### When two names meet
+
+Two stems that agree in their first seven characters (`averylongone`, `averylongtwo`) name the same file, `L.AVERYLO`, `O.AVERYLO`, `I.AVERYLO`. The disc keeps nothing more of a name, so `map` cannot tell them apart; the files can, because each records its module:
+
+- **a source**: compiling `averylongtwo.lth` opens `averylongone`'s source, whose `module` line is not the file's name: error 49;
+- **an interface**: a module that imports `averylongtwo` reads `averylongone`'s interface, which names its module: error 51;
+- **an object**: a link given both reads `averylongone`'s object twice: link error 17, a symbol defined twice (a module with nothing public would get through: none of the tools' modules is such);
+- **but** the compiler creates its object file before it reads the `module` line, so the compile that error 49 refuses has already emptied `averylongone`'s object; a link then says link error 6, "object file is damaged: averylongone.lo", until `averylongone` is compiled again. Nothing is read silently as another module's, but a refused compile costs a recompile. Opening the object file after the module line would avoid that; it is a change to the compiler's host and twin, not made.
+
+Each is what the host's tools say of the same files (`test_bbc_dfs.py`). The tools' own modules and test programs map apart today (`asmblock`, `lk_alloc`, `lk_graph`, `lk_place`, `rt_frame`, `kerneltest` and the rest; the test checks every `.lth` of `lathe/src`, `lathe/rt` and `lathe/rt/bbc`), so the clash is a user's. Not chosen: a hashed suffix (`ASMBL3F`), which only makes a clash rarer, and makes the names unreadable on a catalogue.
+
+### What it costs
+
+Measured from the maps (2026-11-16), the ROM forms of the module image:
+
+| | Compiler, `BBCFS 0` | `BBCFS 1` | Linker, `BBCFS 0` | `BBCFS 1` |
+|---|---|---|---|---|
+| Fixed code: `bbc.open_mode` | 60 | 67 | 60 | 76 |
+| Fixed code: the stub of `bbcfs.map` | | 6 | | 6 |
+| Main RAM: `bbcfs.out` (13 bytes; in the bank in the RAM forms) | | 13 | | 13 |
+| In a bank: `made` 346, `map` 40 or 43, the table 30 | | 416 (bank 5) | | 419 (bank 6) |
+| Main RAM free | 1,738 | **1,712** | 402 | **365** |
+| Developer form, fixed code left below the split | 25 | 12 | 6 | 0, with the split moved |
+
+- The compiler fits as it is: 26 bytes of main RAM and 416 of bank 5, which had 3,829 free.
+- The linker does not fit its developer form, whose split (`$3A20`) sets the ROM form's: 22 bytes of fixed code where 6 were free. Its DFS build moves the split up 16 bytes, to `$3A30` (`test_bbc_dfs.LINKER_ROOM`): the developer form then has 0 bytes left below it and the ROM form 365 of main RAM. `linker-bbc.env` is left at `$3A20`, so that `BBCFS 0` builds what it built; the redesign of the linker's work area will free main RAM, and the split should then move for both.
+- Zero page: none more (`bbcfs`'s locals share the frames' zero page, which is full in both tools as before).
+
+### ADFS: what it would take
+
+A table entry, not built: `BBCFS 2` stops the compiler with `#error`. ADFS takes ten characters and `.` separates directories of any depth, so `expr.lth` would be `lth.expr` (a directory named by the extension), `asmblock.lth` `lth.asmblock` with ten characters kept, `2/x.lo` `:2.lo.x`; a name with no `.` as it is. In `map` that is the extension copied where the letter is now and the limit 10, about 40 bytes. What makes it more than a table entry: a directory must exist before a file is created in it (`*CDIR lth`; memory, not checked), ADFS holds 47 entries a directory, and the emulator would need an ADFS mode of its own (directories as host subdirectories, ten characters). None of it is needed for the DFS.
+
+### The `*` commands
+
+`*LATHE OPTIONS expr.lth .` and `*LLINK ...` work as they are: the arguments are the host's, mapped when each file is opened. A shorter BBC form, `*LATHE EXPR` for `*LATHE EXPR.lth .`, would be bank 0 (`module.asm`) adding `.lth` and ` .` to a tail of one word with no `.`: a few dozen bytes of bank 0, which has room; but then the command line would differ from the host's, and the tests replay the host's. Not built.
+
+### Measured for a real disc
+
+From `LATHE_BBC_DFS=1 LATHE_BBC_SELFHOST=1 LATHE_BBC_DFS_REPORT=1 python3 -m unittest test_bbc_dfs` (2026-11-16), the emulator's `dfs: most-open most-writing` and the files left on the disc. A side is 204,800 bytes (80 tracks; 40 tracks: half); a double-sided 80-track disc 409,600.
+
+**Files open at once.**
+
+- *The compiler*: 5 at most, the DFS's limit, in twelve of its eighteen modules: the source, the object file, and three interfaces read inside one another (for `src` and `expr`: `kernel.li`, whose inline functions name `sys`, so `sys.li`, which names `host`, so `host.li`; traced with the host compiler). Three or four for the corpus. One level more would be `Too many open`, which `bbc.open` catches as a file not there, and the compiler would stop with error 50. It is a margin of none: an interface that names a module whose interface names another, one deeper than today, fails on a real DFS.
+- *The linker*: 3, the map, the image (or a bank file) and an object file.
+- *Written at once*: the compiler 1 (`out` closes the object file before `decl` creates the interface); the linker 2: `lk_emit.write` creates the map, writes its functions and symbols, and keeps it open while it creates and writes the image and then each bank file.
+
+**What a real DFS would do with that.** A new file opened for output is given 16 KB of the disc, and a file is one run of sectors that cannot grow into the file after it ("Can't extend"; `emulator/NOTES-bbcbplus.md`). The map is created first, the image right after it: once the image exists the map cannot grow past its 16 KB. outtest's map is 22,946 bytes, so **linking outtest on a real DFS would fail with "Can't extend"** on the map; hello's map is 153 bytes. The image and the bank files are each the last file while they grow, and the compiler's object file (67,288 bytes for `expr`) is the only file it writes, so those grow freely if the DFS puts a new file after the last one; if it puts it in a gap between files (not checked), a large object can hit the next file, and `*COMPACT` before a compile avoids it. The fix in the linker, not built: write the map when the image and the bank files are closed (the lines emission adds, `lk_map.mark_functions`, kept in a table or made by a second pass), or create the image before the map. Until then a user can make room: a file written over keeps its space, so `*SAVE M.OUTTEST 0 +6000` before the link gives the map 24 KB.
+
+**What a link leaves.** A program of the corpus on one disc, every file under its DFS name (sources, objects and interfaces of its modules, the environment, the image and the map): 15 to 24 files and 29 to 58 KB; the banked ones (`farcall`, `bankdata`, `regions`), with their objects and interfaces on drive 1 (`1/`): 12 to 17 files and 48 to 54 KB on drive 0, 16 to 24 files and 13 to 16 KB on drive 1. outtest's link: 22 files, 137,374 bytes (13 objects, 93,258; the image 8,894; the map 22,946; six bank files, 8,770). All fit a side.
+
+**A self-compile.** Each module's compile as `test_bbc_selfhost.py` lays it out (its source, the interfaces it imports, then its object and interface) fits one side: 7 to 24 files, at most 149,237 bytes (`gen`). All of them on one disc would be 58 files and **918,081 bytes**: 18 sources 519,064 bytes, 18 objects 384,182, 22 interfaces 14,835. That is 4.5 sides of 80 tracks, 2.3 double-sided discs, and the sources alone do not fit one double-sided disc. By count two sides would do (31 + 27); by size a self-compile on a real BBC is several discs and a swap between compiles: the source and interfaces in, the object out. The largest file, `L.GEN`, is 77,996 bytes.
+
+**The module image.** `LOADMOD` loads `MODULE`, 262,144 bytes: **more than a side holds**, so it cannot be one file on a DFS disc. The two tools use banks 0 to 11 (196,608 bytes), which would fit a side with 8,192 bytes to spare if `bbcrom.py` wrote only the banks up to the last one used and `LOADMOD` loaded as many banks as the file holds; today it refuses a short file ("Not a module image"). Not built. A real ROM module needs no file.
+
 ## Open, for the owner
 
-- **File names.** The compiler joins a directory and a name with `/`, which the emulator now accepts only as a leading `./` (step 4); a real filing system needs its own scheme. DFS allows seven characters and uses `.` to separate the directory, so `asmblock.lth` cannot exist there. ADFS allows ten. The first version uses names as the emulator's directory takes them. A scheme is needed for real discs, for example `L.EXPR` for source, `O.EXPR` for the object file and `I.EXPR` for the interface, with module names kept to seven characters.
+- ~~**File names.** The compiler joins a directory and a name with `/`, which the emulator now accepts only as a leading `./` (step 4); a real filing system needs its own scheme. DFS allows seven characters and uses `.` to separate the directory, so `asmblock.lth` cannot exist there. ADFS allows ten. The first version uses names as the emulator's directory takes them. A scheme is needed for real discs, for example `L.EXPR` for source, `O.EXPR` for the object file and `I.EXPR` for the interface, with module names kept to seven characters.~~ Closed (2026-11-16): the BBC's build maps the names, and module names are not limited ("File names on the BBC"). What a real disc still asks for is listed there: the linker's map against "Can't extend", five files open with no margin, and a module image larger than a side.
 - **How a tool ends.** As a command it uses the language's zero page and the memory from PAGE, so the language that was running (BASIC) cannot be returned to as it was. ~~The tool should end by starting the current language again (OSBYTE 142).~~ Done so in step 3 (ROM form); a program run with `*RUN` still returns into the language, which may not survive it.
 - **The command's tail** is copied to `$0700`, at most 239 bytes: the linker's longest command lines must fit that (the MOS's own line is 255 at most). The corpus's links fit; the compiler's own link would be 247 bytes (step 5). A command file (the linker reading its arguments from a file) would lift it.
 - **The image's addresses.** The linker writes an image's bytes and not its catalogue entry; on the BBC `*SAVE` gives it its load and execution addresses (step 5). The linker could set them with OSFILE when its environment says `output raw` on the BBC, at the cost of a call the host linker does not have.
@@ -434,6 +524,6 @@ The compiler's link (`lathec.lth` with `lathec-bbc.env`, measured by the host li
 - That the header and service code live with the real MOS: its scan of the ROMs at reset (with its duplicate check, which compares ROMs, and the service calls 1 and 2 it makes, which the code returns unclaimed), service calls made during interrupts while the tool runs in another bank (the emulator has no interrupts; the test makes such calls with OSBYTE 143 from a program), `*HELP`'s own lines and its argument as the real MOS passes it, and OSBYTE 252's and 170's answers, which are from memory (`emulator/NOTES-bbcbplus.md`).
 - That OSBYTE 142 from inside a service call leaves the real MOS in order (it resets the stack, which the emulator models, and prints the language's title, which it does not), and that BASIC entered so starts cleanly.
 - The dummy reads of a real NMOS 6502. The module's code, the copier and the loader are written to keep them out of `$BFF0-$BFFF` (no instruction ends near it, indexed accesses there stay in their page, `$BFE0-$BFFF` are never read or written by a copy), but the emulator's core makes none, so that is by inspection only.
-- A real DFS: LOADMOD's OSGBPB of 16 KB at a time, and the seven-character names.
+- A real DFS: LOADMOD's OSGBPB of 16 KB at a time, and how the DFS lays files out on the disc, so "Can't extend" and a full disc. The names, five files open and 31 a drive are shown with `--bbc-fs dfs` ("File names on the BBC"), against rules read in third parties' documents, not Acorn's (`emulator/NOTES-bbcbplus.md`).
 - Timing against real discs. The compiler compiling itself is 933 million cycles on the BBC ("Step 4, as built"), 7.8 minutes at 2 MHz, before the cost of reading 654,341 bytes and writing 398,290 through a real filing system, which the emulator's MOS does not charge.
 - The real module's electrical behaviour. MAME models the SpellMaster carrier, so the eight-bank form (the compiler alone) could be tried there against the real MOS by someone who has the ROMs.

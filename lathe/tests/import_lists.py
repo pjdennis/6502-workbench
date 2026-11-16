@@ -52,7 +52,7 @@ COMPILER_ENVS = [os.path.join(SRC, e + '.env')
                  for e in ('compiler', 'compiler-small', 'compiler-bank', 'compiler-bbc', 'compiler-bbc-bank')]
 LINKER_ENVS = [os.path.join(SRC, e + '.env') for e in ('linker', 'linker-bank', 'linker-bbc')]
 BOARD_ENVS = [os.path.join(LATHE, 'env', e + '.env')
-              for e in ('host', 'michael', 'wendy2', 'wendy2disk', 'bbc', 'bbc-bank', 'bbc-rom')]
+              for e in ('host', 'michael', 'wendy2', 'wendy2disk', 'bbc', 'bbc-bank', 'bbc-rom', 'bbc-dfs')]
 IMPORT = re.compile(r'^(\s*)import\s+([A-Za-z][A-Za-z0-9_]*)\s*(\(?)', re.I)
 
 
@@ -73,9 +73,34 @@ def built_in(name, env_path):
     return value in values if values else bool(value)
 
 
+# The modules of lathe/rt/bbc/ are the BBC's own, which build.py finds before lathe/rt/'s only
+# when the environment is the BBC's (boards.Board.rt): they are built in those alone (bbcfs.lth
+# needs their `define BBCFS`; lathe/rt/bbcfs.lth is the module for the others).
+RT_BBC = os.path.join(LATHE, 'rt', 'bbc')
+
+
+def is_bbc(env_path):
+    import boards
+    return boards.board_for(env_path) is boards.BOARDS['bbc']
+
+
+def module_order(path, env_path):
+    """build.module_order() as build.build() finds the modules for the environment: the board's
+    own directories first (lathe/rt/bbc/ for the BBC)."""
+    import boards
+    board = boards.board_for(env_path)
+    build._building.dirs = [os.path.join(build.RT, d) for d in (board.rt if board else ())]
+    try:
+        return build.module_order(path)
+    finally:
+        build._building.dirs = []
+
+
 def configs(path):
     """The environment files `path` is built with."""
     name = os.path.basename(path)
+    if os.path.dirname(os.path.abspath(path)) == RT_BBC:
+        return [e for e in BOARD_ENVS + COMPILER_ENVS + LINKER_ENVS if is_bbc(e)]
     if os.path.dirname(os.path.abspath(path)) == SRC:
         if name.startswith('lk') or name == 'link.lth':
             return LINKER_ENVS
@@ -274,7 +299,7 @@ def uses(paths):
                 if env_path not in configs(path):
                     continue
                 try:
-                    order = build.module_order(path)
+                    order = module_order(path, env_path)
                 except build.BuildError as e:
                     failed.append('%s: %s' % (os.path.relpath(path), e))
                     continue

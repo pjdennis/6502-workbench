@@ -23,6 +23,9 @@ static void report(const struct bbc_machine *m, const struct emu_opts *opts) {
     fprintf(stderr, "bbcbplus: files: opened=%llu  bytes-read=%llu  bytes-written=%llu\n",
             (unsigned long long)m->files_opened, (unsigned long long)m->bytes_read,
             (unsigned long long)m->bytes_written);
+    if (m->cfg.dfs)
+        fprintf(stderr, "bbcbplus: dfs: most-open=%llu  most-writing=%llu\n", (unsigned long long)m->most_open,
+                (unsigned long long)m->most_writing);
     fprintf(stderr, "bbcbplus: checks: mos-memory-writes=%llu  romsel-mismatches=%llu\n",
             (unsigned long long)m->mos_writes, (unsigned long long)m->romsel_mismatches);
     for (uint64_t i = 0; i < m->mos_writes && i < BBC_MAX_REPORTED; i++)
@@ -74,6 +77,7 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
         .page = (uint16_t)(opts->bbc_page >= 0 ? opts->bbc_page : 0x1900),
         .shadow = opts->bbc_shadow,
         .strict = opts->bbc_strict,
+        .dfs = opts->bbc_dfs,
         .command = opts->bbc_command,
         .more_commands = opts->bbc_more_commands,
         .more_count = opts->bbc_more_count,

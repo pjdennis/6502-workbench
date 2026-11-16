@@ -314,6 +314,24 @@ emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict \
 - **Capacities**: the BBC's (`define LKSMALL 2` in `../src/linker-bbc.env`): 448 functions, 2,400 slots, 2,000 calls, 472 nodes; every program of the corpus but `for_ranges` (link error 10), and the compiler's test programs up to `outtest`.
 - **Memory**: `*LLINK` takes zero page `$00-$8F`, `$0400-$07FF`, `$1900-$7BFF` and sideways slot 0; it runs on what the compiler left. A program that expects its variables to start as 0, as the corpus's do, needs memory cleared first (`*LOAD` of a file of 0s; `../tests/test_bbc_toolchain.py` does so).
 
+#### On a DFS disc
+
+For a real DFS, or the emulator with `--bbc-fs dfs`, build the tools and the program with `define BBCFS 1` ([`bbc.md`](bbc.md), "File names on the BBC"): every file name the tools give is then mapped to a DFS name when it is opened, and the command lines stay as above.
+
+- **The tools**: in copies of `lathec-bbc.env` and `linker-bbc.env`, `define BBCFS 1` for `define BBCFS 0`; in the linker's, also move the split up 16 bytes (`code $1900 $3A2F`, `data $3A30 $7BFF`), as `../tests/test_bbc_dfs.py` (`dfs_env`, `LINKER_ROOM`) does. Then `rom_env` and the rest as above.
+- **The program**: `lathe/env/bbc-dfs.env` in place of `bbc.env` (for a banked program, `bbc-bank.env` with `BBCFS 1`).
+- **The disc**: each file under its DFS name: `hello.lth` is `L.HELLO`, `bbc-dfs.env` is `E.BBC-DFS`, and the tools write `O.HELLO`, `I.HELLO`, `M.HELLO`, `B.NAME` for a bank file `NAME.BIN`; an image (a name with no `.`) keeps its name. On the emulator a file `X.NAME` is the host file `X.NAME` in `--disk DIR`, `$.NAME` for one with no directory; drive N is `DIR/:N`. `../host/driver/bbcfs.py` gives each name (`dfs_name`) and its host file (`host_file`).
+- **Drives**: a first directory `0/` to `3/` is the drive: `*LATHE hello.lth 1` writes `:1.O.HELLO` and `:1.I.HELLO` and reads interfaces there, and `LLINK bbc-dfs.env hello HELLO HELLO.map 1/bbc.lo 1/host.lo 1/hello.lo` reads the objects there. A catalogue holds 31 files.
+
+```bash
+emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict --bbc-fs dfs \
+    --bbc-module MODULE --bbc-module-scheme direct16 \
+    --bbc-command "LATHE -c6502 -dBOARD=3 -dPORTS=2 -dBBCFS=1 bbcfs.lth 1" \
+    --bbc-command "LATHE -c6502 -dBOARD=3 -dPORTS=2 -dBBCFS=1 bbc.lth 1" ...
+```
+
+- **Limits a real disc adds**, which the emulator does not show: the linker keeps its map open while it writes the image, so a map over 16 KB stops the link with "Can't extend" (outtest's is 23 KB: make room first with `*SAVE M.OUTTEST 0 +6000`); the module image (256 KB) is larger than a side; a self-compile's files fill 4.5 sides (bbc.md, "Measured for a real disc").
+
 ## The VIA timer
 
 Both boards have a 6522 VIA. Its base is `$6000` on Michael and `$F000` on Wendy 2.

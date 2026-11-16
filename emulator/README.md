@@ -158,6 +158,7 @@ do), and the checks with the first few offenders.
 | `--bbc-shadow` | OSBYTE 132 (HIMEM) answers `$8000` instead of `$7C00` (mode 7); the shadow screen RAM itself is not modelled |
 | `--bbc-page HEX` | OSBYTE 131 (OSHWM, PAGE) answers HEX instead of `$1900` |
 | `--bbc-strict` | a write to MOS memory or a ROMSEL unlike `$F4` at a MOS call ends the run (status 1) |
+| `--bbc-fs host\|dfs` | the names the filing system takes: as given (`host`, the default), or only the Acorn DFS's, with its limits (`dfs`, below) |
 
 ### What is modelled
 
@@ -293,6 +294,26 @@ do), and the checks with the first few offenders.
   low byte is 0), 0 save (writing the `.inf`), 1-4 write catalogue
   information (4 is accepted and ignored), 5 read it, 6 delete; a missing
   file is an error only for load. Errors use the DFS's numbers.
+- **`--bbc-fs dfs`** makes every name the 6502 code gives (OSFIND, OSFILE,
+  `*RUN`, `*LOAD`, `*SAVE`, `*NAME`) obey the Acorn DFS:
+  `[:D.][X.]NAME`, the drive D 0 to 3, the directory X one character (`$`
+  when none is given), NAME one to seven characters, each from `$21` to
+  `$7E` but `.` `:` `"` `#` `*`; anything else is the error "Bad name"
+  (204), and a drive that is not 0 to 3 "Bad drive" (205). A leading `./`
+  is not dropped (it is a bad name), and `/` is refused too, although a
+  real DFS takes it, because a host file name cannot hold it. Names match
+  whatever their case. A file `X.NAME` on drive 0 is the host file
+  `X.NAME` in `--disk DIR`, on drive N the file `X.NAME` in its
+  subdirectory `:N` (made when the first file is written there), kept in
+  the case it was created in; its `.inf` is `X.NAME.inf`, and host files
+  of other names are not seen. Five files may be open at once ("Too many
+  open", 192; handles `$11`-`$15`), and a drive's catalogue holds 31 files:
+  creating a 32nd is "Cat full" (190). Not emulated: the disc's layout,
+  so a file never fails to grow ("Can't extend"), its size, locked files,
+  and the rule that a file open for output may not be opened again. The
+  exit report adds the most files open at once, and open for output or
+  update at once (`dfs: most-open=N  most-writing=N`). The facts and their
+  sources: `NOTES-bbcbplus.md`, "The DFS's names and limits".
 - **Errors** are raised as the MOS raises them: a BRK followed by the
   number and a zero-terminated message. The BRK handler, as MOS 1.20's,
   sets `$FD/$FE` to the error number, `$024A` to the ROM selected, `$F0`
