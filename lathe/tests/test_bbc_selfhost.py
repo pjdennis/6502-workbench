@@ -245,9 +245,12 @@ def counting_copies(where, argument):
     with open(os.path.join(rt, 'bbc.lth')) as f:
         text = f.read()
     old = '  osfind_close(0, 0)                ; every file\n  if code == 0 then\n'
-    assert text.count(old) == 1 and text.count('\nmodule bbc\n') == 1
+    # The counters go after the imports (bbc imports bbcfs since 2026-11-16: before it they
+    # were error 33, declaration expected).
+    first = '\nextern func osrdch('
+    assert text.count(old) == 1 and text.count(first) == 1
     text = text.replace(old, COUNTING_EXIT % argument + '  if code == 0 then\n')
-    text = text.replace('\nmodule bbc\n', '\nmodule bbc\n\npub var farcalls: [3]byte\npub var withs: [3]byte\n')
+    text = text.replace(first, '\npub var farcalls: [3]byte\npub var withs: [3]byte\n' + first)
     with open(os.path.join(where, 'bbc.lth'), 'w') as f:
         f.write(text)
     with open(ENV) as f:

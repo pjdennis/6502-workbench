@@ -114,7 +114,8 @@ STREAM_ENDED = 4            # a file being read whose end has been read: the mac
 
 stream_kind = bytearray(MAX_STREAMS)
 stream_handle = bytearray(MAX_STREAMS)       # the system's handle of a file
-stream_next = [0] * MAX_STREAMS         # memory: pointer to the next byte
+stream_next = [0] * MAX_STREAMS         # memory: pointer to the next byte; a file being read:
+                                        # how many bytes have been read (decl.read_interface())
 stream_limit = [0] * MAX_STREAMS        # memory: pointer past the last byte
 
 
@@ -136,6 +137,7 @@ def open_file(name, kind):
         return 0, False
     s = stream_new(kind)
     stream_handle[s] = handle
+    stream_next[s] = 0
     return s, True
 
 
@@ -173,6 +175,7 @@ def get(s):
     if stream_kind[s] == STREAM_ENDED:
         return 0, True
     b, at_end = env.read(stream_handle[s])
+    stream_next[s] += 1
     if at_end:
         stream_kind[s] = STREAM_ENDED
     return b, at_end

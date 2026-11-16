@@ -113,7 +113,8 @@ def run_dfs(module, disk, lines, ram=False):
     first = []
     if ram:
         for name in ('LOADMOD', 'MODULE'):
-            src = os.path.join(os.path.dirname(module), name) if name == 'LOADMOD' else module
+            # The loader's MODULE is the short image (bbcrom --short), as on a disc.
+            src = os.path.join(os.path.dirname(module), name) if name == 'LOADMOD' else module + '.disc'
             with open(src, 'rb') as f:
                 put(disk, name, f.read())
         with open(bbcfs.host_path(disk, 'LOADMOD') + '.inf', 'w') as f:
@@ -135,7 +136,8 @@ def run_dfs(module, disk, lines, ram=False):
 
 def build_image(out_dir):
     """The module image of both tools built with BBCFS 1, in out_dir/MODULE, with LOADMOD beside
-    it: test_bbc_toolchain.build_image's, the DFS's names. Returns (image, {tool: its map})."""
+    it and the banks in use alone in MODULE.disc (bbcrom --short), the file LOADMOD loads on a
+    disc: test_bbc_toolchain.build_image's, the DFS's names. Returns (image, {tool: its map})."""
     import bbcrom
     tools = []
     first = 1
@@ -150,7 +152,7 @@ def build_image(out_dir):
         build.build(os.path.join(LATHE, 'src', source), resident, env=rom, keep=os.path.join(d, 'work'))
         tools.append((command, resident, rom, os.path.join(d, 'work', os.path.splitext(source)[0] + '.map')))
     image = os.path.join(out_dir, 'MODULE')
-    bbcrom.image(tools, image, os.path.join(out_dir, 'listing'))
+    bbcrom.image(tools, image, os.path.join(out_dir, 'listing'), short=image + '.disc')
     bbcrom.loader(os.path.join(out_dir, 'LOADMOD'))
     return image, {t[0]: t[3] for t in tools}
 
@@ -338,15 +340,16 @@ class Toolchain(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
-    def chain(self, case, drive=None):
+    def chain(self, case, drive=None, ram=False):
         """Compile, link and run the case under the DFS's names: (output, {DFS host file: bytes}
         written, (most open, most writing), the disc's catalogue at the end, the compiles'
         arguments, the link's). With drive ('1' to '3'), the objects and interfaces are on that
         drive: each compile's directory is `drive` (`*LATHE NAME.lth 1`), each object `1/NAME.lo`,
-        as the host's tools are given them too."""
+        as the host's tools are given them too. With ram (and for a banked case), the tools run
+        from the module's RAM form, loaded by LOADMOD from the short image."""
         import test_bbc_toolchain as toolchain
         name, source, _, _, banked = case
-        work = os.path.join(self.dir, name)
+        work = os.path.join(self.dir, name + ('-ram' if ram else ''))
         os.makedirs(work)
         disk, compiles, link, files, said, load = toolchain.prepare(dfs_case(case, work), os.path.join(work, 'w'))
         self.assertEqual(said, [(0, b'')] * len(said))
@@ -356,7 +359,7 @@ class Toolchain(unittest.TestCase):
             files = host_run(compiles, link, disk, os.path.join(work, 'host-' + drive), drive)
         to_dfs(disk)
         lines = toolchain.bbc_lines(compiles, link, load, len(files[link[2]]))
-        status, out, mos, written, cycles, most = run_dfs(self.module, disk, lines, ram=banked)
+        status, out, mos, written, cycles, most = run_dfs(self.module, disk, lines, ram=banked or ram)
         self.assertEqual((status, mos), (0, b''), out)
         want = {bbcfs.host_file(bbcfs.dfs_name(f)): data for f, data in files.items()}
         self.assertEqual(sorted(written), sorted(want))
@@ -375,7 +378,7 @@ class Toolchain(unittest.TestCase):
                 with open(os.path.splitext(source)[0] + '.expected.out', 'rb') as f:
                     self.assertEqual(out, f.read())
                 self.assertIn('M.' + link[2], written)          # the map: IMAGE.map
-                self.assertLessEqual(most[0], 5)
+                self.assertEqual(most[0], 3)                    # the link's (the compiles' are 2)
                 if REPORT:
                     print('\n%-10s most open %d, writing %d; the disc: %s' % (
                         name, most[0], most[1], ', '.join('drive %d %d files %d bytes' % (d, n, s)
@@ -421,15 +424,62 @@ class Toolchain(unittest.TestCase):
         self.assertIn('I.AVERYLO', written)
         self.assertIn('averylongone.lth', [c[-2] for c in compiles])     # the command line as on the host
 
+    def test_the_tools_run_from_the_short_image_on_one_side(self):
+        """The banks in use of both tools' image, 0 to 11, and LOADMOD fit an 80-track side
+        beside the catalogue; through LOADMOD the short image compiles, links and runs hello."""
+        import test_bbc_toolchain as toolchain
+        short = self.module + '.disc'
+        self.assertEqual(os.path.getsize(short), 12 * 0x4000)
+        loader = os.path.getsize(os.path.join(os.path.dirname(self.module), 'LOADMOD'))
+        sectors = 2 + (os.path.getsize(short) + 255) // 256 + (loader + 255) // 256
+        self.assertLessEqual(sectors, 800)
+        if REPORT:
+            print('\nshort image %d bytes, LOADMOD %d: %d of 800 sectors' % (os.path.getsize(short), loader, sectors))
+        case = [c for c in toolchain.corpus() if c[0] == 'hello'][0]
+        name, source, make_env, extra, banked = case
+        out, written, most, cat, compiles, link = self.chain(('hello', source, make_env, extra, False), ram=True)
+        with open(os.path.splitext(source)[0] + '.expected.out', 'rb') as f:
+            self.assertEqual(out, f.read())
+
+    def test_an_import_chain_six_deep(self):
+        """deep imports host and d1, d1 imports d2, ... d6: each exports an inline function that
+        calls the next one's, so that reading d1.li brings in d2.li and so on, six interfaces
+        deep. Until 2026-11-16 the compiler kept each open while it read the next, and the
+        compile of deep failed on a DFS with Too many open (error 50). The compiles are 2 files
+        open at most, and the link 3."""
+        import test_compile
+        sources = dict(test_compile.deep_chain(6))
+        sources['deep.lth'] = ('module deep\nimport host\nimport d1\npub func main()\n'
+                               '  host.put_byte(d1.f(0) + 48)\n  host.put_byte(10)\nend\n')
+        d = os.path.join(self.dir, 'deep-src')
+        os.makedirs(d)
+        for n, text in sources.items():
+            with open(os.path.join(d, n), 'w') as f:
+                f.write(text)
+        out, written, most, cat, compiles, link = self.chain(('deep', os.path.join(d, 'deep.lth'), None, [], False), '1')
+        self.assertEqual(out, b'6\n')
+        self.assertEqual(most[0], 3)
+        self.assertIn(':1/O.D6', written)
+        # The compiles alone, again on the disc the chain left.
+        disk = os.path.join(self.dir, 'deep', 'w', 'bbc')
+        for c in compiles:
+            if c[-2] in ('deep.lth', 'd1.lth'):
+                status, out, mos, _, _, m = run_dfs(self.module, disk, [boards.module_command('LATHE', c)])
+                self.assertEqual((status, out, mos), (0, b'', b''))
+                self.assertEqual(m, (2, 1), c)
+                if REPORT:
+                    print('\n%s: most open %d, writing %d' % ((c[-2],) + m))
+
     def test_two_modules_whose_names_meet_are_refused(self):
         """AVERYLONGONE and AVERYLONGTWO are both L.AVERYLO, O.AVERYLO and I.AVERYLO: the disc holds
         one of each. With averylongone's files there, each tool reads averylongone's file for
         averylongtwo and refuses it, as the host's tools refuse the same files: compiling
         averylongtwo.lth is error 49 (the module's name is not the file's), compiling a module
         that imports averylongtwo error 51 (the interface is another module's), and linking both
-        objects reads averylongone's twice, a symbol defined twice. But the compiler creates its
-        object file before it reads the module's name, so the compile that is refused has emptied
-        averylongone's object: a link then finds it damaged until averylongone is compiled again."""
+        objects reads averylongone's twice, a symbol defined twice. The compile that is refused
+        leaves averylongone's object as it was: the compiler creates its object file only after
+        the module line and the imports (until 2026-11-16 it was created first, and the refused
+        compile emptied averylongone's object, which a link then found damaged)."""
         import test_bbc_toolchain as toolchain
         work = os.path.join(self.dir, 'meet')
         d = self.long_sources(work, ('averylongone.lth', 'averylongtwo.lth', 'meeting.lth'))
@@ -446,7 +496,6 @@ class Toolchain(unittest.TestCase):
         os.unlink(os.path.join(disk, 'averylongtwo.lth'))
         to_dfs(disk)
         self.assertEqual(sorted(os.listdir(disk)).count('L.AVERYLO'), 1)
-        one = [c for c in compiles if c[-2] == 'averylongone.lth'][0]
         two = [c for c in compiles if c[-2] == 'averylongtwo.lth'][0]
         main = [c for c in compiles if c[-2] == 'meeting.lth'][0]
         rest = [c for c in compiles if c not in (two, main)]
@@ -481,15 +530,10 @@ class Toolchain(unittest.TestCase):
         status, out, mos, written, _, _ = bbc('LATHE', two)
         self.assertEqual((status, out), host_compiles('two', two, [('averylongtwo.lth', 'averylongone.lth')]))
         self.assertIn(b'error 49', out)
-        self.assertEqual(files_of(disk)['O.AVERYLO'], b'')
+        self.assertEqual(written, {})
+        self.assertTrue(files_of(disk)['O.AVERYLO'] == files['averylongone.lo'])
         put(disk, 'meeting.lo', files['meeting.lo'])
-        status, out, mos, written, _, _ = bbc('LLINK', link)
-        empty = host_copy('empty', [('averylongone.lo', b''), ('averylongtwo.lo', b'')])
-        self.assertEqual((status, out), toolchain.host_link_at_bbc(link, empty))
-        self.assertTrue(out.startswith(b'link error 6: object file is damaged: averylongone.lo'), out)
-        # Compiled again: the link reads averylongone's object for both.
-        status, out, mos, written, _, _ = bbc('LATHE', one)
-        self.assertEqual(status, 0, out)
+        # The link reads averylongone's object for both.
         status, out, mos, written, _, _ = bbc('LLINK', link)
         twice = host_copy('twice', [('averylongtwo.lo', 'averylongone.lo')])
         self.assertEqual((status, out), toolchain.host_link_at_bbc(link, twice))
@@ -539,7 +583,9 @@ class SelfHost(unittest.TestCase):
                 self.assertEqual(sorted(written), sorted(want))
                 for f in want:
                     self.assertTrue(written[f] == want[f], f + ' differs')
-        self.assertLessEqual(most[0], 5)
+        # The source and one interface, then the source and the object file (five, the DFS's
+        # limit, until 2026-11-16: three interfaces were read inside one another).
+        self.assertEqual(most, (2, 1))
         if REPORT:
             kinds = {}
             for f, d in disc.items():

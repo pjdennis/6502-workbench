@@ -706,6 +706,98 @@ class ImportTest(CompileTest):
         self.assertEqual(len(self.code('many')), 300)
 
 
+def deep_chain(levels):
+    """{file name: source} of a chain of imports `levels` deep: d1 imports d2, ... each exporting
+    an inline function that calls the next one's, so that reading d1.li brings in d2.li, whose
+    LI_MODULE entry brings in d3.li, and so on."""
+    sources = {'d%d.lth' % levels: 'module d%d\npub inline func f(n: byte): byte\n  return n + 1\nend\n' % levels}
+    for i in range(levels - 1, 0, -1):
+        sources['d%d.lth' % i] = ('module d%d\nimport d%d\npub inline func f(n: byte): byte\n'
+                                  '  return d%d.f(n) + 1\nend\n' % (i, i + 1, i + 1))
+    return sources
+
+
+class FilesTest(CompileTest):
+    """When the compiler opens its files: the object file once the module line and the imports
+    are read, so that a compile they refuse leaves the files from before; the interface when
+    the module has compiled; and the interfaces one at a time, however deep the imports."""
+    OLD_OBJECT = b'the object file from before'
+    OLD_INTERFACE = b'the interface from before'
+
+    def old_files(self):
+        for name, data in (('prog.lo', self.OLD_OBJECT), ('prog.li', self.OLD_INTERFACE)):
+            with open(os.path.join(self.out, name), 'wb') as f:
+                f.write(data)
+
+    def file(self, name):
+        with open(os.path.join(self.out, name), 'rb') as f:
+            return f.read()
+
+    def test_a_compile_refused_in_its_module_line_or_imports_leaves_the_files_alone(self):
+        self.compile(HOST_LTH)
+        for text, error in (('module other\n', 49),               # two names that meet on a DFS
+                            ('modul prog\n', 26),
+                            ('module prog\nimport nothing\n', 50),
+                            ('module prog\nimport host (nosuch)\n', 102),
+                            ('module prog\nimport host\nimport host\n', 41)):
+            with self.subTest(text=text):
+                self.old_files()
+                status, errors = support.run_lathec(self.source('prog.lth', text), self.out)
+                self.assertEqual(status, 1)
+                self.assertIn(': error %d: ' % error, errors)
+                self.assertEqual(self.file('prog.lo'), self.OLD_OBJECT)
+                self.assertEqual(self.file('prog.li'), self.OLD_INTERFACE)
+
+    def test_an_error_after_the_imports_leaves_the_object_cut_short_and_the_interface_alone(self):
+        self.old_files()
+        prog = self.source('prog.lth', 'module prog\nfunc f()\n  x = 1\nend\n')
+        self.assertEqual(support.run_lathec(prog, self.out), (1, prog + ':3:3: error 40: undefined name\n'))
+        self.assertTrue(self.file('prog.lo').startswith(bytes([MOD, 7, 0, 4, 0]) + string(b'prog')))
+        self.assertEqual(self.file('prog.li'), self.OLD_INTERFACE)
+
+    def test_an_object_that_cannot_be_created_is_error_63_after_the_imports(self):
+        self.compile(HOST_LTH)
+        app = self.source('app.lth', 'module app\nimport host\nimport nothing\n')
+        status, errors = support.run_lathec(app, os.path.join(self.out, 'missing'), self.out)
+        self.assertEqual((status, errors), (1, app + ':3:8: error 50: no interface file for this module\n'))
+        app = self.source('app.lth', 'module app\nimport host\npub func main()\nend\n')
+        status, errors = support.run_lathec(app, os.path.join(self.out, 'missing'), self.out)
+        self.assertEqual((status, errors), (1, app + ': error 63: cannot create the output file\n'))
+
+    def test_interfaces_are_read_one_at_a_time_however_deep_the_imports(self):
+        """Six levels of interfaces, each read inside the one before it until 2026-11-16 (eight
+        files open at once): the source and one interface are open while the imports are read,
+        the source and the object file after them."""
+        import env
+        import memory_report
+        sources = deep_chain(6)
+        for i in range(6, 0, -1):
+            self.compile(self.source('d%d.lth' % i, sources['d%d.lth' % i]))
+        app = self.source('app.lth', 'module app\nimport d1\npub func main(): byte\n  return d1.f(0)\nend\n')
+        open_now = set()
+        most = [0]
+        real_open, real_close = env._open, env.close
+
+        def counted_open(ptr, mode):
+            h = real_open(ptr, mode)
+            if h:
+                open_now.add(h)
+                most[0] = max(most[0], len(open_now))
+            return h
+
+        def counted_close(h):
+            open_now.discard(h)
+            real_close(h)
+        env._open, env.close = counted_open, counted_close
+        try:
+            status = memory_report.compile_one(app, self.out, ())
+        finally:
+            env._open, env.close = real_open, real_close
+        self.assertEqual((status, env._err.getvalue()), (0, b''))
+        self.assertEqual(most[0], 2)
+        self.assertEqual([kind for kind, _ in self.records('app')][:2], [MOD, IMP])
+
+
 class CommandLineTest(CompileTest):
     def test_too_few_arguments_is_error_60(self):
         status, errors = support.run_lathec(HOST_LTH)

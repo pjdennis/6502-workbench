@@ -23,7 +23,7 @@
 ;   | + i]                                 | then p[i]                         | index is a byte |
 ;   | for i in range(start, stop - 4):     | a pointer p from start while p is | a loop variable |
 ;   | env.mem[i]                           | below stop - 4                    | is a number     |
-;   | SOURCE_ENDING, OBJECT_ENDING,        | tables of bytes as long as the    | a table is not  |
+;   | SOURCE_ENDING,                       | tables of bytes as long as the    | a table is not  |
 ;   | CPU_NAME: byte strings, len(text)    | text                              | a value         |
 ;   | is_text(place, text): len(text)      | text ended by a zero, walked to   | (the same); the |
 ;   | CPU_6502, CPU_65C02: byte strings    | it; given as @CPU_6502            | table's address |
@@ -34,15 +34,14 @@
 module lathec
 
 import decl
-import err (E_CREATE, E_OPEN_SOURCE, E_SOURCE_NAME, E_USAGE, fatal, init, position, set_file)
+import err (E_OPEN_SOURCE, E_SOURCE_NAME, E_USAGE, fatal, init, position, set_file)
 import expr (init)
 import gen (cpu, init)
 import inlines (init)
-import kernel (C_TYPE, C_VALUE, init, K_CONST, keep_argument, module_add, module_name, name_add,
-               name_begin, name_end, name_token, path_add, path_add_name, path_add_text, path_begin,
-               path_end, SCOPE_PREDECLARED, set_byte, set_word, sym_add)
+import kernel (C_TYPE, C_VALUE, init, K_CONST, keep_argument, module_add, name_add, name_begin,
+               name_end, name_token, SCOPE_PREDECLARED, set_byte, set_word, sym_add)
 import lex (fold, init, is_digit, is_letter)
-import out (end_module, init, open)
+import out (end_module, init)
 import src (init, open_file)
 import sys (argc, exit)
 import typetab (BOOL_TYPE, init, NUMBER_TYPE)
@@ -55,7 +54,6 @@ const C_MINUS = $2D
 const C_C = $63
 const C_D = $64
 const SOURCE_ENDING: [4]byte = ".lth"
-const OBJECT_ENDING: [3]byte = ".lo"
 const CPU_6502 = "6502"
 const CPU_65C02 = "65c02"
 const CPU_NAME: [9]byte = "cpu_65c02"    ; the bool constant the CPU option sets
@@ -102,19 +100,6 @@ func module_name(source: ^byte): word
     p += 1
   end
   return kernel.name_end()
-end
-
-; Pointer to the file name of the module's object file in a directory.
-func object_path(directory: ^byte): ^byte
-  var i: byte
-  kernel.path_begin()
-  kernel.path_add_text(directory)
-  kernel.path_add(C_SLASH)
-  kernel.path_add_name(kernel.module_name[0])
-  for i = 0 until len(OBJECT_ENDING) do
-    kernel.path_add(OBJECT_ENDING[i])
-  end
-  return kernel.path_end()
 end
 
 ; True if the zero-terminated text at `place` is `text`, in either case.
@@ -257,12 +242,9 @@ pub func main()
   if not src.open_file(source) then
     err.fatal(err.E_OPEN_SOURCE)
   end
-  if not out.open(object_path(output)) then
-    err.fatal(err.E_CREATE)
-  end
   decl.unit()
   out.end_module()
   err.position(0, 0)
-  decl.write_interface(output)
+  decl.write_interface()
   sys.exit(0)
 end

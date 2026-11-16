@@ -65,14 +65,14 @@ import kernel (built_is, built_loaded, byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_NA
                open_out, path_add, path_add_name, path_add_text, path_begin, path_end, put,
                put_name, put_word, scope_begin, scope_end, SCOPE_FIELDS, SCOPE_LOCAL, SCOPE_MODULE,
                SCOPE_PREDECLARED, set_byte, set_word, SF_ASM, SF_AT, SF_EXTERN, SF_FORWARD,
-               SF_HIDDEN, SF_IN, SF_LIST, SF_NOZP, SF_PUB, SF_RECURSIVE, SF_ZP, sym_add, sym_count,
-               sym_find, sym_thawed, word_of)
+               SF_HIDDEN, SF_IN, SF_LIST, SF_NOZP, SF_PUB, SF_RECURSIVE, SF_ZP, stream_next,
+               sym_add, sym_count, sym_find, sym_thawed, word_of)
 import lex (col, expect, line, next, string_length, T_ASM, T_ASSIGN, T_AT, T_BOOL, T_COLON, T_COMMA,
             T_CONST, T_END, T_ENUM, T_EOF, T_EXTERN, T_FORWARD, T_FUNC, T_HASH_IF, T_IMPORT, T_IN,
             T_INLINE, T_INTERRUPT, T_LPAREN, T_MODULE, T_NAME, T_NL, T_PUB, T_RECORD, T_RECURSIVE,
             T_RPAREN, T_STATIC, T_STRING, T_TYPE, T_VAR, tok, value)
 import out (begin_module, FUNC_EXPORTED, FUNC_INTERRUPT, FUNC_RECURSIVE, FUNC_REGISTERS, imported,
-            region, SYM_DATA, SYM_FUNCTION, symbol, variable)
+            open, region, SYM_DATA, SYM_FUNCTION, symbol, variable)
 import parts (layout, new_name, no_record, not_in_region, region_name, zp_class)
 import reg (begin, CLASS_EITHER, depth, new_slot, O_CONST, object_symbol, op_kind, op_type,
             op_value, pop, SLOT_PARAMETER)
@@ -117,7 +117,9 @@ const MAX_DIRS = 8
 const C_SLASH = $2F
 const C_UPPER_L = $4C
 const C_UPPER_I = $49
-const ENDING: [3]byte = ".li"
+const C_LOWER_I = $69
+const C_LOWER_O = $6F
+const ENDING: [2]byte = ".l"    ; and C_LOWER_I for an interface, C_LOWER_O for an object file
 
 var directory: [MAX_DIRS]^byte  ; pointers to the names of the directories to look in, in order
 var directory_count: byte = 0
@@ -235,8 +237,9 @@ pub func directory_add(name: ^byte)
   directory_count += 1
 end
 
-; Pointer to the file name of a module's interface in a directory.
-func interface_path(directory_name: ^byte, module_name: word): ^byte
+; Pointer to the file name of a module's interface (`kind` C_LOWER_I) or object file (C_LOWER_O)
+; in a directory.
+func file_path(directory_name: ^byte, module_name: word, kind: byte): ^byte
   var i: byte
   kernel.path_begin()
   kernel.path_add_text(directory_name)
@@ -245,6 +248,7 @@ func interface_path(directory_name: ^byte, module_name: word): ^byte
   for i = 0 until len(ENDING) do
     kernel.path_add(ENDING[i])
   end
+  kernel.path_add(kind)
   return kernel.path_end()
 end
 
@@ -384,13 +388,13 @@ func write_variable(stream: byte, s: word)
   end
 end
 
-; Write what the module exports to its interface file in the directory named.
-pub func write_interface(directory_name: ^byte)
+; Write what the module exports to its interface file in the output directory.
+pub func write_interface()
   var stream: byte
   var ok: bool
   var expands: bool
   var s: word
-  stream, ok = kernel.open_out(interface_path(directory_name, kernel.module_name[0]))
+  stream, ok = kernel.open_out(file_path(directory[0], kernel.module_name[0], C_LOWER_I))
   if not ok then
     err.fatal(err.E_CREATE)
   end
@@ -1018,44 +1022,59 @@ func read_uses(stream: byte, number: byte)
   end
 end
 
-forward recursive func read_interface(number: byte, again: bool)
-
-; An LI_MODULE entry: a module that the exported inline functions of module `scope` can name. It
-; is imported too, if it is not already (or read again for the names the rows want of it), and
-; is a name of that module's scope, which the expansions of its inline functions see and the
-; importer's own code does not.
-recursive func imported_module(stream: byte, scope: byte, again: bool)
-  var name: word
-  var m: byte
-  name = inlines.read_name(stream)
-  m = 1
-  while m < kernel.module_count and kernel.module_name[m] != name do
-    m += 1
-  end
-  if m == kernel.module_count then
-    m = new_module(name, 0)
-    read_interface(m, false)
-  elif pending(m) then
-    read_interface(m, true)
-  end
-  if not again then
-    kernel.set_word(kernel.sym_add(scope, name, kernel.K_MODULE), kernel.C_VALUE, m)
-  end
-end
-
-; The interface of the module called `name`, from the first directory that has one.
-func open_interface(name: word): byte
+; The interface of the module called `name`, from the first directory that has one, with its
+; first `skip` bytes read.
+func open_interface(name: word, skip: word): byte
   var i: byte
   var stream: byte
   var ok: bool
+  var b: byte
   for i = 0 until directory_count do
-    stream, ok = kernel.open_in(interface_path(directory[i], name))
+    stream, ok = kernel.open_in(file_path(directory[i], name, C_LOWER_I))
     if ok then
+      while skip != 0 do
+        b, ok = kernel.get(stream)
+        skip -= 1
+      end
       return stream
     end
   end
   err.fatal(err.E_NO_INTERFACE)
   return 0
+end
+
+forward recursive func read_interface(number: byte, again: bool)
+
+; An LI_MODULE entry: a module that the exported inline functions of module `scope` can name. It
+; is imported too, if it is not already (or read again for the names the rows want of it), and
+; is a name of that module's scope, which the expansions of its inline functions see and the
+; importer's own code does not. Returns the stream, which is another if the module's interface
+; was read: the one of `scope` is closed while it is, then opened again where it was, so that
+; one interface is open at a time however deep the imports go.
+recursive func imported_module(stream: byte, scope: byte, again: bool): byte
+  var name: word
+  var m: byte
+  var fresh: bool
+  var skip: word
+  name = inlines.read_name(stream)
+  m = 1
+  while m < kernel.module_count and kernel.module_name[m] != name do
+    m += 1
+  end
+  fresh = m == kernel.module_count
+  if fresh then
+    m = new_module(name, 0)
+  end
+  if fresh or pending(m) then
+    skip = word(kernel.stream_next[stream])
+    kernel.close(stream)
+    read_interface(m, not fresh)
+    stream = open_interface(kernel.module_name[scope], skip)
+  end
+  if not again then
+    kernel.set_word(kernel.sym_add(scope, name, kernel.K_MODULE), kernel.C_VALUE, m)
+  end
+  return stream
 end
 
 ; Declare what module number `number` exports, as symbols in the scope of that number: its types,
@@ -1068,7 +1087,7 @@ recursive func read_interface(number: byte, again: bool)
   var version: byte
   var at_end: bool
   var kind: byte
-  stream = open_interface(kernel.module_name[number])
+  stream = open_interface(kernel.module_name[number], 0)
   letter_l, at_end = kernel.get(stream)
   letter_i, at_end = kernel.get(stream)
   version, at_end = kernel.get(stream)
@@ -1093,7 +1112,7 @@ recursive func read_interface(number: byte, again: bool)
     elif kind == LI_VAR then
       read_variable(stream, number, again)
     elif kind == LI_MODULE then
-      imported_module(stream, number, again)
+      stream = imported_module(stream, number, again)
     elif kind == LI_USES then
       read_uses(stream, number)
     else
@@ -1116,7 +1135,6 @@ func module_line()
   end
   lex.next()
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
-  out.begin_module(gen.cpu, kernel.module_name[0])
 end
 
 ; "(" [ name { "," name } ] ")", after the module's name: a row for each name.
@@ -1187,7 +1205,6 @@ func import_line()
   check_found()
   want_count = 0
   kernel.set_word(s, kernel.C_VALUE, m)
-  out.imported(name)
   err.position(lex.line, lex.col)
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
 end
@@ -1873,6 +1890,7 @@ end
 ; unit = "module" name NL { "import" name NL } { declaration }. Compiles the source that has just
 ; been opened, to its end.
 pub func unit()
+  var s: word
   lex.next()
   module_line()
   while lex.tok == lex.T_IMPORT or lex.tok == lex.T_HASH_IF do
@@ -1880,6 +1898,19 @@ pub func unit()
       import_line()
     else
       declaration()
+    end
+  end
+  ; The object file is created only now, so that a compile refused in the module line or the
+  ; imports leaves the one from before (two long names meet on a DFS: bbc.md). Its first
+  ; records are the module's and one for each import, in the order of the import lines.
+  if not out.open(file_path(directory[0], kernel.module_name[0], C_LOWER_O)) then
+    err.position(0, 0)
+    err.fatal(err.E_CREATE)
+  end
+  out.begin_module(gen.cpu, kernel.module_name[0])
+  for s = 0 until kernel.sym_count do
+    if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE then
+      out.imported(kernel.word_of(s, kernel.C_NAME))
     end
   end
   while lex.tok != lex.T_EOF do

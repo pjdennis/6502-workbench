@@ -189,7 +189,8 @@ MADE = [
     ('too many calls (78)', ['m.lth', '.'],
      {'m.lth': b'module m\n' + b''.join(b'func f%d()\nend\n' % i for i in range(66)) + b'func g()\n'
       + b''.join(b'f%d()\n' % i for i in range(66)) + b'end\n'}),
-    ('too many open files (80): interfaces that bring in modules for their inline functions', ['m.lth', '.'],
+    # Error 80 until 2026-11-16, when these interfaces were open at once; now one at a time.
+    ('interfaces ten deep that bring in modules for their inline functions', ['m.lth', '.'],
      dict([('m.lth', b'module m\nimport a\n')] + [('%c.li' % c, b'LI\x02\x01%c' % c + (b'\x08\x01%c' % (c + 1) if c < ord('j') else b'')
                                                  + b'\x00') for c in LETTERS[:10]])),
     ('text memory full (82): the file names of imported inline functions', ['m.lth', '.'],
@@ -482,6 +483,8 @@ NOT_REPORTED = {
     54: 'E_NEEDS_RT: no part of the compiler reports it',
     77: 'too many fix-ups in one function: the small build\'s function buffer is full first',
     79: 'too many operands: the nesting limit (error 88) comes first, as test_src_expr.py says',
+    80: 'too many streams: the source, the object file and inline.MAX_DEPTH expansions are 8 of'
+        ' 10; an interface is read only while the object file is not open, one at a time',
     81: 'too many sources: inline expansions nest at most inline.MAX_DEPTH deep, below it',
     99: 'a fault in the compiler',
 }

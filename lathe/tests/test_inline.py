@@ -54,8 +54,8 @@ class InProcess(unittest.TestCase):
         gen.init()
         expr.init()
         decl.init()
-        objects, _ = support.put_text((self.tmp.name + '/m.lo').encode(), 0x9000)
-        self.assertTrue(out.open(objects))
+        directory, _ = support.put_text(self.tmp.name.encode(), 0x9000)
+        decl.directory_add(directory)       # decl.unit() creates m.lo there
         kernel.module_add(name('m'))
         begin, end = support.put_text(text.encode(), support.TEXT)
         self.text = begin

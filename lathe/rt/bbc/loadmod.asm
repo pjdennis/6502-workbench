@@ -3,10 +3,15 @@
 ;
 ;     *RUN LOADMOD IMAGE [SLOT]
 ;
-; reads the image file IMAGE (262,144 bytes, sixteen banks, lathe/host/driver/bbcrom.py) into the
-; module in slot SLOT (4 if not given) bank by bank, and enters the module's type in the MOS's
-; ROM type table, so that the MOS offers it service calls from then on, without a reset. After
-; it the module's * commands work as from the ROM. lathe/host/driver/bbcrom.py assembles it with
+; reads the image file IMAGE (lathe/host/driver/bbcrom.py) into the module in slot SLOT (4 if not
+; given) bank by bank, and enters the module's type in the MOS's ROM type table, so that the MOS
+; offers it service calls from then on, without a reset. After it the module's * commands work
+; as from the ROM. The file holds the sixteen banks (262,144 bytes), or banks 0 to N only
+; (bbcrom.py --short: the banks in use, which fit a disc's side where the whole image does not);
+; each bank after the file's last gets the reserved bytes alone, $8000-$804F as the last bank
+; read has them with its own number at $804F, so that every bank still holds the header and
+; service code whichever bank the latch is at, and the rest of it is left as it was. A file that
+; ends inside a bank, or is empty, is not a module image. lathe/host/driver/bbcrom.py assembles it with
 ; asm/pyasm.py (bbcrom.loader(), or its --loader option) into LOADMOD and LOADMOD.inf, loaded and
 ; entered at $1900.
 ;
@@ -33,6 +38,7 @@ handle: = $78
 slot: = $79
 bank: = $7A
 entry: = $7B
+rest: = $7C                    ; 0 while the file has banks; then not 0
 blk: = $80
 buffer: = $2000
 
@@ -114,7 +120,10 @@ start:
   STA entry
   LDA #$00
   STA bank
+  STA rest
 .bank:
+  LDA rest
+  BNE .full
   LDA handle                   ; OSGBPB 4: 16 KB to the buffer
   STA blk
   LDA #<buffer
@@ -134,6 +143,17 @@ start:
   LDY #$00
   JSR osgbpb
   BCC .full
+  LDA blk+$05                  ; nothing read, past bank 0: the file ends here
+  ORA blk+$07
+  ORA blk+$08
+  BNE .short
+  LDA blk+$06
+  CMP #$40
+  BNE .short
+  LDA bank
+  STA rest
+  BNE .full
+.short:
   JMP short
 .full:
   LDA slot                     ; the module, and the bank
@@ -141,6 +161,18 @@ start:
   STA romsel
   LDX bank
   LDA latch,X
+  LDA rest
+  BEQ .copy
+  LDY #$00                     ; past the file: the reserved bytes alone
+.head:
+  LDA buffer,Y
+  STA $8000,Y
+  INY
+  CPY #$4F
+  BNE .head
+  STX $804F                    ; the bank's own number
+  JMP .copied
+.copy:
   LDA #<buffer
   STA src
   LDA #>buffer
@@ -166,13 +198,16 @@ start:
   INY
   CPY #$E0
   BNE .last
+.copied:
   LDA entry
   STA romcopy
   STA romsel
   INC bank
   LDA bank
   CMP #$10
-  BNE .bank
+  BEQ .loaded
+  JMP .bank
+.loaded:
   LDA #$00                     ; close it
   LDY handle
   JSR osfind

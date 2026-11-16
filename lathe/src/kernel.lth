@@ -191,7 +191,9 @@ pub const STREAM_ENDED = 4          ; a file being read whose end has been read:
 
 var stream_kind: [MAX_STREAMS]byte
 var stream_handle: [MAX_STREAMS]byte        ; the system's handle of a file
-var stream_next: [MAX_STREAMS]^byte         ; memory: pointer to the next byte
+pub var stream_next: [MAX_STREAMS]^byte     ; memory: pointer to the next byte; a file being
+                                            ; read: how many bytes have been read
+                                            ; (decl.read_interface())
 var stream_limit: [MAX_STREAMS]^byte        ; memory: pointer past the last byte
 
 func stream_new(kind: byte): byte
@@ -219,6 +221,7 @@ func open_file(name: ^byte, kind: byte): byte, bool
   end
   s = stream_new(kind)
   stream_handle[s] = handle
+  stream_next[s] = nil
   return s, true
 end
 
@@ -267,6 +270,7 @@ pub func get(s: byte): byte, bool
     return 0, true
   end
   b, at_end = sys.read(stream_handle[s])
+  stream_next[s] = stream_next[s] + 1
   if at_end then
     stream_kind[s] = STREAM_ENDED
   end

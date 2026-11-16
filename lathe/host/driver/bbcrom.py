@@ -3,7 +3,7 @@
 bytes, scheme direct16), which holds one or more programs, each started by a * command
 (lathe/docs/bbc.md, "Step 3, as built: the ROM form").
 
-    python3 lathe/host/driver/bbcrom.py -o IMAGE [--listing FILE] [--loader FILE]
+    python3 lathe/host/driver/bbcrom.py -o IMAGE [--listing FILE] [--loader FILE] [--short FILE]
                                         COMMAND=PROGRAM,ENV[,MAP]...
 
 Each program is linked on its own, by build.py, with an environment of its own (rom_env() makes
@@ -32,7 +32,10 @@ other from 1 never collides. The resident parts are placed after the programs ar
 banks left over, so no number of a program's bank can collide with them.
 
 --loader also writes the developer's loader (lathe/rt/bbc/loadmod.asm), which fills the module's
-RAM form from the image: `*RUN LOADMOD IMAGE [SLOT]`.
+RAM form from the image: `*RUN LOADMOD IMAGE [SLOT]`. --short also writes the image's banks from 0
+to the last one in use, and no more: the file for the loader on a disc, where the whole image
+(256 KB) is more than a side holds (lathe/docs/bbc.md, "File names on the BBC"). The loader fills
+each bank the file does not hold with the reserved bytes alone.
 
 image() and loader() are the functions the tests call; ImageError says what does not fit or
 collides.
@@ -251,10 +254,11 @@ def place(blobs, areas):
     return placed
 
 
-def image(specs, out, listing=None):
+def image(specs, out, listing=None, short=None):
     """Writes the module image `out` (262,144 bytes) for the programs specs, [(command, resident
-    image, environment[, map])], and the listing (text) to `listing` if given. Returns the
-    listing."""
+    image, environment[, map])], and the listing (text) to `listing` if given; with `short`,
+    also the image's banks from 0 to the last one in use (bank 0, a program's code or what bank
+    0 copies), to that file. Returns the listing."""
     programs = [load_program(Program(s[0].upper(), s[1], s[2], s[3] if len(s) > 3 else None))
                 for s in specs]
     if not programs:
@@ -310,7 +314,12 @@ def image(specs, out, listing=None):
         banks[bank][addr - WINDOW:addr - WINDOW + len(data)] = data
     with open(out, 'wb') as fh:
         fh.write(b''.join(banks))
+    used = max([0] + list(owner) + [bank for what, bank, addr, data, unit, dest in placed])
+    if short:
+        with open(short, 'wb') as fh:
+            fh.write(b''.join(banks[:used + 1]))
     text = describe(out, programs, code, owner, placed, areas)
+    text += f'banks in use: 0 to {used}, {(used + 1) * BANK_SIZE} bytes (--short)\n'
     if listing:
         with open(listing, 'w') as fh:
             fh.write(text)
@@ -409,6 +418,8 @@ def main(argv):
     ap.add_argument('--listing', help='where to write the listing (else standard output)')
     ap.add_argument('--loader', metavar='FILE', help='also write the developer\'s loader, LOADMOD, '
                     'to FILE (and FILE.inf)')
+    ap.add_argument('--short', metavar='FILE', help='also write the banks in use alone to FILE, '
+                    'for LOADMOD on a disc')
     ap.add_argument('programs', nargs='+', metavar='COMMAND=PROGRAM,ENV[,MAP]')
     a = ap.parse_args(argv)
     specs = []
@@ -420,7 +431,7 @@ def main(argv):
             return 2
         specs.append([command] + parts)
     try:
-        text = image(specs, a.out, a.listing)
+        text = image(specs, a.out, a.listing, a.short)
         if a.loader:
             loader(a.loader)
     except (ImageError, mapenv.FormatError, OSError) as e:

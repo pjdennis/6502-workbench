@@ -58,7 +58,9 @@ MAX_DIRS = 8
 C_SLASH = 0x2F
 C_UPPER_L = 0x4C
 C_UPPER_I = 0x49
-ENDING = b".li"
+C_LOWER_I = 0x69
+C_LOWER_O = 0x6F
+ENDING = b".l"          # and C_LOWER_I for an interface, C_LOWER_O for an object file
 
 directory = [0] * MAX_DIRS      # pointers to the names of the directories to look in, in order
 directory_count = 0
@@ -163,14 +165,16 @@ def directory_add(name):
     directory_count += 1
 
 
-def interface_path(directory_name, module_name):
-    """Pointer to the file name of a module's interface in a directory."""
+def file_path(directory_name, module_name, kind):
+    """Pointer to the file name of a module's interface (`kind` C_LOWER_I) or object file
+    (C_LOWER_O) in a directory."""
     kernel.path_begin()
     kernel.path_add_text(directory_name)
     kernel.path_add(C_SLASH)
     kernel.path_add_name(module_name)
     for i in range(0, len(ENDING)):
         kernel.path_add(ENDING[i])
+    kernel.path_add(kind)
     return kernel.path_end()
 
 
@@ -289,9 +293,9 @@ def write_variable(stream, s):
         kernel.put(stream, 0)
 
 
-def write_interface(directory_name):
-    """Write what the module exports to its interface file in the directory named."""
-    stream, ok = kernel.open_out(interface_path(directory_name, kernel.module_name[0]))
+def write_interface():
+    """Write what the module exports to its interface file in the output directory."""
+    stream, ok = kernel.open_out(file_path(directory[0], kernel.module_name[0], C_LOWER_I))
     if not ok:
         err.fatal(err.E_CREATE)
     kernel.put(stream, C_UPPER_L)
@@ -750,39 +754,48 @@ def read_uses(stream, number):
             add_want(owner, inline.read_name(stream), 0)
 
 
+def open_interface(name, skip):
+    """The interface of the module called `name`, from the first directory that has one, with
+    its first `skip` bytes read."""
+    for i in range(0, directory_count):
+        stream, ok = kernel.open_in(file_path(directory[i], name, C_LOWER_I))
+        if ok:
+            for k in range(0, skip):
+                kernel.get(stream)
+            return stream
+    err.fatal(err.E_NO_INTERFACE)
+    return 0
+
+
 def imported_module(stream, scope, again):
     """An LI_MODULE entry: a module that the exported inline functions of module `scope` can
     name. It is imported too, if it is not already (or read again for the names the rows want
     of it), and is a name of that module's scope, which the expansions of its inline functions
-    see and the importer's own code does not."""
+    see and the importer's own code does not. Returns the stream, which is another if the
+    module's interface was read: the one of `scope` is closed while it is, then opened again
+    where it was, so that one interface is open at a time however deep the imports go."""
     name = inline.read_name(stream)
     m = 1
     while m < kernel.module_count and kernel.module_name[m] != name:
         m += 1
-    if m == kernel.module_count:
+    fresh = m == kernel.module_count
+    if fresh:
         m = new_module(name, 0)
-        read_interface(m, False)
-    elif pending(m):
-        read_interface(m, True)
+    if fresh or pending(m):
+        skip = kernel.stream_next[stream]
+        kernel.close(stream)
+        read_interface(m, not fresh)
+        stream = open_interface(kernel.module_name[scope], skip)
     if not again:
         kernel.set_word(kernel.sym_add(scope, name, kernel.K_MODULE), kernel.C_VALUE, m)
-
-
-def open_interface(name):
-    """The interface of the module called `name`, from the first directory that has one."""
-    for i in range(0, directory_count):
-        stream, ok = kernel.open_in(interface_path(directory[i], name))
-        if ok:
-            return stream
-    err.fatal(err.E_NO_INTERFACE)
-    return 0
+    return stream
 
 
 def read_interface(number, again):
     """Declare what module number `number` exports, as symbols in the scope of that number: its
     types, and of the rest what the rows want (wanted()), or all of it. `again`: it was read
     before, and what it had then is not made again."""
-    stream = open_interface(kernel.module_name[number])
+    stream = open_interface(kernel.module_name[number], 0)
     letter_l, _ = kernel.get(stream)
     letter_i, _ = kernel.get(stream)
     version, _ = kernel.get(stream)
@@ -803,7 +816,7 @@ def read_interface(number, again):
         elif kind == LI_VAR:
             read_variable(stream, number, again)
         elif kind == LI_MODULE:
-            imported_module(stream, number, again)
+            stream = imported_module(stream, number, again)
         elif kind == LI_USES:
             read_uses(stream, number)
         else:
@@ -822,7 +835,6 @@ def module_line():
         err.fatal(err.E_MODULE_NAME)
     lex.next()
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
-    out.begin_module(gen.cpu, kernel.module_name[0])
 
 
 def import_list(name):
@@ -879,7 +891,6 @@ def import_line():
     check_found()
     want_count = 0
     kernel.set_word(s, kernel.C_VALUE, m)
-    out.imported(name)
     err.position(lex.line, lex.col)
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
 
@@ -1436,6 +1447,16 @@ def unit():
             import_line()
         else:
             declaration()
+    # The object file is created only now, so that a compile refused in the module line or the
+    # imports leaves the one from before (two long names meet on a DFS: bbc.md). Its first
+    # records are the module's and one for each import, in the order of the import lines.
+    if not out.open(file_path(directory[0], kernel.module_name[0], C_LOWER_O)):
+        err.position(0, 0)
+        err.fatal(err.E_CREATE)
+    out.begin_module(gen.cpu, kernel.module_name[0])
+    for s in range(0, kernel.sym_count):
+        if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE:
+            out.imported(kernel.word_of(s, kernel.C_NAME))
     while lex.tok != lex.T_EOF:
         if gen.init_count >= gen.INIT_FLUSH:
             init_early()

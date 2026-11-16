@@ -170,7 +170,8 @@ class RomModule(unittest.TestCase):
                         keep=os.path.join(flat_dir, 'work'))
             cls.flats[command] = (os.path.join(flat_dir, command), flat_env)
         cls.image = os.path.join(d, 'MODULE')
-        cls.listing = bbcrom.image(cls.specs, cls.image, os.path.join(d, 'MODULE.txt'))
+        cls.short = os.path.join(d, 'MODSHORT')
+        cls.listing = bbcrom.image(cls.specs, cls.image, os.path.join(d, 'MODULE.txt'), short=cls.short)
         cls.language = language_rom(os.path.join(d, 'LANG.rom'))
 
     @classmethod
@@ -277,6 +278,50 @@ class RomModule(unittest.TestCase):
         status, out, said, report = self.command('FIRST', ram=True)
         self.assertEqual((status, said), (1, b'Bad command\n'))
 
+    def test_the_short_image_holds_the_banks_in_use(self):
+        """bbcrom --short: banks 0 to the last one in use (here 5: the programs' banks are 1 to
+        5, and the resident parts and region constants fit bank 0), the full image's first ones;
+        the listing says how many."""
+        with open(self.image, 'rb') as f:
+            full = f.read()
+        with open(self.short, 'rb') as f:
+            short = f.read()
+        used = int(re.search(r'banks in use: 0 to (\d+), (\d+) bytes', self.listing).group(1))
+        self.assertEqual(len(short), (used + 1) * 0x4000)
+        self.assertEqual(short, full[:len(short)])
+        self.assertLess(used, 15)
+        self.assertNotIn('bank %2d: empty' % used, self.listing)
+        self.assertIn('bank %2d: empty' % (used + 1), self.listing)
+
+    def test_the_short_image_through_the_loader(self):
+        """LOADMOD takes the short image: each command gives what it gives from the ROM, with the
+        latch at a bank past the file's at power on; and a bank past the file has the reserved
+        bytes: a program latches bank 14 and makes service call 6 (OSBYTE 143), which the
+        header there passes to bank 0 and back."""
+        loader = os.path.join(self.dir, 'LOADMOD')
+        bbcrom.loader(loader)
+        svc = bytes([0xA5, 0xF4, 0x48, 0xA9, 0x04, 0x85, 0xF4, 0x8D, 0x30, 0xFE, 0xAD, 0xFE, 0xBF,
+                     0x68, 0x85, 0xF4, 0x8D, 0x30, 0xFE,
+                     0xA9, 0x8F, 0xA2, 0x06, 0xA0, 0x00, 0x20, 0xF4, 0xFF, 0x60])
+        for command, args in (('FIRST', FIRST_ARGS), ('SECOND', SECOND_ARGS), ('THIRD', []),
+                              ('RUN', ['SVC'])):
+            with self.subTest(command=command):
+                disk = self.disk()
+                for name in ('LOADMOD', 'LOADMOD.inf'):
+                    shutil.copy(os.path.join(self.dir, name), disk)
+                shutil.copy(self.short, os.path.join(disk, 'MODIMG'))
+                with open(os.path.join(disk, 'SVC'), 'wb') as f:
+                    f.write(svc)
+                with open(os.path.join(disk, 'SVC.inf'), 'w') as f:
+                    f.write(boards.inf_text('SVC', 0x1900, len(svc)))
+                status, out, said, report = self.command(command, args, disk=disk, bank=13, ram=True,
+                                                         before=['RUN LOADMOD MODIMG'])
+                if command == 'RUN':
+                    self.assertEqual((status, out, said), (0, b'', b''))
+                    self.assertIn('direct16 RAM, bank 14', report)
+                else:
+                    self.assertEqual((status, out, said), self.expected(command, args))
+
     def test_the_loader_refuses_a_missing_or_short_image(self):
         loader = os.path.join(self.dir, 'LOADMOD')
         bbcrom.loader(loader)
@@ -284,9 +329,12 @@ class RomModule(unittest.TestCase):
         for name in ('LOADMOD', 'LOADMOD.inf'):
             shutil.copy(os.path.join(self.dir, name), disk)
         with open(os.path.join(disk, 'SHORT'), 'wb') as f:
-            f.write(b'\xFF' * 0x5000)
+            f.write(b'\xFF' * 0x5000)                   # a bank and a part of one
+        with open(os.path.join(disk, 'EMPTY'), 'wb') as f:
+            pass
         for line, said in (('RUN LOADMOD NONE', b'File not found\n'),
                            ('RUN LOADMOD SHORT', b'Not a module image (too short)\n'),
+                           ('RUN LOADMOD EMPTY', b'Not a module image (too short)\n'),
                            ('RUN LOADMOD SHORT 16', b'Bad slot\n'), ('RUN LOADMOD', b'Syntax: LOADMOD IMAGE [SLOT]\n')):
             with self.subTest(line=line):
                 self.assertEqual(self.command('THIRD', disk=disk, ram=True, before=[line])[0::2],

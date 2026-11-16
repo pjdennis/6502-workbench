@@ -109,7 +109,7 @@ What changed, and what each change saved:
 - **One heap for the name heap, the function buffer, the string and the constant table**, which are rarely all full at once: names growing up, the function buffer down, so that one module's many names and another's long function share the slack.
 - **Symbols as rows reached through a pointer**, not 384-row columns: the same memory, but `LDY #offset` / `LDA (row),Y` for each field where a column access now computes a 16-bit address (`kernel.thaw`, which fills a row, is 631 bytes of code; the twins of KERNEL and FBUF already reach the entries of the name heap and the function buffer through a pointer in the functions that read them most).
 - **Messages on disk.** `err`'s 122 message texts are 5.1 KB of constant data with their table; kept in a file read only when an error is reported, they would leave about 5 KB of code space.
-- **Stream buffers.** On the target each open stream needs a buffer (the emulator's host calls need none): the files open at once are the source, the object file and an interface (two while an interface brings in a module it names), so about 1 KB of text memory at 256 bytes each.
+- **Stream buffers.** On the target each open stream needs a buffer (the emulator's host calls need none): the files open at once are the source and one other: an interface while the imports are read (one at a time, however deep: an interface that brings in a module it names is closed while that one is read, and opened again where it was, 2026-11-16), then the object file, then the interface written; so about 512 bytes of text memory at 256 bytes each.
 
 ## Configurations
 

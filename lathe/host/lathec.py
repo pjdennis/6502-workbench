@@ -28,7 +28,6 @@ C_MINUS = 0x2D
 C_C = 0x63
 C_D = 0x64
 SOURCE_ENDING = b".lth"
-OBJECT_ENDING = b".lo"
 CPU_6502 = b"6502"
 CPU_65C02 = b"65c02"
 CPU_NAME = b"cpu_65c02"         # the bool constant the CPU option sets
@@ -60,17 +59,6 @@ def module_name(source):
             err.fatal(err.E_SOURCE_NAME)
         kernel.name_add(lex.fold(ch))
     return kernel.name_end()
-
-
-def object_path(directory):
-    """Pointer to the file name of the module's object file in a directory."""
-    kernel.path_begin()
-    kernel.path_add_text(directory)
-    kernel.path_add(C_SLASH)
-    kernel.path_add_name(kernel.module_name[0])
-    for i in range(0, len(OBJECT_ENDING)):
-        kernel.path_add(OBJECT_ENDING[i])
-    return kernel.path_end()
 
 
 def is_text(place, text):
@@ -181,12 +169,10 @@ def main():
     kernel.module_add(module_name(source))
     if not src.open_file(source):
         err.fatal(err.E_OPEN_SOURCE)
-    if not out.open(object_path(output)):
-        err.fatal(err.E_CREATE)
     decl.unit()
     out.end_module()
     err.position(0, 0)
-    decl.write_interface(output)
+    decl.write_interface()
     env.exit(0)
 
 
