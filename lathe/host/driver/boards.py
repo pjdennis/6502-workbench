@@ -45,6 +45,11 @@ import mapenv  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
 EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
+# Every run starts with RAM that is not 0 (the emulator's --fill-ram), as on a real machine: a
+# variable with no initial value is undefined until the program assigns it (language.md), and
+# a program that relies on 0 fails here, not on the board. build.py's runs on the default
+# machine pass it too.
+FILL = ('--fill-ram',)
 
 
 class RunError(Exception):
@@ -111,7 +116,7 @@ def command(board, image, load, disk=None):
     program file."""
     image = os.path.abspath(image)
     fill = {'image': image, 'load': f'{load:04X}', 'disk': os.path.abspath(disk or '.')}
-    return ([EMULATOR, image, '--machine', board.machine]
+    return ([EMULATOR, image, '--machine', board.machine] + list(FILL)
             + [o.format(**fill) for o in board.options]
             + ['--cycle-cap', str(board.cycle_cap), '--exit-report'])
 
@@ -304,7 +309,7 @@ def run_module(board, image, disk, command, args=(), slot=4, bank=0, ram=False, 
     if not os.path.isfile(EMULATOR):
         raise RunError('emulator/emulator.out is missing: run make at the repository root')
     fill = {'disk': os.path.abspath(disk)}
-    cmd = ([EMULATOR, '--machine', board.machine] + [o.format(**fill) for o in board.options]
+    cmd = ([EMULATOR, '--machine', board.machine] + list(FILL) + [o.format(**fill) for o in board.options]
            + ['--bbc-module-scheme', 'direct16', '--bbc-module-slot', str(slot),
               '--bbc-module-bank', str(bank)]
            + (['--bbc-module-ram'] if ram else ['--bbc-module', os.path.abspath(image)]))
@@ -346,7 +351,7 @@ def run_mos(board, image, disk, args=(), stdin=None, command_tail=None, raw=Fals
     with open(program + '.inf', 'w') as fh:
         fh.write(inf_text(name, load, os.path.getsize(image)))
     fill = {'disk': os.path.abspath(disk)}
-    cmd = ([EMULATOR, '--machine', board.machine] + [o.format(**fill) for o in board.options]
+    cmd = ([EMULATOR, '--machine', board.machine] + list(FILL) + [o.format(**fill) for o in board.options]
            + list(module or ()) + [w for line in before for w in ('--bbc-command', line)]
            + ['--bbc-command', bbc_command(name, args, command_tail),
               '--cycle-cap', str(cap or board.cycle_cap), '--exit-report'])

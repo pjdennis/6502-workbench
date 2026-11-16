@@ -7,8 +7,8 @@ import libout
 
 pub const DEPTH = 8
 pub var items: [DEPTH]byte
-pub var top: byte                   ; how many are on the stack
-pub var overflows: byte
+pub var top: byte = 0               ; how many are on the stack
+pub var overflows: byte = 0
 
 pub inline func size(): byte
   return top

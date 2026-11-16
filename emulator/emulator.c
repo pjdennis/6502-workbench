@@ -23,6 +23,7 @@
 #include "stubs.h"
 #include "direct_io.h"
 #include "tty_alt_screen.h"
+#include "fill_ram.h"
 
 #define STDIN_FILENO  0
 #define STDOUT_FILENO 1
@@ -715,6 +716,7 @@ int main(int argc, char **argv) {
     for (size_t x = 0; x != 0x10001; x++) {
         memory[x] = 0;
     }
+    if (opts.fill_ram) fill_ram_default(memory);   /* the program, stubs and arguments go over it */
 
     FILE* code_file_ptr = fopen(code_filename, "rb");
     if (!code_file_ptr) {

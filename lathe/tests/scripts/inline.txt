@@ -515,10 +515,10 @@ write 0
 iface 0 3 0 0 0 3 2 1 0 9 0 0
 read 0
 record 0
-func g2 0 16 0 1 1 0            ; 1: pure, and assigns to x
+func g2 0 16 0 1 1 0            ; 0 too (the module's symbols were dropped): pure, assigns to x
 iface 0 3 0 1 1 1 120 3 2 1 0 0
-read 1
-record 1
+read 0
+record 0
 
 == an interface with a token that is not one
 func g 0 16 0 1 1 0

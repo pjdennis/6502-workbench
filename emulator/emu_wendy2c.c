@@ -21,6 +21,7 @@
 #include "chips/clock_22v10.h"
 #include "chips/rom_28c256.h"
 #include "chips/ram_628128.h"
+#include "fill_ram.h"
 #include "chips/via_6522.h"
 #include "chips/lcd_hd44780.h"
 #include "chips/serial_usb.h"
@@ -383,6 +384,7 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
     clock_22v10_init(&clk_chip, &clk_state);
     rom_28c256_init(&rom_chip, &rom_state);
     ram_628128_init(&ram_chip, &ram_state);
+    if (opts->fill_ram) fill_ram(ram_state.contents, RAM_628128_SIZE, 0);   /* all 512 KiB, every bank */
     via_6522_init  (&via_chip, &via_state);
     lcd_hd44780_init(&lcd_chip, &lcd_state, &via_state);
     /* Apply --lcd-panel: the 16x1-5x10 panel is physically a single-row

@@ -11,7 +11,7 @@ pub const LABELS: [3]^byte = ["red", "green", "blue"]
 
 pub var line: [32]byte
 pub var cursor: ^byte zp
-pub var used: byte
+pub var used: byte = 0
 
 pub func print(s: ^byte)
   var i: byte = 0

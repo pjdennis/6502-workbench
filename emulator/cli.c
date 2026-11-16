@@ -24,6 +24,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->terminal_mode = 0;
     opts->direct_io = 0;
     opts->strict_api = 0;
+    opts->fill_ram = 0;
     opts->show_repaints = 0;
     opts->server_mode = 0;
     opts->override_rows = 0;
@@ -106,6 +107,10 @@ void emu_opts_usage(FILE *fp) {
 "  --strict-api           the environment calls keep only what their contracts\n"
 "                         say: flags they do not return come back inverted, and\n"
 "                         the screen calls change A and Y (tests)\n"
+"  --fill-ram             RAM starts filled with bytes that are not 0 (a pattern\n"
+"                         without a zero byte), banked and sideways RAM too, as a\n"
+"                         real machine's does; ROM, I/O and what the loader\n"
+"                         writes are not touched (tests)\n"
 "  --show-repaints        flash on console/terminal repaints (debug)\n"
 "  --server               long-running server: as argv[1] dispatches into\n"
 "                         server_main; after argv[1] enables one-shot reuse loop\n"
@@ -461,6 +466,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             i++;
         } else if (strcmp(argv[i], "--strict-api") == 0) {
             opts->strict_api = 1;
+            i++;
+        } else if (strcmp(argv[i], "--fill-ram") == 0) {
+            opts->fill_ram = 1;
             i++;
         } else if (strcmp(argv[i], "--terminal") == 0) {
             opts->terminal_mode = 1;

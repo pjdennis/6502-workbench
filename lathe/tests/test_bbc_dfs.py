@@ -104,21 +104,13 @@ def catalogue(disk):
     return drives
 
 
-def run_dfs(module, disk, lines, ram=False, dirty=True):
+def run_dfs(module, disk, lines, ram=False):
     """Runs the * commands on the BBC under --bbc-fs dfs with the module image (in its RAM form
-    through LOADMOD with ram), in disk, memory filled first with bytes that are not 0 (dirty),
-    and 0s loaded where test_bbc_toolchain.bbc_lines puts them: (status, output, what the MOS
+    through LOADMOD with ram), in disk, on memory that starts filled with bytes that are not 0
+    (the emulator's --fill-ram, which boards.run_module passes): (status, output, what the MOS
     said, {file: bytes} written, CPU cycles, (most files open, most open for output))."""
-    import test_bbc_selfhost as selfhost
-    import test_bbc_toolchain as toolchain
     before = set(files_of(disk))
     first = []
-    if dirty:
-        for name, at, size in selfhost.JUNK:
-            put(disk, name, bytes((0xA5 + 7 * i) & 0xFF or 1 for i in range(size)))
-            first.append('LOAD %s %X' % (name, at))
-    for name, _, size in toolchain.CLEAN:
-        put(disk, name, bytes(size))
     if ram:
         for name in ('LOADMOD', 'MODULE'):
             src = os.path.join(os.path.dirname(module), name) if name == 'LOADMOD' else module

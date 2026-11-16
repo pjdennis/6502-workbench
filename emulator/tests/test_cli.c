@@ -196,6 +196,23 @@ TEST cli_machine_wendy2c_defaults_to_65c02(void) {
     PASS();
 }
 
+TEST cli_fill_ram_on_every_machine(void) {
+    const char *machines[] = {"nmos-default", "wendy2c", "michael", "bbcbplus"};
+    for (int k = 0; k < 4; k++) {
+        char *argv[] = {"emulator", "prog.bin", "--machine", (char *)machines[k], "--fill-ram", "--load", "1900",
+                        "arg", NULL};
+        struct emu_opts opts;
+        ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+        ASSERT_EQ_FMT(1, opts.fill_ram, "%d");
+        ASSERT_EQ_FMT(7, opts.arg_base, "%d");
+    }
+    char *argv[] = {"emulator", "prog.bin", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+    ASSERT_EQ_FMT(0, opts.fill_ram, "%d");
+    PASS();
+}
+
 TEST cli_machine_default_is_nmos(void) {
     char *argv[] = {"emulator", "prog.bin", NULL};
     struct emu_opts opts;
@@ -769,6 +786,7 @@ SUITE(cli_suite) {
     RUN_TEST(cli_rows_cols_show_repaints);
     RUN_TEST(cli_machine_wendy2c_defaults_to_65c02);
     RUN_TEST(cli_machine_default_is_nmos);
+    RUN_TEST(cli_fill_ram_on_every_machine);
     RUN_TEST(cli_wendy2c_plus_nmos_rejected);
     RUN_TEST(cli_explicit_cpu_65c02_on_nmos_default);
     RUN_TEST(cli_unknown_machine_rejected);

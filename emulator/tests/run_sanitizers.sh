@@ -58,7 +58,7 @@ test_chip_osc|emulator/tests/test_chip_osc.c emulator/chips/osc.c emulator/bus.c
 test_chip_clock|emulator/tests/test_chip_clock.c emulator/chips/clock_22v10.c emulator/bus.c|
 test_chip_rom|emulator/tests/test_chip_rom.c emulator/chips/rom_28c256.c emulator/chips/clock_22v10.c emulator/bus.c|
 test_chip_ram|emulator/tests/test_chip_ram.c emulator/chips/ram_628128.c emulator/chips/clock_22v10.c emulator/bus.c|
-test_chip_cpu_65c02|emulator/tests/test_chip_cpu_65c02.c emulator/chips/cpu_65c02.c emulator/chips/syscall_ports.c emulator/emu_wendy2c.c emulator/lcd_report.c emulator/pace.c emulator/cli.c emulator/cpu_core.c emulator/bus.c emulator/tty_alt_screen.c emulator/web_server.c emulator/web_run.c emulator/web_json.c emulator/web_display.c emulator/chips/ili9341.c emulator/chips/clock_22v10.c emulator/chips/rom_28c256.c emulator/chips/ram_628128.c emulator/chips/via_6522.c emulator/chips/lcd_hd44780.c emulator/chips/serial_usb.c emulator/chips/led_buttons.c|-Wno-unused-function
+test_chip_cpu_65c02|emulator/tests/test_chip_cpu_65c02.c emulator/chips/cpu_65c02.c emulator/chips/syscall_ports.c emulator/emu_wendy2c.c emulator/fill_ram.c emulator/lcd_report.c emulator/pace.c emulator/cli.c emulator/cpu_core.c emulator/bus.c emulator/tty_alt_screen.c emulator/web_server.c emulator/web_run.c emulator/web_json.c emulator/web_display.c emulator/chips/ili9341.c emulator/chips/clock_22v10.c emulator/chips/rom_28c256.c emulator/chips/ram_628128.c emulator/chips/via_6522.c emulator/chips/lcd_hd44780.c emulator/chips/serial_usb.c emulator/chips/led_buttons.c|-Wno-unused-function
 test_chip_via|emulator/tests/test_chip_via.c emulator/chips/via_6522.c emulator/bus.c|
 test_direct_io|emulator/tests/test_direct_io.c emulator/direct_io.c|
 test_ps2_keys|emulator/tests/test_ps2_keys.c emulator/ps2_keys.c|
@@ -74,6 +74,7 @@ test_web_snapshot|emulator/tests/test_web_snapshot.c emulator/web_server.c emula
 test_web_display|emulator/tests/test_web_display.c emulator/web_display.c|
 test_bbc_mos|emulator/tests/test_bbc_mos.c emulator/bbc_mos.c emulator/chips/bbc_memory.c emulator/chips/bbc_module.c emulator/cpu_core.c emulator/bus.c|-Wno-unused-function
 test_chip_bbc_memory|emulator/tests/test_chip_bbc_memory.c emulator/chips/bbc_memory.c emulator/chips/bbc_module.c emulator/bus.c|
+test_fill_ram|emulator/tests/test_fill_ram.c emulator/fill_ram.c emulator/chips/bbc_memory.c emulator/chips/bbc_module.c emulator/bus.c|
 test_chip_bbc_module|emulator/tests/test_chip_bbc_module.c emulator/chips/bbc_module.c emulator/cpu_core.c emulator/bus.c|-Wno-unused-function
 "
 

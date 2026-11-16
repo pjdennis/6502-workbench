@@ -58,8 +58,9 @@ def wendy_cycles(image, disk):
 def host_cycles(image):
     """Runs a program on the default machine in the directory of its image, where its overlay
     files are. Returns its CPU cycles."""
-    r = subprocess.run([build.EMULATOR, image, '--output', '-', '--no-dump'], stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE, cwd=os.path.dirname(image))
+    with tempfile.TemporaryDirectory(prefix='lathe-load-') as d:
+        r = subprocess.run(build.image_command(image, None, d) + ['--output', '-', '--no-dump'],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=os.path.dirname(image))
     return int(HOST_CYCLES.search(r.stderr).group(1))
 
 

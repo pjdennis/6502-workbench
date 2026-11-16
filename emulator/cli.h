@@ -57,6 +57,8 @@ struct emu_opts {
     int strict_api;                     /* --strict-api: the environment calls keep only
                                          * what their contracts say (stubs.h) */
     int show_repaints;                  /* --show-repaints */
+    int fill_ram;                       /* --fill-ram: RAM starts filled with bytes that are not 0
+                                         * (fill_ram.h), on every machine; 0 = as before */
     int server_mode;                    /* --server seen after argv[1] */
     int override_rows;                  /* --rows N */
     int override_cols;                  /* --cols N */

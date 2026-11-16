@@ -422,6 +422,8 @@ def window_entry():
     win_lo[w] = number()
     win_hi[w] = number()
     win_switch[w] = SWITCH_NONE
+    win_reg[w] = 0                  # until a `switch ... bank` gives them
+    win_mask[w] = 0
     end_of_line()
 
 

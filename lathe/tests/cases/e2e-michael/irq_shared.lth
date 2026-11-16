@@ -18,8 +18,8 @@ const IRQS = 200
 const MIN_ROUNDS = 1000
 const STEP = 700
 
-var irq_sum: word           ; the handler's running sum, through saturate()
-var irq_bad: word           ; results of the handler's that were wrong
+var irq_sum: word = 0       ; the handler's running sum, through saturate()
+var irq_bad: word = 0       ; results of the handler's that were wrong
 
 ; a + b, or $FFFF if that does not fit in a word.
 func saturate(a: word, b: word): word

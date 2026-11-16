@@ -52,11 +52,11 @@ make harte               # Tom-Harte ProcessorTests (opt-in; needs data)
 
 `make test` runs the end-to-end targets first (they are its prerequisites),
 then the C unit tests (written with the greatest framework). The end-to-end
-targets are (`bbcbplus-goldens`, `compile-and-run`, `michael-goldens`, `michael-web`, `michael-display-web`, `wendy2c-goldens`,
+targets are (`bbcbplus-goldens`, `fill-ram`, `compile-and-run`, `michael-goldens`, `michael-web`, `michael-display-web`, `wendy2c-goldens`,
 `wendy2c-lcd-trace`, `wendy2c-merge-sort`, `wendy2c-serial-link`,
 `wendy2c-live-sigint`, `wendy2c-web`, `wendy2c-lcd5x10`, `web-machine-switch`,
 `web-audio-buffer`, `timer2-cycles`).
-All but `bbcbplus-goldens`, `timer2-cycles` and `web-audio-buffer` skip with a warning if
+All but `bbcbplus-goldens`, `fill-ram`, `timer2-cycles` and `web-audio-buffer` skip with a warning if
 `vasm6502_oldstyle` isn't on `PATH`, and the web tests also if Playwright
 is missing (`web-audio-buffer` needs only Playwright); `timer2-cycles`
 needs vasm.
@@ -107,7 +107,51 @@ Common options (run `emulator.out` with no arguments for the full list):
 | `--lcd-trace <path>` | wendy2c, michael: append an LCD frame to the file each time the LCD changes |
 | `--lcd-panel <type>` | wendy2c: `16x2` (default) or `16x1-5x10` render layout |
 | `--show-repaints` | debug: flash repainted cells in `--console` / `--terminal` |
+| `--fill-ram` | every machine: RAM starts filled with bytes that are not 0, as a real machine's does, instead of 0; see [`--fill-ram`](#--fill-ram-ram-that-is-not-0) |
 | `--strict-api` | test hook: each `$F006` call keeps only what its contract (`asm/17/environment.asm`) says. The flags it does not return come back inverted, and the screen calls change A and Y, so a program that relies on more fails its tests here rather than on a board. The server takes it as `API strict` / `API standard` |
+
+## `--fill-ram`: RAM that is not 0
+
+Without the option every machine starts with its RAM 0, as it always has.
+With it (`fill_ram.c`), RAM starts as a real machine's does, holding
+something, so that a program which reads a variable before it writes it
+fails in its tests and not on the board. Lathe's tests run every program so
+(`lathe/host/README.md`).
+
+What is filled: on the default machine all 64K but the ports `$F000-$F005`
+and `$FFE0-$FFFF` (the high ports and the vectors); on wendy2c and michael
+the whole 512 KiB chip, every bank; on bbcbplus main RAM, the private RAM,
+every sideways RAM slot and the module's RAM form (`--bbc-module-ram`).
+ROM, the MOS, I/O and empty slots are not touched, and what the loader
+writes goes over the fill as before: the program, the stubs, the
+arguments, `--wendy2-prog`'s image, `--bbc-module`'s, `--bbc-rom` images
+in RAM slots, the MOS's own workspace and the command line.
+
+The pattern is a hash of each byte's place in the machine's RAM (its
+physical address, so each bank and slot differs): no byte is 0, every
+other value occurs, neighbours seldom agree, and it is the same on every
+run. Why so:
+
+- **No byte is 0.** The fault to find is a program relying on 0: a count,
+  a flag, an index, a pointer taken as `nil`, a table "empty" because
+  memory was clear. Any byte that is 0 hides it there; a random pattern
+  has one in every 256, and a word of 0 one in 65,536.
+- **Not one repeated byte.** With `$FF` everywhere, or any single value,
+  two variables read unset are equal, a word's two bytes are equal, and
+  every count is the same number: a comparison of two unset values, or a
+  loop whose bound happens to suit, passes. A value that differs from
+  place to place makes each unset read its own wrong number.
+- **Every value occurs**, small ones too, so an unset count or pointer is
+  sometimes plausible (a count of 3, a pointer into RAM), as the junk a
+  previous program leaves on a real machine is: the program then goes on
+  with a wrong value rather than only crashing at once, and the output,
+  which the tests compare byte for byte, shows it.
+- **The same every run**, so a failure can be repeated and traced.
+
+`make fill-ram` (`tests/fill_ram_test.py`) checks it end to end on the
+default machine (the memory dump) and the BBC (`*SAVE` of main RAM, the
+module through the window); `tests/test_fill_ram.c` the pattern and what
+each machine fills.
 
 ## bbcbplus: the BBC Model B+128
 

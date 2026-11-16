@@ -15,7 +15,7 @@ import timer
 
 const IRQS = 100
 
-var shared: word
+var shared: word = 0
 
 interrupt func handler()
   timer.acknowledge()

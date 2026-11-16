@@ -8,7 +8,7 @@ pub const STEP = -3
 pub const ENABLED = true
 
 pub var total: word = FIRST
-pub var count: byte
+pub var count: byte = 0
 pub var level: int = STEP * 100
 pub var ready: bool = ENABLED
 pub var fast: byte zp = 7

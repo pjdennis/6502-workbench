@@ -9,6 +9,7 @@
 #include "cpu_core.h"
 #include "chips/bbc_memory.h"
 #include "chips/bbc_module.h"
+#include "fill_ram.h"
 
 static void report(const struct bbc_machine *m, const struct emu_opts *opts) {
     fprintf(stderr, "bbcbplus: exit  cpu_cycles=%llu  pc=$%04X  (%s)\n",
@@ -46,6 +47,7 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
     bbc_slot_list(opts->bbc_sideways_ram, &ram);   /* cli.c checked it */
     for (int s = 0; s < BBC_SLOTS; s++)
         if (ram & (1u << s)) mem.kind[s] = BBC_SLOT_RAM;
+    if (opts->fill_ram) fill_ram_bbc(&mem);   /* before the ROM images: a ROM in a RAM slot overwrites it */
     for (int s = 0; s < BBC_SLOTS; s++) {
         if (!opts->bbc_roms[s]) continue;
         int rc = bbc_memory_load_rom(&mem, s, opts->bbc_roms[s]);
@@ -60,6 +62,7 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
         enum bbc_module_scheme scheme = opts->bbc_module_scheme == BBC_SCHEME_DIRECT16 ? BBC_MODULE_DIRECT16
                                                                                        : BBC_MODULE_CC128;
         bbc_module_init(&module_chip, &module, scheme, opts->bbc_module_ram, opts->bbc_module_bank);
+        if (opts->fill_ram) fill_ram_bbc_module(&module);
         if (opts->bbc_module_filename) {
             long n = bbc_module_load(&module, opts->bbc_module_filename);
             if (n < 0) {

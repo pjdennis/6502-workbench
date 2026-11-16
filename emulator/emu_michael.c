@@ -19,6 +19,7 @@
 #include "chips/glue_michael.h"
 #include "chips/rom_28c256.h"
 #include "chips/ram_628128.h"
+#include "fill_ram.h"
 #include "chips/via_6522.h"
 #include "chips/lcd_hd44780.h"
 #include "chips/cpu_65c02.h"
@@ -417,6 +418,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     glue_michael_set_ram(ram);
     rom_28c256_init(&rom_chip, &rom_state);
     ram_628128_init(&ram_chip, &ram_state);
+    if (opts->fill_ram) fill_ram(ram_state.contents, RAM_628128_SIZE, 0);
     via_6522_init(&via_chip, &via_state);
     lcd_hd44780_init(&lcd_chip, &lcd_state, &via_state);
     lcd_hd44780_set_wiring(&lcd_state, &LCD_WIRING_MICHAEL);

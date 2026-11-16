@@ -254,7 +254,7 @@ The compiler places everything it emits in one of four segments.
 | variables | all variables and frames | RAM |
 | zero page | whatever the linker placed there | RAM |
 
-**Initial values are set by code.** A variable declared with an initial value is assigned by a function the compiler writes for each module and the start-up code calls before `main`. There is no initialised-data segment to copy, so the output is ROMable as it stands, and a variable with an initial value can be placed anywhere, zero page included. Whether a program links never depends on a placement the linker chose. For a large table that never changes, use `const`, which costs no start-up code.
+**Initial values are set by code.** A variable declared with an initial value is assigned by a function the compiler writes for each module and the start-up code calls before `main`. There is no initialised-data segment to copy, so the output is ROMable as it stands, and a variable with an initial value can be placed anywhere, zero page included. Whether a program links never depends on a placement the linker chose. For a large table that never changes, use `const`, which costs no start-up code. A variable without an initial value is not touched: nothing clears memory at start-up, so it holds what memory held until the program assigns it ([`language.md`](language.md), "Declarations").
 
 Where each segment of each module goes is decided by the environment description and the link configuration ([`architecture.md`](architecture.md)), not by the source.
 
@@ -299,7 +299,7 @@ Written in Lathe with assembly where needed, and linked function by function lik
 | Arithmetic | multiply, divide and remainder for 8 and 16 bits; variable shifts for 16 bits (`lathe/rt/rt_math.lth`, below) |
 | Recursion | `rt_frame`: push and pop of one byte of a frame (see Recursion) |
 | Far calls | one routine per banking or overlay scheme, supplied by the environment module |
-| Start-up | set the stack, copy initialised data, call `main`, exit |
+| Start-up | set the stack, load the banks (a banked program), give the variables that have initial values those values (`$init`), call `main`, exit; nothing else is cleared or set |
 | Environment | a module per machine wrapping its console, file and banking services |
 
 ### Run-time arithmetic

@@ -8,7 +8,7 @@ module args_and_call
 
 import libout
 
-var count: byte
+var count: byte = 0
 
 func show(op: byte, flag: bool)
   libout.hex(op)

@@ -108,7 +108,7 @@ end
 - **Arrays of arrays.** `[3][4]byte` is three elements of `[4]byte`; stored by column, element `i`'s byte `j` is at `j * 3 + i`. Only one index of an element can be a variable, and only the first one, unless the array is declared `rows`: `grid[i][2]` and `grid[1][2]` are allowed, `grid[1][j]` is not.
 - **A constant index must be inside the array**, `0` to `N - 1`; there is no element one past the end.
 - **An array is not a value.** Assigning a whole array, passing it as an argument or returning it is an error: pass a pointer, or copy it with a loop.
-- **Initial values.** `var a: [8]byte = [1, 2, 3]` gives the first elements; the others are 0. A string fills a byte array, followed by a zero if there is room: `const DIGITS: [16]byte = "0123456789ABCDEF"` has none. `const NAME = "text"` without a type is a `[5]byte`. A variable's initial value is copied from constant data as long as the whole array.
+- **Initial values.** `var a: [8]byte = [1, 2, 3]` gives the first elements; the others are 0. An array without an initial value has no elements set at all (below, "Declarations"). A string fills a byte array, followed by a zero if there is room: `const DIGITS: [16]byte = "0123456789ABCDEF"` has none. `const NAME = "text"` without a type is a `[5]byte`. A variable's initial value is copied from constant data as long as the whole array.
 
 ### Pointers
 
@@ -141,6 +141,8 @@ const HELP: [6]byte in TEXTS = "usage" ; a constant table in a region
 - **Module-level variables** live for the whole program.
 - **Variables declared in a function** belong to that function. Their values are **not kept between calls**: the linker reuses the storage for other functions. An initialiser on a local is an assignment made on every entry.
 - **`static var`** in a function keeps its value between calls and is never shared.
+- **A variable with no initial value is undefined until the program assigns it.** It holds whatever its memory held: on a machine just switched on, bytes that are not 0; after another program, what that program left there. This is so for a variable of the module, a `static` variable, a local (before its first assignment in each call), a variable in a region, a variable `at` an address, and every element of an array declared without initial values. An array with initial values has its other elements 0 (above, "Arrays and their layout"), because the initial value is the whole array. A program that needs a variable to start as 0 says so: `var count: byte = 0`, or an assignment before the first use.
+- **What the start-up code does**, before `main`: it sets the stack, loads the banks of a banked program, and gives each variable that has an initial value that value (each module's `$init`, [`code-model.md`](code-model.md), "Initial values are set by code"). **It clears nothing**, on any machine: no zero page, no data range, no bank. The tests run every program on memory filled with bytes that are not 0 (the emulator's `--fill-ram`), so that a program which relies on 0 fails there and not on a board.
 - **`pub`** in front of a declaration exports it from the module.
 
 ## Functions
@@ -360,7 +362,7 @@ func name_char(i: word): byte
 end
 ```
 
-- **`in REGION`** goes on a variable of the module, a `static` variable, or a constant table or string (after its type, before the `=`). A region is a name of its own, not a symbol: the environment file says where it is (`region NAMES WIN 4`, a bank of a window; `region NAMES fixed`; no entry is fixed memory too). A variable in a region is never in zero page. It cannot be declared `zp` or `at`, cannot have an initial value, and cannot be a local; a number constant cannot be in a region (error 182 for each). The strings of a table in a region are not in it; only the table is.
+- **`in REGION`** goes on a variable of the module, a `static` variable, or a constant table or string (after its type, before the `=`). A region is a name of its own, not a symbol: the environment file says where it is (`region NAMES WIN 4`, a bank of a window; `region NAMES fixed`; no entry is fixed memory too). A variable in a region is never in zero page. It cannot be declared `zp` or `at`, cannot have an initial value (so it is undefined until the program assigns it: "Declarations"), and cannot be a local; a number constant cannot be in a region (error 182 for each). The strings of a table in a region are not in it; only the table is.
 - **`with REGION do … end`** maps the region's bank into the window, keeps the bank it replaces in a temporary of the function, and puts it back at its `end` and at every `return`, `break` or `continue` that leaves it. A `return` keeps its result: A, X and the carry pass through, so a status can be returned from inside (unlike `critical`).
 - **Only inside.** A variable or table of a region can be used, or have its address taken, only inside a `with` block of that region (error 118), also in an `asm` block and in the body of an `inline` function expanded there. An address taken inside and used after the block points at whatever the window then holds: that is the programmer's responsibility.
 - **Nesting.** A block inside a block of the same region costs nothing. A block of another region maps its own bank, and inside it only that region's names can be used: there is one window.

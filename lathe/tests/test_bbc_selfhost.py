@@ -75,29 +75,18 @@ def build_run(out_dir, source=None, env=ENV):
     return image
 
 
-# Memory as a language may leave it: before the compiler runs, *LOAD fills zero page $00-$8F,
-# the language's workspace $0400-$06FF and main RAM $1900-$7BFF with bytes that are not 0, so that
-# a variable that is used before it is set is found (sys.files was).
-JUNK = (('JUNKZ', 0x0000, 0x90), ('JUNKW', 0x0400, 0x300), ('JUNKM', 0x1900, 0x7C00 - 0x1900))
+# Memory as a language may leave it: every run starts with RAM filled with bytes that are not 0
+# (the emulator's --fill-ram, which boards.run_mos and run_module pass), so that a variable that
+# is used before it is set is found (sys.files was).
 
 
-def junk(disk):
-    """The JUNK files in disk; returns their *LOAD commands."""
-    lines = []
-    for name, at, size in JUNK:
-        with open(os.path.join(disk, name), 'wb') as f:
-            f.write(bytes((0xA5 + 7 * i) & 0xFF or 1 for i in range(size)))
-        lines.append('LOAD %s %X' % (name, at))
-    return lines
-
-
-def report_run(form, image, disk, args, dirty=True):
+def report_run(form, image, disk, args):
     """The compiler in `form` ('rom', 'loader' or 'run') at `image`, with args, in the directory
     disk: (status, output, what the MOS said, {file: bytes} written, CPU cycles, (files opened,
-    bytes read, bytes written)). With dirty, memory is filled first (JUNK)."""
+    bytes read, bytes written))."""
     before = set(os.listdir(disk))
-    lines = junk(disk) if dirty else []
-    copied = [name for name, at, size in JUNK] if dirty else []
+    lines = []
+    copied = []
     if form == 'run':
         env = mapenv.read_env(os.path.join(os.path.dirname(image), 'lathec.env'))
         build.window_files(env, os.path.dirname(image), disk)
@@ -245,6 +234,12 @@ def counting_copies(where, argument):
         assert text.count(old) == 1, old
         text = text.replace(old, new)
     text = re.sub(r'(?m)^import bbc \(', 'import bbc (farcalls, withs, ', text, count=1)
+    # The counters have no initial value (one would be a function more, and the compiler links
+    # 800, the linker's limit): start(), which runs first, clears them.
+    old = '  now = mos_copy\n  if bbc.from_rom() then\n'
+    assert text.count(old) == 1
+    text = text.replace(old, '  now = mos_copy\n  for i = 0 until 3 do\n    bbc.farcalls[i] = 0\n'
+                             '    bbc.withs[i] = 0\n  end\n  if bbc.from_rom() then\n')
     with open(os.path.join(where, 'rt_bbc.lth'), 'w') as f:
         f.write(text)
     with open(os.path.join(rt, 'bbc.lth')) as f:
@@ -333,13 +328,8 @@ class BBCSelfHost(unittest.TestCase):
 
 
 def run_form(form, image, disk, args):
-    """report_run, the counting copy being a run form."""
-    """report_run; the counting copy is the run form, on clean memory: its counters have no
-    initial value (one would be a function more, and the compiler links 800, the linker's
-    limit)."""
-    if form == 'counting':
-        return report_run('run', image, disk, args, dirty=False)
-    return report_run(form, image, disk, args)
+    """report_run; the counting copy is the run form."""
+    return report_run('run' if form == 'counting' else form, image, disk, args)
 
 
 if __name__ == '__main__':

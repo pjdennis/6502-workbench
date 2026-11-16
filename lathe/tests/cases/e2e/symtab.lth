@@ -19,7 +19,7 @@ type Sym = record
 end
 
 var syms: [MAX_SYMS]Sym        ; five byte columns of 200 bytes each
-var used: byte
+var used: byte = 0
 
 ; index of the symbol called name; status false if there is none
 pub func find(name: ^byte): byte, bool

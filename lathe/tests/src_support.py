@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LATHE = os.path.dirname(HERE)
@@ -44,9 +45,10 @@ CYCLE_CAP = 2000000000      # ten times the emulator's own: a source of 64K line
 def run(image, args=(), timeout=60, cwd=None):
     """Run an image with program arguments, in the directory `cwd` if one is given. Returns
     (status, output, error output, cycles): the error output without the emulator's own lines."""
-    cmd = [EMULATOR, os.path.abspath(image), '--output', '-', '--no-dump',
-           '--cycle-cap', str(CYCLE_CAP)] + [str(a) for a in args]
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, cwd=cwd)
+    with tempfile.TemporaryDirectory(prefix='lathe-load-') as d:
+        cmd = (build.image_command(image, None, d) + ['--output', '-', '--no-dump', '--cycle-cap', str(CYCLE_CAP)]
+               + [str(a) for a in args])
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, cwd=cwd)
     err = r.stderr
     echo = ' '.join(cmd[1:]).encode() + b' '
     if err.startswith(echo):

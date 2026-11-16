@@ -14,7 +14,7 @@ const N = 6
 
 var items: [N]Item rows
 var keys: [N]byte = [7, 3, 9, 1, 8, 2]
-var total: word
+var total: word = 0
 
 inline func key_of(i: byte): byte
   return items[i].key

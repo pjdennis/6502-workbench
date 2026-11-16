@@ -199,10 +199,10 @@ class Reports(unittest.TestCase):
     def test_commands(self):
         image = os.path.join(ROOT, 'x.bin')
         self.assertEqual(boards.command(boards.BOARDS['michael'], image, 0x2000)[1:],
-                         [image, '--machine', 'michael', '--load', '2000', '--cycle-cap', '2000000',
+                         [image, '--machine', 'michael', '--fill-ram', '--load', '2000', '--cycle-cap', '2000000',
                           '--exit-report'])
         self.assertEqual(boards.command(boards.BOARDS['wendy2'], image, 0x4000)[1:],
-                         [image, '--machine', 'wendy2c', '--wendy2-prog', image, '--load', '4000',
+                         [image, '--machine', 'wendy2c', '--fill-ram', '--wendy2-prog', image, '--load', '4000',
                           '--cycle-cap', '4000000', '--exit-report'])
 
     def test_disk_command(self):
@@ -211,7 +211,7 @@ class Reports(unittest.TestCase):
         self.assertTrue(board.disk)
         self.assertFalse(boards.BOARDS['wendy2'].disk)
         self.assertEqual(boards.command(board, image, 0x4000, disk)[1:],
-                         [image, '--machine', 'wendy2c', '--wendy2-prog', image, '--load', '4000',
+                         [image, '--machine', 'wendy2c', '--fill-ram', '--wendy2-prog', image, '--load', '4000',
                           '--disk', disk, '--cycle-cap', str(board.cycle_cap), '--exit-report'])
 
     def test_disk_status(self):

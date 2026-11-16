@@ -68,6 +68,8 @@ pub func init()
   prefix_count = 0
   for t = 0 until FIRST_MADE do
     form[t] = FORM_BASIC
+    base_type[t] = 0
+    type_length[t] = 0
     type_size[t] = 2
   end
   type_size[BYTE_TYPE] = 1

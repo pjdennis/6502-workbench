@@ -6,8 +6,8 @@ module for_until
 
 import libout
 
-var count: word
-var total: word
+var count: word = 0
+var total: word = 0
 
 func show(after: word)
   libout.hexw(count)

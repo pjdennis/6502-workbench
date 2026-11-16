@@ -106,20 +106,19 @@ def mark_stubs(main_fn):
     """Mark the functions that have stubs, and count the stubs of each object file."""
     global stub_count
     stub_count = 0
-    if not lk_envf.placed():
-        return
-    needs_stub(main_fn)
-    for f in range(0, lk_tab.fn_count):
-        if (lk_tab.fn_flags[f] & (lk_tab.F_ADDR | lk_tab.F_INIT)) != 0:
-            needs_stub(f)
-        if lk_tab.fn_ctx[f] != 0:
-            r = lk_tab.fn_ref(f)
-            e = lk_tab.first_call(r)
-            while e != 0:
-                target = lk_tab.edge_sym(e - 1)
-                if lk_scan.crosses(f, target, lk_tab.edge_flag(e - 1)):
-                    needs_stub(lk_sym.row_of(target))
-                e = lk_tab.next_call(r, e)
+    if lk_envf.placed():                # else no stubs, and every object's count is 0
+        needs_stub(main_fn)
+        for f in range(0, lk_tab.fn_count):
+            if (lk_tab.fn_flags[f] & (lk_tab.F_ADDR | lk_tab.F_INIT)) != 0:
+                needs_stub(f)
+            if lk_tab.fn_ctx[f] != 0:
+                r = lk_tab.fn_ref(f)
+                e = lk_tab.first_call(r)
+                while e != 0:
+                    target = lk_tab.edge_sym(e - 1)
+                    if lk_scan.crosses(f, target, lk_tab.edge_flag(e - 1)):
+                        needs_stub(lk_sym.row_of(target))
+                    e = lk_tab.next_call(r, e)
     for obj in range(0, lk_name.object_count):
         obj_stub[obj] = stub_count
         for f in range(lk_name.obj_fn[obj], lk_name.obj_fn[obj + 1]):

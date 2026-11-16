@@ -153,23 +153,22 @@ pub func mark_stubs(main_fn: word)
   var target: word
   var obj: byte
   stub_count = 0
-  if not lk_envf.placed() then
-    return
-  end
-  needs_stub(main_fn)
-  for f = 0 until lk_tab.fn_count do
-    if (lk_tab.fn_flags[f] & (lk_tab.F_ADDR | lk_tab.F_INIT)) != 0 then
-      needs_stub(f)
-    end
-    if lk_tab.fn_ctx[f] != 0 then
-      r = lk_tab.fn_ref(f)
-      e = lk_tab.first_call(r)
-      while e != 0 do
-        target = lk_tab.edge_sym(e - 1)
-        if lk_scan.crosses(f, target, lk_tab.edge_flag(e - 1)) then
-          needs_stub(lk_sym.row_of(target))
+  if lk_envf.placed() then              ; else no stubs, and every object's count is 0
+    needs_stub(main_fn)
+    for f = 0 until lk_tab.fn_count do
+      if (lk_tab.fn_flags[f] & (lk_tab.F_ADDR | lk_tab.F_INIT)) != 0 then
+        needs_stub(f)
+      end
+      if lk_tab.fn_ctx[f] != 0 then
+        r = lk_tab.fn_ref(f)
+        e = lk_tab.first_call(r)
+        while e != 0 do
+          target = lk_tab.edge_sym(e - 1)
+          if lk_scan.crosses(f, target, lk_tab.edge_flag(e - 1)) then
+            needs_stub(lk_sym.row_of(target))
+          end
+          e = lk_tab.next_call(r, e)
         end
-        e = lk_tab.next_call(r, e)
       end
     end
   end

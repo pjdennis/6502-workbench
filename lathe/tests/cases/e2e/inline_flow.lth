@@ -5,7 +5,7 @@ module inline_flow
 import libout
 
 var data: [12]byte = [14, 3, 250, 77, 0, 77, 9, 128, 31, 200, 5, 64]
-var calls: byte                 ; how often classify() ran: it counts itself
+var calls: byte = 0             ; how often classify() ran: it counts itself
 var cursor: byte
 
 ; 0 for zero, 1 below 10, 2 below 100, 3 otherwise

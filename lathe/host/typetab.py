@@ -56,6 +56,8 @@ def init():
     prefix_count = 0
     for t in range(0, FIRST_MADE):
         form[t] = FORM_BASIC
+        base_type[t] = 0
+        type_length[t] = 0
         type_size[t] = 2
     type_size[BYTE_TYPE] = 1
     type_size[SBYTE_TYPE] = 1

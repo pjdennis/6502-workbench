@@ -65,15 +65,16 @@ import host (argc, argv, close, exit, open, open_out, put_byte, put_error, read,
 
 #if PORTS == 2
 ; On the BBC the MOS keeps the handles (15 at most, as the table below holds), and bbc.exit
-; closes every file (OSFIND 0 with Y = 0): no table. It would have to be cleared at the start,
-; since a ROM tool finds main RAM as the language left it (lathe/docs/bbc.md, "Step 4").
+; closes every file (OSFIND 0 with Y = 0): no table. Elsewhere the table starts empty by its
+; initial value: memory is not 0 when a program starts (lathe/docs/language.md, "Declarations";
+; lathe/docs/bbc.md, "Step 4").
 #else
 #if PORTS
 const MAX_FILES = 16
-var files: [MAX_FILES]byte          ; handles of the open files; 0 is a free entry (0 is unused)
+var files: [MAX_FILES]byte = [0]    ; handles of the open files; 0 is a free entry (0 is unused)
 #else
 const MAX_FILES = 16
-var files: [MAX_FILES]byte          ; handles of the open files; 0 is a free entry (0 is unused)
+var files: [MAX_FILES]byte = [0]    ; handles of the open files; 0 is a free entry (0 is unused)
 #end
 #end
 

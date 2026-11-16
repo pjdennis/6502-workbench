@@ -224,6 +224,7 @@ def new_cparam(size):
     cp_size[cp_count] = size
     cp_info[cp_count] = 1           # "either", until the members say otherwise
     cp_weight[cp_count] = 0
+    cp_addr[cp_count] = 0           # until storage places it
     cp_count += 1
 
 

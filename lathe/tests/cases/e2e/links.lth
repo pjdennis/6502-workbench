@@ -15,8 +15,8 @@ end
 const VALUES: [10]word = [500, 20, 7, 1000, 20, 65535, 0, 300, 42, 9999]
 
 var pool: [32]Node rows
-var used: byte
-var head: ^Node
+var used: byte = 0
+var head: ^Node = nil
 
 func new(v: word): ^Node
   var p: ^Node
@@ -25,6 +25,8 @@ func new(v: word): ^Node
   p.value = v
   p.tag = used
   p.next = nil
+  p.spare[0] = 0               ; the one of the two not marked is printed too
+  p.spare[1] = 0
   p.spare[used & 1] = '*'
   return p
 end

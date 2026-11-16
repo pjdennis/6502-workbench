@@ -8,7 +8,7 @@ import libout
 const N = 16
 
 var keys: [N]byte = [200, 13, 77, 13, 0, 255, 128, 64, 99, 1, 42, 42, 250, 7, 180, 33]
-var swaps: word
+var swaps: word = 0
 
 inline func key(i: byte): byte
   return keys[i]

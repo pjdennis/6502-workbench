@@ -279,6 +279,7 @@ def build_with(source, out, env, use_asm, use_naive, keep, defines):
         run([sys.executable, LINKER, env, main, link_bin, map_path] + objects, 'linking')
         if not use_asm:
             shutil.copyfile(link_bin, out)
+            _built[os.path.abspath(out)] = described
             window_files(described, work, os.path.dirname(os.path.abspath(out)))
             write_inf(out, env, described)
             return work
@@ -287,6 +288,7 @@ def build_with(source, out, env, use_asm, use_naive, keep, defines):
     asm_bin = os.path.join(work, main + '.asm.bin')
     assembler_image(objects, env, main, map_path, os.path.join(work, main + '.asm'), asm_bin)
     shutil.copyfile(asm_bin, out)
+    _built[os.path.abspath(out)] = described
     write_inf(out, env, described)
     return work
 
@@ -300,16 +302,53 @@ def write_inf(out, env, described):
             fh.write(boards.inf_text(boards.bbc_name(out), described.code[0], os.path.getsize(out)))
 
 
-def run_image(image, args=(), stdin=None, cwd=None):
+# The environment of each image build() wrote in this process, by its absolute path, so that
+# run_image knows where an image's code range ends (load_file).
+_built = {}
+
+
+def load_file(image, described, where):
+    """What the default machine is given to load: an image (`output image`) is code start to
+    $FFFF, with 0s where nothing is placed, the data ranges included, and loading it would put
+    0s over the memory the emulator filled (boards.FILL). So only the code range is given, in
+    the file WHERE, with the reset vector in its last two bytes, which the emulator reads as the
+    vector (emulator/README.md, `--load`); those two bytes are the code range's last two, and
+    must be unplaced (0 in the image). Returns (the file to load, its load address), or (image,
+    None) when the image cannot be cut so: then it is loaded whole, as before."""
+    if described is None or described.output != mapenv.OUTPUT_IMAGE:
+        return image, None
+    lo, hi = described.code
+    with open(image, 'rb') as fh:
+        data = fh.read()
+    if len(data) != 0x10000 - lo or hi - lo < 2 or data[hi - 1 - lo:hi + 1 - lo] != bytes(2):
+        return image, None
+    with open(where, 'wb') as fh:
+        fh.write(data[:hi - 1 - lo] + data[0xFFFC - lo:0xFFFE - lo])
+    return where, lo
+
+
+def run_image(image, args=(), stdin=None, cwd=None, env=None):
     """Runs an image on the emulator's default machine, in the directory cwd (overlays are
-    files there). Returns (status, stdout bytes, stderr bytes)."""
+    files there), on memory that is not 0 (boards.FILL): only its code range is loaded
+    (load_file) if its environment is known (env, a mapenv.Env, or the one build() built it
+    with). Returns (status, stdout bytes, stderr bytes)."""
     if not os.path.isfile(EMULATOR):
         raise BuildError('emulator/emulator.out is missing: run make at the repository root')
-    cmd = [EMULATOR, os.path.abspath(image), '--output', '-', '--no-dump'] + list(args)
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=stdin, cwd=cwd)
+    with tempfile.TemporaryDirectory(prefix='lathe-load-') as d:
+        cmd = image_command(image, env, d) + ['--output', '-', '--no-dump'] + list(args)
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=stdin, cwd=cwd)
     # The emulator reports the cycle count on its error output; keep anything else.
     err = b''.join(line for line in r.stderr.splitlines(True) if b' executed ' not in line)
     return r.returncode, r.stdout, err
+
+
+def image_command(image, env, where):
+    """The emulator's command line for an image on the default machine, before the other
+    options: the file to load (load_file, in the directory where), --load and boards.FILL."""
+    described = env if env is not None else _built.get(os.path.abspath(image))
+    path, load = load_file(image, described, os.path.join(where, os.path.basename(image)))
+    return ([EMULATOR, os.path.abspath(path)] + (['--load', f'{load:04X}'] if load is not None else [])
+            + list(boards.FILL))
 
 
 def run_program(image, env='host', args=(), stdin=None, disk=None):
@@ -326,7 +365,7 @@ def run_program(image, env='host', args=(), stdin=None, disk=None):
     described = mapenv.read_env(env_path(env))
     beside = os.path.dirname(os.path.abspath(image))     # where build() left the bank files
     if board is None:
-        return run_image(image, args, stdin, beside if described.files else None)
+        return run_image(image, args, stdin, beside if described.files else None, described)
     if board.mos:
         if disk is None:
             with tempfile.TemporaryDirectory(prefix='lathe-bbc-') as d:

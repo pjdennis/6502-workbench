@@ -24,7 +24,7 @@ end
 pub type BoxPtr = ^Box
 pub type Name = [8]byte
 
-pub var count: byte
+pub var count: byte = 0
 
 pub func make(b: BoxPtr, x: word, y: word, size: word, c: Colour)
   b.low.x = x

@@ -9,7 +9,7 @@ var table: [16]byte in work                 ; variables: a bank with no file
 var last: byte in work
 const GREETING in text = "sums of a table"  ; constants: a bank with a file, loaded at start-up
 const STEPS: [4]byte in text = [1, 2, 3, 5]
-var calls: byte
+var calls: byte = 0
 
 ; Fill the table: element i is the sum of the steps of the elements before it, cycling through
 ; STEPS; one in four is skipped (continue) and the loop ends at n (break).

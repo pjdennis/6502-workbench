@@ -4,8 +4,8 @@ module calls
 
 import libout
 
-var count: byte
-var log: word
+var count: byte = 0
+var log: word = 0
 
 func show(w: word)
   libout.hexw(w)

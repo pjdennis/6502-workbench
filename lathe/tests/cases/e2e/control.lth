@@ -4,7 +4,7 @@ module control
 
 import libout
 
-var made: byte
+var made: byte = 0
 
 ; a test with a visible effect: it prints its letter and counts
 func t(c: byte, answer: bool): bool

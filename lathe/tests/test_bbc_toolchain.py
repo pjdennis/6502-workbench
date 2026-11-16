@@ -14,9 +14,10 @@ lathe/src/linker-bbc.env, banks 6 to 10). For a program of the end-to-end corpus
    +LENGTH 1900`: the linker writes the bytes, and *RUN needs the addresses a DFS keeps in its
    catalogue) and run with `*RUN IMAGE`;
 
-all in one run of the emulator, --bbc-strict, with memory filled first with bytes that are not
-0 (the tools run on that and on what the tool before left; the program, which the corpus writes
-for memory that starts as 0, on 0s: CLEAN). The program's output must be NAME.expected.out, and
+all in one run of the emulator, --bbc-strict, on memory that starts filled with bytes that are
+not 0 (the emulator's --fill-ram, which boards.run_module passes): the first compile runs on that,
+and each tool after it, and the program, on what the one before left, as on a real machine. The
+program's output must be NAME.expected.out, and
 every object file, interface file, the image, its bank files and the map must be byte for byte
 what the host compiler and the host linker write from the same inputs in a directory laid out
 the same way (the host's own runs of lathec.py and link.py, by base name). A banked program
@@ -151,34 +152,17 @@ def bbc_lines(compiles, link, load, length, run=True):
     image = link[2]
     if run:
         lines += ['LOAD %s %X' % (image, load), 'SAVE %s %X +%X %X' % (image, load, length, load)]
-        lines += ['LOAD %s %X' % (name, at) for name, at, _ in CLEAN]
         lines.append('RUN ' + image)
     return lines
 
 
-# The corpus's programs assume that a variable with no initial value starts as 0, as on the
-# emulator's machines at power on: before the program runs, *LOAD puts 0s where the tools ran
-# (zero page $00-$8F, $0400-$06FF, $1900-$7BFF), as a fresh machine has them. The tools
-# themselves run on memory filled with bytes that are not 0 (selfhost.JUNK), and on what the
-# tool before them left.
-CLEAN = (('CLEANZ', 0x0000, 0x90), ('CLEANW', 0x0400, 0x300), ('CLEANM', 0x1900, 0x7C00 - 0x1900))
-
-
-def clean(disk):
-    for name, _, size in CLEAN:
-        with open(os.path.join(disk, name), 'wb') as f:
-            f.write(bytes(size))
-
-
-def bbc_run(module, disk, lines, ram=False, dirty=True):
+def bbc_run(module, disk, lines, ram=False):
     """Runs the lines on the BBC with the module image (in its RAM form through LOADMOD with
-    ram), in disk, memory filled first with dirty: (status, output, what the MOS said, {file:
-    bytes} written, CPU cycles, (files opened, bytes read, bytes written))."""
+    ram), in disk: (status, output, what the MOS said, {file: bytes} written, CPU cycles, (files
+    opened, bytes read, bytes written))."""
     before = set(os.listdir(disk))
-    first = selfhost.junk(disk) if dirty else []
-    copied = [name for name, _, _ in selfhost.JUNK] if dirty else []
-    clean(disk)
-    copied += [name for name, _, _ in CLEAN]
+    first = []
+    copied = []
     if ram:
         for name in ('LOADMOD', 'LOADMOD.inf'):
             shutil.copy(os.path.join(os.path.dirname(module), name), disk)
@@ -357,12 +341,12 @@ class Toolchain(unittest.TestCase):
     # ---- LATHE_BBC_TOOLCHAIN_REPORT --------------------------------------------------------
 
     def report(self, name, disk, link, files, banked, chain=0):
-        """The link alone, in the ROM form (memory as at power on, so that the file traffic is the
-        link's), and in the counting copy (far calls and blocks): one line of the table, with the
+        """The link alone, in the ROM form (so that the file traffic is the link's), and in the
+        counting copy (far calls and blocks): one line of the table, with the
         cycles of the whole run (memory filled, the compiles, the link, the program) if `chain`."""
         if not hasattr(type(self), 'counting'):
             type(self).counting = build_counting(os.path.join(self.dir, 'counting'))
-            start = bbc_run(self.module, disk, ['LLINK'], dirty=False)
+            start = bbc_run(self.module, disk, ['LLINK'])
             print('\nthe start-up: *LLINK with no arguments (link error 1) takes %d cycles' % start[4])
             print('%-14s %12s %9s %9s %7s %9s %9s %8s %13s' % (
                 'link', 'cycles', 'min 2MHz', 'far calls', 'blocks', 'opened', 'read', 'written',
@@ -371,7 +355,7 @@ class Toolchain(unittest.TestCase):
             if f.endswith('.lo') and not os.path.exists(os.path.join(disk, f)):
                 shutil.copy(os.path.join(os.path.dirname(disk), 'host', f), disk)
         status, out, mos, written, cycles, traffic = bbc_run(
-            self.module, disk, [boards.module_command('LLINK', link)], dirty=False)
+            self.module, disk, [boards.module_command('LLINK', link)])
         far, withs = counted_link(self.counting, disk, link)
         print('%-14s %12d %9.2f %9d %7d %9d %9d %8d %13d' % (
             (name, cycles, cycles / 2e6 / 60, far, withs) + traffic + (chain,)))
@@ -426,8 +410,8 @@ def build_counting(where):
 
 
 def counted_link(image, disk, link):
-    """(far calls, `with` blocks) of the link in the counting copy, on clean memory (its counters
-    have no initial value)."""
+    """(far calls, `with` blocks) of the link in the counting copy (whose start() clears its
+    counters: test_bbc_selfhost.counting_copies)."""
     env = mapenv.read_env(os.path.splitext(image)[0] + '.env')
     build.window_files(env, os.path.dirname(image), disk)
     try:

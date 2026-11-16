@@ -245,7 +245,7 @@ def run(built):
     machine = CONFIGS[built.config][0]
     fixed = built.files['fixed']
     if machine == 'host':
-        cmd = [EMULATOR, fixed, '--output', '-', '--no-dump', '--cycle-cap', '200000000']
+        cmd = [EMULATOR, fixed, '--output', '-', '--no-dump', '--cycle-cap', '200000000', '--fill-ram']
         r = subprocess.run(cmd, cwd=built.workdir, stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE, timeout=120)
         m = CYCLES_HOST.search(r.stderr)
@@ -255,7 +255,7 @@ def run(built):
     out = os.path.join(built.workdir, 'out.txt')
     if os.path.exists(out):
         os.unlink(out)
-    cmd = [EMULATOR, fixed, '--machine', 'wendy2c', '--wendy2-prog', fixed,
+    cmd = [EMULATOR, fixed, '--machine', 'wendy2c', '--fill-ram', '--wendy2-prog', fixed,
            '--load', '%04X' % FIXED_ORG, '--disk', built.workdir,
            '--cycle-cap', '100000000', '--exit-report']
     r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)

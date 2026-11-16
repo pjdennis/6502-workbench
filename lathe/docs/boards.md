@@ -312,7 +312,7 @@ emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict \
 - **The image's addresses**: the linker writes the bytes from the start of the `code` range (`output raw`), not a catalogue entry, so `*LOAD` it at the start of `code` (`$1900` for `bbc.env`) and `*SAVE` it again with its length (the map's last code line, or `*INFO`) and that address as the execution address; `*RUN` then runs it.
 - **A banked program** (`bbc-bank.env` and its lines): its bank files are written beside the image, and its start-up code loads them into the module's RAM form, so run the tools from the RAM form (`--bbc-module-ram`, `--bbc-command "RUN LOADMOD MODULE"` first): the program's banks then replace the tools' banks of the same numbers, and the tools must be loaded again after it.
 - **Capacities**: the BBC's (`define LKSMALL 2` in `../src/linker-bbc.env`): 448 functions, 2,400 slots, 2,000 calls, 472 nodes; every program of the corpus but `for_ranges` (link error 10), and the compiler's test programs up to `outtest`.
-- **Memory**: `*LLINK` takes zero page `$00-$8F`, `$0400-$07FF`, `$1900-$7BFF` and sideways slot 0; it runs on what the compiler left. A program that expects its variables to start as 0, as the corpus's do, needs memory cleared first (`*LOAD` of a file of 0s; `../tests/test_bbc_toolchain.py` does so).
+- **Memory**: `*LLINK` takes zero page `$00-$8F`, `$0400-$07FF`, `$1900-$7BFF` and sideways slot 0; it runs on what the compiler left, and a program run after it on what the linker left: no variable starts as 0 unless it has that initial value (`language.md`, "Declarations"; `../tests/test_bbc_toolchain.py` runs the corpus so).
 
 #### On a DFS disc
 
