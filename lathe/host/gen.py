@@ -194,9 +194,9 @@ def function_address():
     settle()
     i = reg.depth - 1
     f = reg.op_var[i]
-    if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_EXTERN != 0:
+    if kernel.flags_of(f) & kernel.SF_EXTERN != 0:
         reg.describe(i, reg.O_CONST, typetab.NUMBER_TYPE)
-        reg.op_value[i] = kernel.word_of(f, kernel.C_VALUE)
+        reg.op_value[i] = kernel.value_of(f)
         return
     reg.describe(i, reg.O_ADDR, typetab.NO_TYPE)
     reg.op_symbol[i] = reg.object_symbol(f)
@@ -206,21 +206,21 @@ def function_address():
 def variable(s):
     """Push variable `s`, which lives for the whole program or is at a fixed address."""
     settle()
-    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0:
-        reg.push_memory(kernel.byte_of(s, kernel.C_TYPE), kernel.NO_OBJ, fbuf.NO_SLOT, kernel.word_of(s, kernel.C_VALUE), 0,
+    if kernel.flags_of(s) & kernel.SF_AT != 0:
+        reg.push_memory(kernel.type_of(s), kernel.NO_OBJ, fbuf.NO_SLOT, kernel.value_of(s), 0,
                         kernel.NO_SYM)
     else:
-        reg.push_memory(kernel.byte_of(s, kernel.C_TYPE), reg.object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
+        reg.push_memory(kernel.type_of(s), reg.object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
 
 
 def table(s):
     """Push the constant table `s`: constant data, which can be read but not assigned to."""
     settle()
-    reg.push_memory(kernel.byte_of(s, kernel.C_TYPE), reg.object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
+    reg.push_memory(kernel.type_of(s), reg.object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
 
 
 def zp_flag(s):
-    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_ZP != 0:
+    if kernel.flags_of(s) & kernel.SF_ZP != 0:
         return reg.F_ZP
     return 0
 
@@ -1414,7 +1414,7 @@ def in_register(f, i):
 def register_count(f):
     """How many of `f`'s parameters, from the first, are passed in registers."""
     n = 0
-    while n < kernel.byte_of(f, kernel.C_PARAMS) and register_of(f, n) != REG_NONE:
+    while n < kernel.params_of(f) and register_of(f, n) != REG_NONE:
         n += 1
     return n
 
@@ -1470,7 +1470,7 @@ def result(f):
     a Condition. Nothing if it has no results."""
     if kernel.byte_of(f, kernel.C_RESULTS) == 0:
         return
-    m = kernel.word_of(f, kernel.C_MEMBERS) + kernel.byte_of(f, kernel.C_PARAMS)
+    m = kernel.word_of(f, kernel.C_MEMBERS) + kernel.params_of(f)
     where = kernel.member_value_of(m)
     if where == REG_C:
         cond.push(OP_BCS)
@@ -1489,7 +1489,7 @@ def result(f):
 
 def by_registers(f):
     """True if function `f` takes its arguments in registers: an `extern` or `asm` function."""
-    return kernel.byte_of(f, kernel.C_FLAGS) & (kernel.SF_EXTERN | kernel.SF_ASM) != 0
+    return kernel.flags_of(f) & (kernel.SF_EXTERN | kernel.SF_ASM) != 0
 
 
 def through_pointer():
@@ -1505,7 +1505,7 @@ def through_pointer():
     s = reg.op_var[i]
     whole = reg.op_symbol[i] == kernel.NO_OBJ or (reg.op_value[i] == 0 and (
         reg.op_flags[i] & reg.F_TEMP != 0 or (reg.op_symbol[i] == reg.own and reg.slot_size[reg.op_slot[i]] == 2)
-        or (s != kernel.NO_SYM and typetab.size(kernel.byte_of(s, kernel.C_TYPE)) == 2)))
+        or (s != kernel.NO_SYM and typetab.size(kernel.type_of(s)) == 2)))
     if reg.op_kind[i] != reg.O_VAR or reg.op_mode[i] != reg.M_DIRECT or not whole:
         to_temporary(i, False)
     reg.use(i)
@@ -1515,7 +1515,7 @@ def through_pointer():
 
 def through(f):
     """True if `f` is a function type: a call of it is through a pointer."""
-    return kernel.byte_of(f, kernel.C_KIND) == kernel.K_TYPE
+    return kernel.kind_of(f) == kernel.K_TYPE
 
 
 def stub(i):
@@ -1542,8 +1542,8 @@ def saving(f):
     if not saves_frame:
         return False
     if through(f):
-        return typetab.is_recursive(kernel.byte_of(f, kernel.C_TYPE))
-    return kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0
+        return typetab.is_recursive(kernel.type_of(f))
+    return kernel.flags_of(f) & kernel.SF_RECURSIVE != 0
 
 
 def frame_routines():
@@ -1624,7 +1624,7 @@ def save_frame(f, first):
     skip = fbuf.NO_SLOT
     if through(f) and reg.op_flags[first - 1] & reg.F_TEMP != 0:
         skip = reg.op_slot[first - 1]
-    base = argument_count - kernel.byte_of(f, kernel.C_PARAMS)
+    base = argument_count - kernel.params_of(f)
     saved_count = 0
     entries = 0
     for n in range(0, fbuf.FIRST_TEMP + reg.temp_count):
@@ -1647,7 +1647,7 @@ def save_frame(f, first):
         out.call(frame_push, 0, outer)
         reg.forget()
     count = register_count(f)
-    for p in range(count, kernel.byte_of(f, kernel.C_PARAMS)):
+    for p in range(count, kernel.params_of(f)):
         n = argument_slot[base + p]
         for k in range(0, reg.slot_size[n]):
             slot_byte(OP_LDA, reg.own, n, k)
@@ -1657,7 +1657,7 @@ def save_frame(f, first):
             k = REGISTER_BYTES[register_of(f, p) * 3 + r]
             if k != NO_BYTE:
                 slot_byte(reg.LOAD_ABSOLUTE[r], reg.own, argument_slot[base + p], k)
-    for p in range(0, kernel.byte_of(f, kernel.C_PARAMS)):
+    for p in range(0, kernel.params_of(f)):
         reg.slot_busy[argument_slot[base + p]] = False
     argument_count = base
 
@@ -1687,7 +1687,7 @@ def call(f, first, wanted):
         held_count -= 1
     if reg.owner != reg.NONE and reg.owner < first:
         reg.spill(reg.owner)            # before the arguments are loaded over it
-    if kernel.byte_of(f, kernel.C_PARAMS) > 0 and in_register(f, 0):
+    if kernel.params_of(f) > 0 and in_register(f, 0):
         load_registers(f, first, reg.depth - first)
         while reg.depth > first:
             reg.pop()
@@ -1696,8 +1696,8 @@ def call(f, first, wanted):
     if saving(f):
         save_frame(f, first)
         flags = out.CALL_SAVES
-    if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_EXTERN != 0:
-        fbuf.op_word(fbuf.OP_JSR, kernel.word_of(f, kernel.C_VALUE))
+    if kernel.flags_of(f) & kernel.SF_EXTERN != 0:
+        fbuf.op_word(fbuf.OP_JSR, kernel.value_of(f))
     elif through(f):
         fbuf.call_label(stub(first - 1))
         out.call(reg.object_symbol(f), flags | out.CALL_POINTER, outer)
@@ -1898,10 +1898,10 @@ def initial(s, source, slot, value):
     init_slot[init_count] = slot
     init_symbol[init_count] = kernel.word_of(s, kernel.C_OBJ)
     init_address[init_count] = 0
-    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0:
-        init_address[init_count] = kernel.word_of(s, kernel.C_VALUE)
+    if kernel.flags_of(s) & kernel.SF_AT != 0:
+        init_address[init_count] = kernel.value_of(s)
     init_flags[init_count] = zp_flag(s)
-    init_type[init_count] = kernel.byte_of(s, kernel.C_TYPE)
+    init_type[init_count] = kernel.type_of(s)
     init_value[init_count] = value
     init_count += 1
 

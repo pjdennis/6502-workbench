@@ -513,7 +513,7 @@ class RomEnv(unittest.TestCase):
     def test_the_tools_environments(self):
         # The compiler's and the linker's: bbcfs is placed in the ROM form only, and the
         # compiler's split differs.
-        for name, dev_split, rom_split in (('lathec-bbc.env', 0x5200, 0x5020), ('linker-bbc.env', 0x4000, 0x4000)):
+        for name, dev_split, rom_split in (('lathec-bbc.env', 0x57A0, 0x4F00), ('linker-bbc.env', 0x4000, 0x4000)):
             with self.subTest(env=name), tempfile.TemporaryDirectory() as d:
                 rom = os.path.join(d, name)
                 bbcrom.rom_env(os.path.join(ROOT, 'lathe', 'src', name), rom)

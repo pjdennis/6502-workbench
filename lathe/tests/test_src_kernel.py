@@ -145,6 +145,13 @@ def columns():
     put_hex(kernel.byte_of(s, kernel.C_RESULTS))
     put_hex(kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS)))
     nl()
+    put_hex(kernel.scope_of(s))           # the accessors of one column each
+    put_hex(kernel.kind_of(s))
+    put_hex(kernel.flags_of(s))
+    put_hex(kernel.type_of(s))
+    put_hex(kernel.params_of(s))
+    put_word(kernel.value_of(s))
+    nl()
 
 
 def frozen_name(text):

@@ -58,10 +58,11 @@ import fbuf (begin, call_label, finish, FIRST_TEMP, FIX_ADDRESS, FIX_LOW, keep_a
              new_label, NO_SLOT, op, op_byte, op_fix, OP_JMP_INDIRECT, OP_JSR, op_word, runs_on,
              tail_call, used)
 import fold (ADD, BAND, BOR, BXOR, DIV, exact, GE, LT, MUL, NE, REM, SHL, SHR, SUB, typed)
-import kernel (byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_OBJ, C_PARAMS, C_RESULTS, C_TYPE, C_VALUE,
-               K_FUNC, K_TYPE, member_add, member_count, member_type_of, member_value_of,
-               module_count, module_name, name_add, name_begin, name_end, NO_OBJ, NO_SYM, set_byte,
-               set_word, SF_ASM, SF_AT, SF_EXTERN, SF_RECURSIVE, SF_ZP, sym_add, sym_find, word_of)
+import kernel (byte_of, C_MEMBERS, C_OBJ, C_PARAMS, C_RESULTS, flags_of, K_FUNC, K_TYPE, kind_of,
+               member_add, member_count, member_type_of, member_value_of, module_count, module_name,
+               name_add, name_begin, name_end, NO_OBJ, NO_SYM, params_of, set_byte, set_word,
+               SF_ASM, SF_AT, SF_EXTERN, SF_RECURSIVE, SF_ZP, sym_add, sym_find, type_of, value_of,
+               word_of)
 import out (call, CALL_POINTER, CALL_SAVES, function_begin, function_end, imported, NO_OUTER, slot,
             SYM_DATA, SYM_FUNCTION, symbol, table_byte, table_fix)
 import reg (A, accepts, accumulator, alu, apart, assignable, become, begin, branch, claim, CLASS_ZP,
@@ -284,9 +285,9 @@ pub func function_address()
   settle()
   i = reg.depth - 1
   f = reg.op_var[i]
-  if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_EXTERN != 0 then
+  if kernel.flags_of(f) & kernel.SF_EXTERN != 0 then
     reg.describe(i, reg.O_CONST, typetab.NUMBER_TYPE)
-    reg.op_value[i] = kernel.word_of(f, kernel.C_VALUE)
+    reg.op_value[i] = kernel.value_of(f)
     return
   end
   reg.describe(i, reg.O_ADDR, typetab.NO_TYPE)
@@ -297,22 +298,22 @@ end
 ; Push variable `s`, which lives for the whole program or is at a fixed address.
 pub func variable(s: word)
   settle()
-  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0 then
-    reg.push_memory(kernel.byte_of(s, kernel.C_TYPE), kernel.NO_OBJ, fbuf.NO_SLOT, kernel.word_of(s, kernel.C_VALUE), 0,
+  if kernel.flags_of(s) & kernel.SF_AT != 0 then
+    reg.push_memory(kernel.type_of(s), kernel.NO_OBJ, fbuf.NO_SLOT, kernel.value_of(s), 0,
         kernel.NO_SYM)
   else
-    reg.push_memory(kernel.byte_of(s, kernel.C_TYPE), reg.object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
+    reg.push_memory(kernel.type_of(s), reg.object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
   end
 end
 
 ; Push the constant table `s`: constant data, which can be read but not assigned to.
 pub func table(s: word)
   settle()
-  reg.push_memory(kernel.byte_of(s, kernel.C_TYPE), reg.object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
+  reg.push_memory(kernel.type_of(s), reg.object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
 end
 
 func zp_flag(s: word): byte
-  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_ZP != 0 then
+  if kernel.flags_of(s) & kernel.SF_ZP != 0 then
     return reg.F_ZP
   end
   return 0
@@ -1800,7 +1801,7 @@ end
 func register_count(f: word): byte
   var n: byte
   n = 0
-  while n < kernel.byte_of(f, kernel.C_PARAMS) and register_of(f, n) != REG_NONE do
+  while n < kernel.params_of(f) and register_of(f, n) != REG_NONE do
     n += 1
   end
   return n
@@ -1881,7 +1882,7 @@ pub func result(f: word)
   if kernel.byte_of(f, kernel.C_RESULTS) == 0 then
     return
   end
-  m = kernel.word_of(f, kernel.C_MEMBERS) + kernel.byte_of(f, kernel.C_PARAMS)
+  m = kernel.word_of(f, kernel.C_MEMBERS) + kernel.params_of(f)
   where = kernel.member_value_of(m)
   if where == REG_C then
     cond.push(OP_BCS)
@@ -1904,7 +1905,7 @@ end
 
 ; True if function `f` takes its arguments in registers: an `extern` or `asm` function.
 func by_registers(f: word): bool
-  return kernel.byte_of(f, kernel.C_FLAGS) & (kernel.SF_EXTERN | kernel.SF_ASM) != 0
+  return kernel.flags_of(f) & (kernel.SF_EXTERN | kernel.SF_ASM) != 0
 end
 
 ; The newest operand, a value of a function type, is to be called through. It becomes the
@@ -1924,7 +1925,7 @@ pub func through_pointer()
   s = reg.op_var[i]
   whole = reg.op_symbol[i] == kernel.NO_OBJ or (reg.op_value[i] == 0 and (
       reg.op_flags[i] & reg.F_TEMP != 0 or (reg.op_symbol[i] == reg.own and reg.slot_size[reg.op_slot[i]] == 2) or
-      (s != kernel.NO_SYM and typetab.size(kernel.byte_of(s, kernel.C_TYPE)) == 2)))
+      (s != kernel.NO_SYM and typetab.size(kernel.type_of(s)) == 2)))
   if reg.op_kind[i] != reg.O_VAR or reg.op_mode[i] != reg.M_DIRECT or not whole then
     to_temporary(i, false)
   end
@@ -1935,7 +1936,7 @@ end
 
 ; True if `f` is a function type: a call of it is through a pointer.
 pub func through(f: word): bool
-  return kernel.byte_of(f, kernel.C_KIND) == kernel.K_TYPE
+  return kernel.kind_of(f) == kernel.K_TYPE
 end
 
 ; The label of the JMP (pointer) for the callee operand `i`, a call through a pointer:
@@ -1966,9 +1967,9 @@ pub func saving(f: word): bool
     return false
   end
   if through(f) then
-    return typetab.is_recursive(kernel.byte_of(f, kernel.C_TYPE))
+    return typetab.is_recursive(kernel.type_of(f))
   end
-  return kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0
+  return kernel.flags_of(f) & kernel.SF_RECURSIVE != 0
 end
 
 ; The symbols of rt_frame.push and rt_frame.pop, and the IMP record of rt_frame, which
@@ -2084,7 +2085,7 @@ func save_frame(f: word, first: byte)
   if through(f) and reg.op_flags[first - 1] & reg.F_TEMP != 0 then
     skip = reg.op_slot[first - 1]
   end
-  base = argument_count - kernel.byte_of(f, kernel.C_PARAMS)
+  base = argument_count - kernel.params_of(f)
   saved_count = 0
   entries = 0
   for n = 0 until fbuf.FIRST_TEMP + reg.temp_count do
@@ -2112,7 +2113,7 @@ func save_frame(f: word, first: byte)
     reg.forget()
   end
   count = register_count(f)
-  for p = count until kernel.byte_of(f, kernel.C_PARAMS) do
+  for p = count until kernel.params_of(f) do
     n = argument_slot[base + p]
     for k = 0 until reg.slot_size[n] do
       slot_byte(OP_LDA, reg.own, n, k)
@@ -2127,7 +2128,7 @@ func save_frame(f: word, first: byte)
       end
     end
   end
-  for p = 0 until kernel.byte_of(f, kernel.C_PARAMS) do
+  for p = 0 until kernel.params_of(f) do
     reg.slot_busy[argument_slot[base + p]] = false
   end
   argument_count = base
@@ -2164,7 +2165,7 @@ pub func call(f: word, first: byte, wanted: bool)
   if reg.owner != reg.NONE and reg.owner < first then
     reg.spill(byte(reg.owner))  ; before the arguments are loaded over it
   end
-  if kernel.byte_of(f, kernel.C_PARAMS) > 0 and in_register(f, 0) then
+  if kernel.params_of(f) > 0 and in_register(f, 0) then
     load_registers(f, first, reg.depth - first)
     while reg.depth > first do
       reg.pop()
@@ -2176,8 +2177,8 @@ pub func call(f: word, first: byte, wanted: bool)
     save_frame(f, first)
     flags = out.CALL_SAVES
   end
-  if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_EXTERN != 0 then
-    fbuf.op_word(fbuf.OP_JSR, kernel.word_of(f, kernel.C_VALUE))
+  if kernel.flags_of(f) & kernel.SF_EXTERN != 0 then
+    fbuf.op_word(fbuf.OP_JSR, kernel.value_of(f))
   elif through(f) then
     fbuf.call_label(stub(first - 1))
     out.call(reg.object_symbol(f), flags | out.CALL_POINTER, outer)
@@ -2395,11 +2396,11 @@ pub func initial(s: word, source: word, slot: byte, value: word)
   init_slot[init_count] = slot
   init_symbol[init_count] = kernel.word_of(s, kernel.C_OBJ)
   init_address[init_count] = 0
-  if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0 then
-    init_address[init_count] = kernel.word_of(s, kernel.C_VALUE)
+  if kernel.flags_of(s) & kernel.SF_AT != 0 then
+    init_address[init_count] = kernel.value_of(s)
   end
   init_flags[init_count] = zp_flag(s)
-  init_type[init_count] = kernel.byte_of(s, kernel.C_TYPE)
+  init_type[init_count] = kernel.type_of(s)
   init_value[init_count] = value
   init_count += 1
 end

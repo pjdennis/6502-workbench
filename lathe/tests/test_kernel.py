@@ -85,6 +85,16 @@ class SymbolTableTest(KernelTest):
         self.assertEqual(kernel.word_of(s, kernel.C_OBJ), kernel.NO_OBJ)
         self.assertEqual(kernel.byte_of(s, kernel.C_FLAGS), 0)
 
+    def test_a_column_has_an_accessor_of_its_own_that_gives_what_byte_of_and_word_of_give(self):
+        s = kernel.sym_add(kernel.SCOPE_MODULE, name(b'cols'), kernel.K_CONST)
+        kernel.set_byte(s, kernel.C_FLAGS, 0x81)
+        kernel.set_byte(s, kernel.C_TYPE, 0x42)
+        kernel.set_byte(s, kernel.C_PARAMS, 2)
+        kernel.set_word(s, kernel.C_VALUE, 0x1234)
+        self.assertEqual((kernel.scope_of(s), kernel.kind_of(s), kernel.flags_of(s), kernel.type_of(s),
+                          kernel.params_of(s), kernel.value_of(s)),
+                         (kernel.SCOPE_MODULE, kernel.K_CONST, 0x81, 0x42, 2, 0x1234))
+
     def test_the_kinds_of_symbol_are_all_different(self):
         kinds = [kernel.K_MODULE, kernel.K_FUNC, kernel.K_CONST, kernel.K_VAR, kernel.K_LOCAL, kernel.K_BUILTIN,
                  kernel.K_TYPE, kernel.K_FIELD]

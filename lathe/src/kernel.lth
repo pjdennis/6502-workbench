@@ -57,20 +57,26 @@
 ;   |                                      | end`, in the functions that read  | (configurations |
 ;   |                                      | or write it, one block around a   | .md, step 10)   |
 ;   |                                      | whole operation                   |                 |
-;   | name_word, name_set_word: functions  | `inline`, used only inside blocks | smaller code    |
-;   | name_token, name_set_token           | functions with a block, not inline| a block cannot  |
-;   |                                      |                                   | be inline       |
+;   | name_word, name_set_word,            | functions with a block, not inline| a block cannot  |
+;   | name_token, name_set_token           | (name_word and name_set_word are  | be inline       |
+;   |                                      | called inside blocks too)         |                 |
+;   | names[n + k] in freeze, thaw,        | name_byte(n + k), name_set_byte,  | no block: these |
+;   | built_loaded, freeze_member          | name_word and name_set_word       | are code of a   |
+;   |                                      |                                   | bank, not fixed |
 ;   | name_add()                           | the same, and `pub inline         | LEX maps once   |
 ;   |                                      | name_put()`, its body without the | around a whole  |
 ;   |                                      | block, for LEX's block; `names`,  | name; an        |
 ;   |                                      | name_top, new_length, new_hash,   | exported inline |
 ;   |                                      | N_TEXT and MAX_NAME exported      | function uses   |
 ;   |                                      |                                   | exported names  |
-;   | name_is_new(n), spelling_hash(n),    | a pointer to the entry, `q[k]`,   | (zp),Y: no      |
-;   | same_spelling(a, b), chain_find(...  | passed in by the caller's block;  | 16-bit index; no|
-;   | n), freeze, thaw: names[n + k]       | these four have no block of their | block of their  |
+;   | name_is_new(n), spelling_hash(n):    | a pointer to the entry, `q[k]`,   | (zp),Y: no      |
+;   | names[n + k]                         | passed in by the caller's block;  | 16-bit index; no|
+;   |                                      | these two have no block of their  | block of their  |
 ;   |                                      | own, and are called only inside   | own to pay for  |
-;   |                                      | one                               |                 |
+;   |                                      | one (built_is, name_hash,         |                 |
+;   |                                      | name_end)                         |                 |
+;   | same_spelling(a, b)                  | the same, with a block of its own | sym_find has no |
+;   |                                      |                                   | block           |
 ;   | path_add_name, put_name: name_length | the entry read in one block       | one mapping     |
 ;   | and name_char for each character     |                                   |                 |
 ;   | sym_bytes, sym_words, member_type,   | the same, `in SYMS`: used only    | on the BBC the  |
@@ -330,14 +336,33 @@ pub var name_top: word = 1
 pub var new_length: byte
 pub var new_hash: byte
 
-; Used only inside a block of NAMES.
-inline func name_word(offset: word): word
-  return word(names[offset]) | (word(names[offset + 1]) << 8)
+; A word or a byte of the name heap, read and written with a block of their own: a caller may
+; be inside a block of NAMES already, and the inner block maps back what it found. A function
+; that reads and writes the heap only through these needs no block, so it can be code of a bank
+; (sym_find, thaw, freeze: lathe/docs/configurations.md, "The symbol table in a region").
+func name_word(offset: word): word
+  with NAMES do
+    return word(names[offset]) | (word(names[offset + 1]) << 8)
+  end
 end
 
-inline func name_set_word(offset: word, value: word)
-  names[offset] = lo(value)
-  names[offset + 1] = hi(value)
+func name_set_word(offset: word, value: word)
+  with NAMES do
+    names[offset] = lo(value)
+    names[offset + 1] = hi(value)
+  end
+end
+
+func name_byte(offset: word): byte
+  with NAMES do
+    return names[offset]
+  end
+end
+
+func name_set_byte(offset: word, value: byte)
+  with NAMES do
+    names[offset] = value
+  end
 end
 
 ; Start building a name.
@@ -389,8 +414,8 @@ pub func name_end(): word
   n = name_bucket[bucket]
   with NAMES do
     q = @names + name_top
-    while n != 0 and name_is_new(@names + n, q) do
-      n = name_word(n + N_LINK)
+    while n != 0 and name_is_new(@names + n, q) do       ; the hottest walk: name_word() in line
+      n = word(names[n + N_LINK]) | (word(names[n + N_LINK + 1]) << 8)
     end
     if n != 0 then
       return n
@@ -483,7 +508,7 @@ pub const MAX_SYMS = 264        ; (SMALL: the test programs' small build; above 
 const MAX_MEMBERS = 264         ; a word index needs)
 #else
 pub const MAX_SYMS = 560
-const MAX_MEMBERS = 432
+const MAX_MEMBERS = 512         ; gen.lth needs 437 (432 until 2026-11-17, when it needed 427)
 #end
 pub const MAX_MODULES = 16      ; the module being compiled and those it imports
 
@@ -601,6 +626,44 @@ pub func set_word(s: word, column: byte, value: word)
   end
 end
 
+; The columns read most, each with an accessor of its own: what byte_of() or word_of() gives for
+; that column, without the column's number to pass and look up.
+pub func scope_of(s: word): byte
+  with SYMS do
+    return sym_bytes[SCOPE_AT + s]
+  end
+end
+
+pub func kind_of(s: word): byte
+  with SYMS do
+    return sym_bytes[KIND_AT + s]
+  end
+end
+
+pub func flags_of(s: word): byte
+  with SYMS do
+    return sym_bytes[FLAGS_AT + s]
+  end
+end
+
+pub func type_of(s: word): byte
+  with SYMS do
+    return sym_bytes[TYPE_AT + s]
+  end
+end
+
+pub func params_of(s: word): byte
+  with SYMS do
+    return sym_bytes[PARAMS_AT + s]
+  end
+end
+
+pub func value_of(s: word): word
+  with SYMS do
+    return sym_words[VALUE_AT + s]
+  end
+end
+
 ; Member `m`'s type.
 pub func member_type_of(m: word): byte
   with SYMS do
@@ -625,10 +688,9 @@ func chain_walk(scope: byte, s: word): word
   return s
 end
 
-; The symbol of `scope` on the chain of the name entry `q` points to, or NO_SYM. `q` points
-; into NAMES: called only inside a block of it.
-func chain_find(scope: byte, q: ^byte): word
-  return chain_walk(scope, word(q[N_SYMBOL]) | (word(q[N_SYMBOL + 1]) << 8))
+; The symbol of `scope` on the chain of name entry `name`, or NO_SYM.
+func chain_find(scope: byte, name: word): word
+  return chain_walk(scope, name_word(name + N_SYMBOL))
 end
 
 ; The hash name_add() gives the spelling of the entry `q` points to (into NAMES: called only
@@ -642,19 +704,38 @@ func spelling_hash(q: ^byte): byte
   return h
 end
 
-; True if the name entries `p` and `q` point to spell the same name (into NAMES: called only
-; inside a block of it).
-func same_spelling(p: ^byte, q: ^byte): bool
+; True if name entries `a` and `b` spell the same name.
+func same_spelling(a: word, b: word): bool
   var i: byte
-  if p[N_LENGTH] != q[N_LENGTH] then
-    return false
-  end
-  for i = 0 until p[N_LENGTH] do
-    if p[N_TEXT + i] != q[N_TEXT + i] then
+  var p: ^byte
+  var q: ^byte
+  with NAMES do
+    p = @names + a
+    q = @names + b
+    if p[N_LENGTH] != q[N_LENGTH] then
       return false
+    end
+    for i = 0 until p[N_LENGTH] do
+      if p[N_TEXT + i] != q[N_TEXT + i] then
+        return false
+      end
     end
   end
   return true
+end
+
+; True if name entry `n` spells the name being built.
+pub func built_is(n: word): bool
+  with NAMES do
+    return not name_is_new(@names + n, @names + name_top)
+  end
+end
+
+; The hash of name entry `n`'s spelling, as new_hash is of the name being built.
+pub func name_hash(n: word): byte
+  with NAMES do
+    return spelling_hash(@names + n)
+  end
 end
 
 ; The symbol called `name` in exactly this scope, and whether there is one. A frozen
@@ -664,42 +745,38 @@ pub func sym_find(scope: byte, name: word): word, bool
   var n: word
   var before: word = 0
   var f: word
-  var q: ^byte
   var oldest: word
-  with NAMES do
-    q = @names + name
-    s = chain_find(scope, q)
-    if s != NO_SYM or scope == SCOPE_MODULE or scope >= SCOPE_FIELDS then
-      return s, s != NO_SYM
-    end
-    ; Thawed already, on the chain of another entry with the same spelling (thaw())?
-    oldest = name
-    n = name_bucket[spelling_hash(q) & (NAME_BUCKETS - 1)]
-    while n != 0 do
-      if n != name and same_spelling(@names + n, q) then
-        s = chain_find(scope, @names + n)
-        if s != NO_SYM then
-          return s, true
-        end
-        if n < oldest then
-          oldest = n
-        end
+  s = chain_find(scope, name)
+  if s != NO_SYM or scope == SCOPE_MODULE or scope >= SCOPE_FIELDS then
+    return s, s != NO_SYM
+  end
+  ; Thawed already, on the chain of another entry with the same spelling (thaw())?
+  oldest = name
+  n = name_bucket[name_hash(name) & (NAME_BUCKETS - 1)]
+  while n != 0 do
+    if n != name and same_spelling(n, name) then
+      s = chain_find(scope, n)
+      if s != NO_SYM then
+        return s, true
       end
-      n = name_word(n + N_LINK)
+      if n < oldest then
+        oldest = n
+      end
     end
-    f = module_frozen[scope]
-    while f != 0 and not same_spelling(@names + f, q) do
-      before = f
-      f = name_word(f + N_LINK)
-    end
-    if f == 0 then
-      return NO_SYM, false
-    end
-    if before == 0 then
-      module_frozen[scope] = name_word(f + N_LINK)
-    else
-      name_set_word(before + N_LINK, name_word(f + N_LINK))
-    end
+    n = name_word(n + N_LINK)
+  end
+  f = module_frozen[scope]
+  while f != 0 and not same_spelling(f, name) do
+    before = f
+    f = name_word(f + N_LINK)
+  end
+  if f == 0 then
+    return NO_SYM, false
+  end
+  if before == 0 then
+    module_frozen[scope] = name_word(f + N_LINK)
+  else
+    name_set_word(before + N_LINK, name_word(f + N_LINK))
   end
   return thaw(scope, f, oldest), true
 end
@@ -711,9 +788,9 @@ pub func module_find(m: word, name: word): word, bool
   var s: word
   var found: bool
   var listed: bool
-  listed = byte_of(m, C_FLAGS) & SF_LIST != 0
-  s, found = sym_find(byte(word_of(m, C_VALUE)), name)
-  if listed and (not found or byte_of(s, C_FLAGS) & SF_HIDDEN != 0) then
+  listed = flags_of(m) & SF_LIST != 0
+  s, found = sym_find(byte(value_of(m)), name)
+  if listed and (not found or flags_of(s) & SF_HIDDEN != 0) then
     err.fatal(err.E_NOT_LISTED)
   end
   return s, found
@@ -721,16 +798,12 @@ end
 
 ; The newest symbol called `name`, or NO_SYM: the first on its chain (sym_link).
 pub func name_symbol(name: word): word
-  with NAMES do
-    return name_word(name + N_SYMBOL)
-  end
+  return name_word(name + N_SYMBOL)
 end
 
 ; Make `s` the first symbol on the chain of `name`.
 func name_set_symbol(name: word, s: word)
-  with NAMES do
-    name_set_word(name + N_SYMBOL, s)
-  end
+  name_set_word(name + N_SYMBOL, s)
 end
 
 ; What a plain `name` means here: a local, else a module-level symbol, else a predeclared
@@ -740,7 +813,7 @@ pub func sym_lookup(name: word): word, bool
   var scope: byte
   s = name_symbol(name)
   while s != NO_SYM do
-    scope = byte_of(s, C_SCOPE)
+    scope = scope_of(s)
     if scope == SCOPE_LOCAL or scope == SCOPE_MODULE or scope == SCOPE_PREDECLARED then
       break
     end
@@ -840,19 +913,15 @@ const F_MEMBERS = 4             ; the size of what a function has there before i
 pub func built_symbol(scope: byte): word
   var n: word
   var s: word
-  var q: ^byte
-  with NAMES do
-    q = @names + name_top
-    n = name_bucket[new_hash & (NAME_BUCKETS - 1)]
-    while n != 0 do
-      if not name_is_new(@names + n, q) then
-        s = chain_find(scope, @names + n)
-        if s != NO_SYM then
-          return s
-        end
+  n = name_bucket[new_hash & (NAME_BUCKETS - 1)]
+  while n != 0 do
+    if built_is(n) then
+      s = chain_find(scope, n)
+      if s != NO_SYM then
+        return s
       end
-      n = name_word(n + N_LINK)
     end
+    n = name_word(n + N_LINK)
   end
   return NO_SYM
 end
@@ -860,29 +929,11 @@ end
 ; The frozen entry of imported module `scope` that spells the name being built, or 0.
 pub func built_frozen(scope: byte): word
   var n: word
-  var q: ^byte
-  with NAMES do
-    q = @names + name_top
-    n = module_frozen[scope]
-    while n != 0 and name_is_new(@names + n, q) do
-      n = name_word(n + N_LINK)
-    end
+  n = module_frozen[scope]
+  while n != 0 and not built_is(n) do
+    n = name_word(n + N_LINK)
   end
   return n
-end
-
-; True if name entry `n` spells the name being built.
-pub func built_is(n: word): bool
-  with NAMES do
-    return not name_is_new(@names + n, @names + name_top)
-  end
-end
-
-; The hash of name entry `n`'s spelling, as new_hash is of the name being built.
-pub func name_hash(n: word): byte
-  with NAMES do
-    return spelling_hash(@names + n)
-  end
 end
 
 ; True if imported module `scope` has a symbol or a frozen entry that spells the name being
@@ -893,7 +944,7 @@ pub func built_loaded(scope: byte, show: bool): bool
   s = built_symbol(scope)
   if s != NO_SYM then
     if show then
-      set_byte(s, C_FLAGS, byte_of(s, C_FLAGS) & ~SF_HIDDEN)
+      set_byte(s, C_FLAGS, flags_of(s) & ~SF_HIDDEN)
     end
     return true
   end
@@ -902,9 +953,7 @@ pub func built_loaded(scope: byte, show: bool): bool
     return false
   end
   if show then
-    with NAMES do
-      names[f + F_FLAGS] = names[f + F_FLAGS] & ~SF_HIDDEN
-    end
+    name_set_byte(f + F_FLAGS, name_byte(f + F_FLAGS) & ~SF_HIDDEN)
   end
   return true
 end
@@ -934,8 +983,7 @@ end
 pub func freeze(scope: byte, kind: byte, flags: byte, t: byte, value: word, params: byte,
     results: byte)
   var n: word
-  var q: ^byte
-  var r: ^byte
+  var p: word
   var size: word = F_SIZE
   if kind == K_FUNC then
     size = F_MEMBERS + 2 * (word(params) + results)
@@ -946,34 +994,27 @@ pub func freeze(scope: byte, kind: byte, flags: byte, t: byte, value: word, para
   if built_symbol(scope) != NO_SYM or built_frozen(scope) != 0 then
     err.fatal(err.E_DUPLICATE)
   end
-  with NAMES do
-    q = @names + name_top
-    n = name_top
-    q[N_LINK] = lo(module_frozen[scope])
-    q[N_LINK + 1] = hi(module_frozen[scope])
-    q[F_KIND] = kind
-    q[F_FLAGS] = flags
-    q[F_TYPE] = t
-    q[N_LENGTH] = new_length
-    module_frozen[scope] = n
-    r = q + N_TEXT + new_length
-    r[F_VALUE] = lo(value)
-    r[F_VALUE + 1] = hi(value)
-    name_top = n + N_TEXT + new_length + F_SIZE
-    if kind == K_FUNC then
-      r[F_PARAMS] = params
-      r[F_RESULTS] = results
-      name_top = n + N_TEXT + new_length + F_MEMBERS
-    end
+  n = name_top
+  name_set_word(n + N_LINK, module_frozen[scope])
+  name_set_byte(n + F_KIND, kind)
+  name_set_byte(n + F_FLAGS, flags)
+  name_set_byte(n + F_TYPE, t)
+  name_set_byte(n + N_LENGTH, new_length)
+  module_frozen[scope] = n
+  p = n + N_TEXT + new_length
+  name_set_word(p + F_VALUE, value)
+  name_top = p + F_SIZE
+  if kind == K_FUNC then
+    name_set_byte(p + F_PARAMS, params)
+    name_set_byte(p + F_RESULTS, results)
+    name_top = p + F_MEMBERS
   end
 end
 
 ; The next member of the newest frozen symbol.
 pub func freeze_member(t: byte, value: byte)
-  with NAMES do
-    names[name_top] = t
-    names[name_top + 1] = value
-  end
+  name_set_byte(name_top, t)
+  name_set_byte(name_top + 1, value)
   name_top += 2
 end
 
@@ -987,8 +1028,7 @@ end
 func thaw(scope: byte, f: word, oldest: word): word
   var s: word
   var name: word
-  var q: ^byte
-  var r: ^byte
+  var p: word
   var i: byte
   var bucket: byte
   var n: word
@@ -1003,24 +1043,20 @@ func thaw(scope: byte, f: word, oldest: word): word
   end
   thaw_top -= 1
   s = thaw_top
-  with NAMES do
-    q = @names + f
-    r = q + N_TEXT + q[N_LENGTH]
-    kind = q[F_KIND]                    ; read before the entry is made a name
-    flags = q[F_FLAGS]
-    t = q[F_TYPE]
-    value = word(r[F_VALUE]) | (word(r[F_VALUE + 1]) << 8)
-    if kind == K_FUNC then
-      params = r[F_PARAMS]
-      results = r[F_RESULTS]
-    end
-    name = oldest
-    if oldest > f then
-      name = f
-      q[N_SYMBOL] = lo(NO_SYM)
-      q[N_SYMBOL + 1] = hi(NO_SYM)
-      q[N_TOKEN] = 0
-    end
+  p = f + N_TEXT + name_byte(f + N_LENGTH)
+  kind = name_byte(f + F_KIND)          ; read before the entry is made a name
+  flags = name_byte(f + F_FLAGS)
+  t = name_byte(f + F_TYPE)
+  value = name_word(p + F_VALUE)
+  if kind == K_FUNC then
+    params = name_byte(p + F_PARAMS)
+    results = name_byte(p + F_RESULTS)
+  end
+  name = oldest
+  if oldest > f then
+    name = f
+    name_set_word(f + N_SYMBOL, NO_SYM)
+    name_set_byte(f + N_TOKEN, 0)
   end
   sym_new(s, scope, name, kind)
   set_byte(s, C_FLAGS, flags)
@@ -1028,29 +1064,24 @@ func thaw(scope: byte, f: word, oldest: word): word
   set_word(s, C_VALUE, value)
   set_byte(s, C_PARAMS, params)
   set_byte(s, C_RESULTS, results)
-  with NAMES do
-    q = @names + f
-    r = q + N_TEXT + q[N_LENGTH] + F_MEMBERS
-    for i = 0 until params + results do
-      member_add(r[0], r[1])            ; its block of SYMS comes after r is read
-      r += 2
-    end
-    if oldest < f then
-      return s
-    end
-    bucket = spelling_hash(q) & (NAME_BUCKETS - 1)
-    n = name_bucket[bucket]
-    if n < f then
-      name_set_word(f + N_LINK, n)
-      name_bucket[bucket] = f
-      return s
-    end
-    while name_word(n + N_LINK) > f do
-      n = name_word(n + N_LINK)
-    end
-    name_set_word(f + N_LINK, name_word(n + N_LINK))
-    name_set_word(n + N_LINK, f)
+  for i = 0 until params + results do
+    member_add(name_byte(p + F_MEMBERS + 2 * i), name_byte(p + F_MEMBERS + 2 * i + 1))
   end
+  if oldest < f then
+    return s
+  end
+  bucket = name_hash(f) & (NAME_BUCKETS - 1)
+  n = name_bucket[bucket]
+  if n < f then
+    name_set_word(f + N_LINK, n)
+    name_bucket[bucket] = f
+    return s
+  end
+  while name_word(n + N_LINK) > f do
+    n = name_word(n + N_LINK)
+  end
+  name_set_word(f + N_LINK, name_word(n + N_LINK))
+  name_set_word(n + N_LINK, f)
   return s
 end
 

@@ -67,6 +67,16 @@ def init():
     parts.init()
 
 
+def line_end():
+    """The current token must end the line; the next line's first token is read."""
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+
+
+def here():
+    """Errors found from now on are at the current token."""
+    err.position(lex.line, lex.col)
+
+
 def nest():
     """One more level of nesting begins."""
     global nesting
@@ -109,10 +119,10 @@ def type_spec():
         lex.next()
     elif lex.tok == lex.T_NAME:
         s = parts.named_symbol()
-        if kernel.byte_of(s, kernel.C_KIND) != kernel.K_TYPE:
+        if kernel.kind_of(s) != kernel.K_TYPE:
             err.position(line, col)
             err.fatal(err.E_TYPE_EXPECTED)
-        t = kernel.byte_of(s, kernel.C_TYPE)
+        t = kernel.type_of(s)
     elif lex.tok == lex.T_RECORD:
         err.fatal(err.E_RECORD_PLACE)
     elif lex.tok == lex.T_FUNC or lex.tok == lex.T_RECURSIVE:
@@ -132,7 +142,7 @@ def value_type():
         err.fatal(err.E_ARRAY_VALUE)
     if typetab.is_record(t):
         err.fatal(err.E_RECORD_VALUE)
-    err.position(lex.line, lex.col)
+    here()
     return t
 
 
@@ -152,7 +162,7 @@ def builtin(which):
             gen.length()
         else:
             gen.part(which)
-        err.position(lex.line, lex.col)
+        here()
     lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
 
 
@@ -162,25 +172,25 @@ def designator():
     line = lex.line
     col = lex.col
     s = parts.named_symbol()
-    kind = kernel.byte_of(s, kernel.C_KIND)
+    kind = kernel.kind_of(s)
     if kind == kernel.K_FUNC:
         gen.function(s)
-    elif kind == kernel.K_CONST and typetab.is_array(kernel.byte_of(s, kernel.C_TYPE)):
+    elif kind == kernel.K_CONST and typetab.is_array(kernel.type_of(s)):
         err.position(line, col)         # a table in a region is used only inside `with`
         gen.table(s)
-        err.position(lex.line, lex.col)
+        here()
     elif kind == kernel.K_CONST:
-        gen.constant(kernel.byte_of(s, kernel.C_TYPE), kernel.word_of(s, kernel.C_VALUE))
+        gen.constant(kernel.type_of(s), kernel.value_of(s))
     elif kind == kernel.K_LOCAL:
-        gen.local(kernel.byte_of(s, kernel.C_TYPE), kernel.word_of(s, kernel.C_VALUE))
+        gen.local(kernel.type_of(s), kernel.value_of(s))
     elif kind == kernel.K_VAR:
         err.position(line, col)
         gen.variable(s)
-        err.position(lex.line, lex.col)
+        here()
     elif kind == kernel.K_TYPE:
-        conversion(kernel.byte_of(s, kernel.C_TYPE), line, col)
+        conversion(kernel.type_of(s), line, col)
     else:
-        builtin(kernel.word_of(s, kernel.C_VALUE))
+        builtin(kernel.value_of(s))
     while lex.tok == lex.T_LBRACKET or lex.tok == lex.T_DOT:
         line = lex.line
         col = lex.col
@@ -193,7 +203,7 @@ def designator():
             lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
             err.position(line, col)
             gen.index()
-            err.position(lex.line, lex.col)
+            here()
 
 
 def target(line, col):
@@ -218,7 +228,7 @@ def argument(t, stored):
         gen.store()
     else:
         gen.accept(t)
-    err.position(lex.line, lex.col)
+    here()
 
 
 def arguments(f):
@@ -232,7 +242,7 @@ def arguments(f):
     count = 0
     if lex.tok != lex.T_RPAREN:
         while True:
-            if count == kernel.byte_of(f, kernel.C_PARAMS):
+            if count == kernel.params_of(f):
                 err.fatal(err.E_ARG_COUNT)
             by_register = gen.in_register(f, count)
             if not by_register:
@@ -248,7 +258,7 @@ def arguments(f):
             lex.next()
     if lex.tok != lex.T_RPAREN:
         err.fatal(err.E_RPAREN_EXPECTED)
-    if count != kernel.byte_of(f, kernel.C_PARAMS):
+    if count != kernel.params_of(f):
         err.fatal(err.E_ARG_COUNT)
     pending_count = saved_pending
     gen.arguments_end(saved)
@@ -280,9 +290,9 @@ def call(wanted):
     gen.result() pushes. A call of an inline function is an expansion of its body."""
     global passing
     f = reg.op_var[reg.depth - 1]
-    if not gen.through(f) and kernel.byte_of(f, kernel.C_FLAGS) & inline.SF_INTERRUPT != 0:
+    if not gen.through(f) and kernel.flags_of(f) & inline.SF_INTERRUPT != 0:
         err.fatal(err.E_INTERRUPT_CALL)
-    if not gen.through(f) and kernel.byte_of(f, kernel.C_FLAGS) & inline.SF_INLINE != 0:
+    if not gen.through(f) and kernel.flags_of(f) & inline.SF_INLINE != 0:
         reg.pop()
         inline.enter(f, wanted)     # errors at the "("
         lex.next()
@@ -321,7 +331,7 @@ def call_value(line, col):
         err.fatal(err.E_LPAREN_EXPECTED)
     err.position(line, col)
     check_not_pending(f)
-    err.position(lex.line, lex.col)
+    here()
     call(True)
     if lex.tok == lex.T_ARROW:
         if kernel.byte_of(f, kernel.C_RESULTS) != 2:
@@ -333,7 +343,7 @@ def call_value(line, col):
         target(line, col)
         err.position(line, col)
         gen.store_arrow()
-        err.position(lex.line, lex.col)
+        here()
     elif kernel.byte_of(f, kernel.C_RESULTS) == 2 and passing:
         passed = gen.mark()
     elif kernel.byte_of(f, kernel.C_RESULTS) == 0:
@@ -349,7 +359,7 @@ def conversion(t, line, col):
     expression()
     err.position(line, col)
     gen.convert(t)
-    err.position(lex.line, lex.col)
+    here()
     lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
 
 
@@ -406,7 +416,7 @@ def factor():
             gen.negate()
         else:
             gen.complement()
-        err.position(lex.line, lex.col)
+        here()
     else:
         lex.next()
         outer = gen.address_of
@@ -415,15 +425,15 @@ def factor():
         gen.address_of = outer
         err.position(line, col)
         i = reg.depth - 1
-        if reg.op_kind[i] == reg.O_FUNC and kernel.byte_of(reg.op_var[i], kernel.C_FLAGS) & inline.SF_INTERRUPT != 0:
+        if reg.op_kind[i] == reg.O_FUNC and kernel.flags_of(reg.op_var[i]) & inline.SF_INTERRUPT != 0:
             gen.code_address(reg.op_var[i])     # a ^byte, never a value of a function type
-        elif reg.op_kind[i] == reg.O_FUNC and kernel.byte_of(reg.op_var[i], kernel.C_FLAGS) & inline.SF_INLINE != 0:
+        elif reg.op_kind[i] == reg.O_FUNC and kernel.flags_of(reg.op_var[i]) & inline.SF_INLINE != 0:
             err.fatal(err.E_INLINE_ADDRESS)
         elif reg.op_kind[i] == reg.O_FUNC:
             gen.function_address()
         else:
             gen.address()
-        err.position(lex.line, lex.col)
+        here()
 
 
 def term():
@@ -478,7 +488,7 @@ def inverse():
     unnest()
     err.position(line, col)
     gen.invert()
-    err.position(lex.line, lex.col)
+    here()
 
 
 def both():
@@ -533,7 +543,7 @@ def constant(t):
         err.fatal(err.E_NOT_CONST)
     if t != typetab.NO_TYPE:
         reg.assignable(reg.depth - 1, t)
-    err.position(lex.line, lex.col)
+    here()
 
 
 def constant_number():
@@ -550,7 +560,7 @@ def constant_number():
         err.fatal(err.E_TYPE)
     if typetab.is_signed(reg.op_type[i]) and reg.op_value[i] >= 0x8000:
         err.fatal(err.E_RANGE)
-    err.position(lex.line, lex.col)
+    here()
     reg.pop()
     return reg.op_value[i]
 
@@ -621,7 +631,7 @@ def initial_assignment(s):
     expression()
     err.position(line, col)
     gen.store()
-    err.position(lex.line, lex.col)
+    here()
 
 
 def variable(more, level):
@@ -650,7 +660,7 @@ def variable(more, level):
     parts.layout(t)
     if (typetab.is_array(t) or typetab.is_record(t)) and flags & kernel.SF_ZP == 0:
         flags = flags | kernel.SF_NOZP          # nor a record: never in zero page unless asked
-    err.position(lex.line, lex.col)
+    here()
     if level == LEVEL_LOCAL and flags & kernel.SF_AT == 0:
         s = kernel.sym_add(scope, name, kernel.K_LOCAL)
         kernel.set_byte(s, kernel.C_TYPE, t)
@@ -754,7 +764,7 @@ def assignment(line, col):
         gen.store()
     else:
         gen.assign(token - lex.T_PLUS_ASSIGN + fold.ADD)
-    err.position(lex.line, lex.col)
+    here()
 
 
 def pair_assignment(line, col):
@@ -780,7 +790,7 @@ def pair_assignment(line, col):
     call(True)
     err.position(line, col)
     gen.store_pair()
-    err.position(lex.line, lex.col)
+    here()
 
 
 def name_statement():
@@ -795,7 +805,7 @@ def name_statement():
             err.fatal(err.E_LPAREN_EXPECTED)
         err.position(line, col)
         check_not_pending(reg.op_var[reg.depth - 1])   # in an inline body, inside arguments
-        err.position(lex.line, lex.col)
+        here()
         call(False)                # a call used as a statement may ignore its results
     elif lex.tok == lex.T_LPAREN:
         err.fatal(err.E_NOT_FUNC)
@@ -817,7 +827,7 @@ def test():
     expression()
     err.position(line, col)
     target = gen.jump_false()
-    err.position(lex.line, lex.col)
+    here()
     return target
 
 
@@ -835,7 +845,7 @@ def if_statement():
         lex.next()
         skip = test()
         lex.expect(lex.T_THEN, err.E_THEN_EXPECTED)
-        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+        line_end()
         body()
         if lex.tok != lex.T_ELIF and lex.tok != lex.T_ELSE:
             reg.label(skip)
@@ -847,7 +857,7 @@ def if_statement():
         reg.label(skip)
         if lex.tok == lex.T_ELSE:
             lex.next()
-            lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+            line_end()
             body()
             break
     end_of_block()
@@ -871,7 +881,7 @@ def while_statement():
     exit_label = test()
     next_label = top
     lex.expect(lex.T_DO, err.E_DO_EXPECTED)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     body()
     end_of_block()
     if fbuf.runs_on():
@@ -895,7 +905,7 @@ def loop_statement():
     saved_with = with_loop
     with_loop = fbuf.NO_SLOT
     lex.next()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     top = fbuf.new_label()
     reg.loop_label(top)
     gen.loop_begin()
@@ -930,7 +940,7 @@ def limit_value(t):
     reg.assignable(reg.depth - 1, t)
     if reg.in_registers(reg.depth - 1):
         reg.spill(reg.depth - 1)
-    err.position(lex.line, lex.col)
+    here()
 
 
 def for_statement():
@@ -949,7 +959,7 @@ def for_statement():
     with_loop = fbuf.NO_SLOT
     lex.next()
     s = parts.loop_variable()
-    t = kernel.byte_of(s, kernel.C_TYPE)
+    t = kernel.type_of(s)
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
     parts.push_variable(s)
     line = lex.line
@@ -961,7 +971,7 @@ def for_statement():
         reg.assignable(reg.depth - 1, t)
     first = reg.op_value[reg.depth - 1]
     gen.store()
-    err.position(lex.line, lex.col)
+    here()
     if lex.tok != lex.T_TO and lex.tok != lex.T_DOWNTO and lex.tok != lex.T_UNTIL:
         err.fatal(err.E_TO_EXPECTED)
     down = lex.tok == lex.T_DOWNTO
@@ -970,7 +980,7 @@ def for_statement():
     limit_value(t)
     limit = reg.depth - 1
     lex.expect(lex.T_DO, err.E_DO_EXPECTED)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     op = fold.LE
     if down:
         op = fold.GE
@@ -1061,15 +1071,15 @@ def case_statement():
         reg.become(selector, reg.O_A, t)
     if reg.in_registers(selector):
         reg.spill(selector)
-    err.position(lex.line, lex.col)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    here()
+    line_end()
     done = fbuf.new_label()
     base = case_count
     while lex.tok == lex.T_OF:
         lex.next()
         chosen = fbuf.new_label()
         other = case_constants(selector, chosen, base)
-        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+        line_end()
         reg.label(chosen)               # the selector is in A on every way in
         body()
         if lex.tok == lex.T_END:
@@ -1080,7 +1090,7 @@ def case_statement():
             reg.label(other)
     if lex.tok == lex.T_ELSE:
         lex.next()
-        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+        line_end()
         body()
     end_of_block()
     reg.label(done)
@@ -1093,7 +1103,7 @@ def critical_statement():
     that leave the block restore the flags first (docs/codegen.md, "Statements")."""
     global critical_depth, critical_inner
     lex.next()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     fbuf.op(OP_PHP)
     fbuf.op(OP_SEI)
     critical_depth += 1
@@ -1114,7 +1124,7 @@ def with_statement():
     global with_function, with_loop
     line = lex.line
     col = lex.col
-    if kernel.byte_of(function, kernel.C_FLAGS) & inline.SF_INTERRUPT != 0:
+    if kernel.flags_of(function) & inline.SF_INTERRUPT != 0:
         err.fatal(err.E_WITH_INTERRUPT)
     if inline.level > 0:
         err.fatal(err.E_INLINE_NOT_HERE)
@@ -1124,7 +1134,7 @@ def with_statement():
     region = lex.value
     lex.next()
     lex.expect(lex.T_DO, err.E_DO_EXPECTED)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     outer_region = out.with_region
     outer_used = out.with_used
     saved_function = with_function
@@ -1175,7 +1185,7 @@ def directive():
             and reg.op_type[i] != typetab.BOOL_TYPE:
         err.fatal(err.E_TYPE)
     reg.pop()
-    err.position(lex.line, lex.col)
+    here()
     if lex.tok != lex.T_NL:
         err.fatal(err.E_NL_EXPECTED)
     err.position(line, col)
@@ -1202,7 +1212,7 @@ def status():
     expression()
     err.position(line, col)
     gen.carry()
-    err.position(lex.line, lex.col)
+    here()
 
 
 def passes_on(t):
@@ -1226,7 +1236,7 @@ def value_and_status(t):
         return
     err.position(line, col)
     gen.accept(t)
-    err.position(lex.line, lex.col)
+    here()
     lex.expect(lex.T_COMMA, err.E_RESULTS)
     status()                            # may need A: the value waits where it is
     gen.load_result()
@@ -1236,7 +1246,7 @@ def return_statement():
     """"return" [ expression [ "," expression ] ], as the function's results require. The
     value goes to A, or A and X, and a `bool` to the carry flag."""
     results = kernel.byte_of(function, kernel.C_RESULTS)
-    first = kernel.word_of(function, kernel.C_MEMBERS) + kernel.byte_of(function, kernel.C_PARAMS)
+    first = kernel.word_of(function, kernel.C_MEMBERS) + kernel.params_of(function)
     if critical_depth > 0 and results > 0 and kernel.member_value_of(first + results - 1) == gen.REG_C:
         err.fatal(err.E_STATUS_IN_CRITICAL)     # PLP would change the carry flag
     lex.next()
@@ -1257,7 +1267,7 @@ def return_statement():
         err.position(line, col)
         if not keep or gen.pend_op == 0 or gen.pend_type != t:
             gen.accept(t)
-        err.position(lex.line, lex.col)
+        here()
         if not keep and t != typetab.BOOL_TYPE:
             gen.load_result()
     parts.restore_flags(critical_depth)
@@ -1309,7 +1319,7 @@ def statement():
         directive()
     else:
         err.fatal(err.E_STMT_EXPECTED)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def ends_body(token):
@@ -1336,7 +1346,7 @@ def inline_argument(f, i):
     gen.as_value()
     gen.accept(kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + i))
     inline.argument_symbol(f, i)
-    err.position(lex.line, lex.col)
+    here()
 
 
 # What expand() keeps while an expansion's body is compiled, by inline.depth: in arrays and not
@@ -1359,7 +1369,7 @@ def inline_arguments(f):
     count = 0
     if lex.tok != lex.T_RPAREN:
         while True:
-            if count == kernel.byte_of(f, kernel.C_PARAMS):
+            if count == kernel.params_of(f):
                 err.fatal(err.E_ARG_COUNT)
             inline_argument(f, count)
             count += 1
@@ -1368,7 +1378,7 @@ def inline_arguments(f):
             lex.next()
     if lex.tok != lex.T_RPAREN:
         err.fatal(err.E_RPAREN_EXPECTED)
-    if count != kernel.byte_of(f, kernel.C_PARAMS):
+    if count != kernel.params_of(f):
         err.fatal(err.E_ARG_COUNT)
 
 

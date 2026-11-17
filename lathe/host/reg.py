@@ -569,10 +569,10 @@ def dereferenced(i):
             return False
         zero_page(i)
         return True
-    if s == kernel.NO_SYM or kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_NOZP != 0 \
-            or (kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_LOCAL):
+    if s == kernel.NO_SYM or kernel.flags_of(s) & kernel.SF_NOZP != 0 \
+            or (kernel.scope_of(s) != kernel.SCOPE_MODULE and kernel.scope_of(s) != kernel.SCOPE_LOCAL):
         return False
-    kernel.set_byte(s, kernel.C_FLAGS, kernel.byte_of(s, kernel.C_FLAGS) | kernel.SF_ZP)
+    kernel.set_byte(s, kernel.C_FLAGS, kernel.flags_of(s) | kernel.SF_ZP)
     op_flags[i] = op_flags[i] | F_ZP
     return True
 
@@ -1126,13 +1126,13 @@ def class_symbol(s):
     """The object-file symbol of the pointer class of function type `s`, the symbol that
     declares it. The first use writes its SYM record and its CLAS record."""
     if kernel.word_of(s, kernel.C_OBJ) == kernel.NO_OBJ:
-        kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_CLASS, kernel.module_name[kernel.byte_of(s, kernel.C_SCOPE)], 0,
+        kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_CLASS, kernel.module_name[kernel.scope_of(s)], 0,
                                        kernel.word_of(s, kernel.C_NAME)))
         flags = 0
-        if typetab.is_recursive(kernel.byte_of(s, kernel.C_TYPE)):
+        if typetab.is_recursive(kernel.type_of(s)):
             flags = out.CLASS_RECURSIVE
-        out.pointer_class(kernel.word_of(s, kernel.C_OBJ), flags, kernel.byte_of(s, kernel.C_PARAMS))
-        for m in range(kernel.word_of(s, kernel.C_MEMBERS), kernel.word_of(s, kernel.C_MEMBERS) + kernel.byte_of(s, kernel.C_PARAMS)):
+        out.pointer_class(kernel.word_of(s, kernel.C_OBJ), flags, kernel.params_of(s))
+        for m in range(kernel.word_of(s, kernel.C_MEMBERS), kernel.word_of(s, kernel.C_MEMBERS) + kernel.params_of(s)):
             out.class_parameter(typetab.size(kernel.member_type_of(m)))
     return kernel.word_of(s, kernel.C_OBJ)
 
@@ -1154,19 +1154,19 @@ def same_region(one, other):
 def object_symbol(s):
     """The object-file number of function or variable `s`, or of the pointer class of function
     type `s`, which gets its SYM record when it is first used."""
-    if kernel.byte_of(s, kernel.C_KIND) == kernel.K_TYPE:
+    if kernel.kind_of(s) == kernel.K_TYPE:
         return class_symbol(s)
     if kernel.word_of(s, kernel.C_OBJ) == kernel.NO_OBJ:
         kind = out.SYM_FUNCTION
-        if kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR:
+        if kernel.kind_of(s) == kernel.K_VAR:
             kind = out.SYM_VARIABLE
-        elif kernel.byte_of(s, kernel.C_KIND) == kernel.K_CONST:
+        elif kernel.kind_of(s) == kernel.K_CONST:
             kind = out.SYM_DATA
-        kernel.set_word(s, kernel.C_OBJ, out.symbol(kind, kernel.module_name[kernel.byte_of(s, kernel.C_SCOPE)], 0,
+        kernel.set_word(s, kernel.C_OBJ, out.symbol(kind, kernel.module_name[kernel.scope_of(s)], 0,
                                        kernel.word_of(s, kernel.C_NAME)))
-    if kernel.byte_of(s, kernel.C_KIND) != kernel.K_FUNC and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0:
+    if kernel.kind_of(s) != kernel.K_FUNC and kernel.flags_of(s) & kernel.SF_IN != 0:
         # In a region: only inside a `with` block of that region, whose bank it names.
-        if not same_region(kernel.word_of(s, kernel.C_VALUE), out.with_region):
+        if not same_region(kernel.value_of(s), out.with_region):
             err.fatal(err.E_REGION_USE)
         if out.with_used == kernel.NO_OBJ:
             out.with_used = kernel.word_of(s, kernel.C_OBJ)
@@ -1181,15 +1181,15 @@ def fit_function(i, t):
         err.fatal(err.E_FUNC_ADDRESS)
     f = op_var[i]
     s = typetab.base(t)
-    if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_ASM != 0:
+    if kernel.flags_of(f) & kernel.SF_ASM != 0:
         err.fatal(err.E_REGISTER_FUNC)
-    if kernel.byte_of(f, kernel.C_PARAMS) != kernel.byte_of(s, kernel.C_PARAMS) or kernel.byte_of(f, kernel.C_RESULTS) != kernel.byte_of(s, kernel.C_RESULTS):
+    if kernel.params_of(f) != kernel.params_of(s) or kernel.byte_of(f, kernel.C_RESULTS) != kernel.byte_of(s, kernel.C_RESULTS):
         err.fatal(err.E_SIGNATURE)
-    for m in range(0, kernel.byte_of(f, kernel.C_PARAMS) + kernel.byte_of(f, kernel.C_RESULTS)):
+    for m in range(0, kernel.params_of(f) + kernel.byte_of(f, kernel.C_RESULTS)):
         if kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + m) != kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + m) \
                 or kernel.member_value_of(kernel.word_of(f, kernel.C_MEMBERS) + m) != kernel.member_value_of(kernel.word_of(s, kernel.C_MEMBERS) + m):
             err.fatal(err.E_SIGNATURE)
-    if typetab.is_recursive(t) and kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_RECURSIVE == 0:
+    if typetab.is_recursive(t) and kernel.flags_of(f) & kernel.SF_RECURSIVE == 0:
         err.fatal(err.E_NOT_RECURSIVE)
     out.member(class_symbol(s), op_symbol[i])
     op_type[i] = t

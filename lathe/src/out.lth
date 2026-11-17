@@ -32,9 +32,9 @@ module out
 import err (E_CALLS_FULL, E_CLASS_MEMBERS_FULL, E_DATA_FULL, fatal)
 import fbuf (code_length, fix_count, NO_SLOT, put_code, put_fixups, weight_count, weight_slot,
              weight_symbol, weight_value)
-import kernel (byte_of, C_KIND, C_OBJ, C_SCOPE, C_WEIGHT, close, K_VAR, MAX_SYMS, name_char,
-               name_length, NO_OBJ, NO_SYM, open_out, put, put_name, put_word, SCOPE_LOCAL,
-               SCOPE_MODULE, sym_count, thaw_top, word_of)
+import kernel (byte_of, C_OBJ, C_WEIGHT, close, K_VAR, kind_of, MAX_SYMS, name_char, name_length,
+               NO_OBJ, NO_SYM, open_out, put, put_name, put_word, SCOPE_LOCAL, SCOPE_MODULE,
+               scope_of, sym_count, thaw_top, word_of)
 
 const VERSION = 4
 
@@ -393,8 +393,8 @@ end
 
 ; True if kernel symbol `s` is a variable of another module that this one used.
 func is_foreign_variable(s: word): bool
-  return kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_MODULE and
-      kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_LOCAL and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ and
+  return kernel.kind_of(s) == kernel.K_VAR and kernel.scope_of(s) != kernel.SCOPE_MODULE and
+      kernel.scope_of(s) != kernel.SCOPE_LOCAL and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ and
       kernel.byte_of(s, kernel.C_WEIGHT) != 0
 end
 

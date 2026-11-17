@@ -461,6 +461,24 @@ Together they build an image with which `test_bbc_toolchain.py` passes.
 
 **What follows.** Eight banks need about 8.4 KB less in all, the linker's code in three banks, and the module's code and the resident parts at the ends of code banks. Only the messages are near that size alone: kept in a file on the disc, they free 8,333 bytes of the ROM, 2,839 of them in the linker's first bank, after which its code packs into three banks (a search over the module sizes as judged, with 971 bytes to spare in all, 129 in the fullest bank). The refactorings above and more of their kind are worth about 2 to 3 KB; sharing the libraries' resident copies at most 1.5 KB, less what the mechanism would cost. Seven banks would need about 25 KB less and the compiler's code in four banks: that is not reached without cutting `inline` and the embedded assembler as well.
 
+### Built: the compiler's source made smaller (2026-11-17)
+
+Four of the changes measured above, built in host and twin with every compile byte for byte as before, and two more; bytes of the compiler for the eight-bank image (its banks as placed, slot 13's constants and its resident part, `test_bbc_rom128.build_tools`), main RAM free in the eight-bank ROM form at ADFS's PAGE with `BBCFS 2`:
+
+| Change (commit) | Compiler | Resident | Main RAM free |
+|---|---|---|---|
+| before (05824fd) | 82,147 | 14,046 | 51 |
+| `kernel.name_word` and `name_set_word` plain functions with a block each (9f5ada5) | 81,692 (−455) | 13,605 | 492 |
+| `expr.here()` for the 28 `err.position(lex.line, lex.col)` (d7d6d3b) | 81,362 (−330) | | |
+| `line_end()` in EXPR and DECL for the 28 `lex.expect(lex.T_NL, err.E_NL_EXPECTED)` (3d4c852) | 81,264 (−98) | | |
+| `name_symbol` and `name_set_symbol` without a block; `name_end`'s walk reads the link in line (713d244) | 81,278 (+14) | | 547 |
+| `sym_find`, `thaw`, `freeze` and the `built_` walks through `name_byte` and the rest, out of fixed memory; one layout for both images (ff50d27) | 81,091 (−187) | 11,740 | 2,357 |
+| `kernel.flags_of()` and five more accessors of one column, fixed (da24c33) | 80,838 (−253) | 11,932 | 2,166 |
+
+In all 1,309 bytes, and the gate's account (`test_bbc_rom128.py`) from 4,463 bytes over to 3,154; the compiler's banks as judged 15,466, 15,396, 15,343, 12,342 and 13,648. The cycles of each step are in [`configurations.md`](configurations.md), "Kernel's functions out of fixed memory, and accessors of one column": the self-compile 2.0 % faster on Wendy 2 and 6.8 % on the BBC (most of that the layout's fewer far calls). `name_word` as a plain function alone cost 2.5 % on Wendy 2 and 1.7 % on the BBC, which `name_end`'s walk, the hottest of its calls, reading the link in its own block took back.
+
+Looked at and left, each under about 60 bytes: `here()` in PARTS (3 calls) and DECL (1); `lex.expect` with the other tokens (at most 7 calls of one pair); helpers for the commonest `err.fatal` numbers (23 calls of error 44 across eight modules, 2 bytes a call); `expr.variable`'s three `set_word` of a slot and two `lasting_variable` calls (about 50); a pointer in `name_word` and its kin for the second byte (22, fixed). The pairs `line = lex.line` / `col = lex.col` and `err.position(line, col)` (35 and 37 in EXPR, about 24 and 12 bytes each) are the largest pattern left, but a position kept for an error belongs to ERR. The accessors placed in kernel's bank, with no block, would save more bytes but make most of the column reads far calls.
+
 ## Size for a 128 KB ROM: the generated code, measured (2026-11-17)
 
 The question: how much of the two tools' code is more than the code model needs, and which changes to the code generator, the code model or the run-time would pay for themselves when the compiler (which is in the ROM too) compiles itself and the linker. Measured on the compiler as `lathec-bbc.env` builds it and the linker as `linker-bbc.env` builds it, from `main` at d92d442. "Measured" is a build; "counted" is a scan of the code as built; "estimated" says how.

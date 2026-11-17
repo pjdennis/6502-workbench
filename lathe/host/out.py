@@ -323,8 +323,8 @@ def function_end():
 
 def is_foreign_variable(s):
     """True if kernel symbol `s` is a variable of another module that this one used."""
-    return kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_MODULE \
-        and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_LOCAL and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ \
+    return kernel.kind_of(s) == kernel.K_VAR and kernel.scope_of(s) != kernel.SCOPE_MODULE \
+        and kernel.scope_of(s) != kernel.SCOPE_LOCAL and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ \
         and kernel.byte_of(s, kernel.C_WEIGHT) != 0
 
 

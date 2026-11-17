@@ -156,6 +156,11 @@ def init():
             kernel.name_add(BUILTINS[i])
 
 
+def line_end():
+    """The current token must end the line; the next line's first token is read."""
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+
+
 def directory_add(name):
     """Interfaces are looked for in the directory whose name is at `name`, after those added before."""
     global directory_count
@@ -191,7 +196,7 @@ def write_type(stream, t):
     if typetab.is_record(t) or typetab.is_enum(t) or typetab.is_func(t):
         s = typetab.base(t)
         kernel.put(stream, LI_NAMED)
-        kernel.put_name(stream, kernel.module_name[kernel.byte_of(s, kernel.C_SCOPE)])
+        kernel.put_name(stream, kernel.module_name[kernel.scope_of(s)])
         kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
     else:
         kernel.put(stream, t)
@@ -202,16 +207,16 @@ def write_named_type(stream, s):
     name for a type. Every record, enumeration and function type is written, so that what is
     exported can use them; one not `pub` is known to an importer but cannot be named there.
     Another name for a type is written only if it is `pub`."""
-    t = kernel.byte_of(s, kernel.C_TYPE)
+    t = kernel.type_of(s)
     kind = LI_TYPE
     if (typetab.is_record(t) or typetab.is_enum(t) or typetab.is_func(t)) and typetab.base(t) == s:
         kind = LI_RECORD + typetab.form[t] - typetab.FORM_RECORD
-    elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB == 0:
+    elif kernel.flags_of(s) & kernel.SF_PUB == 0:
         return
     kernel.put(stream, kind)
     kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
     flags = 0
-    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB != 0:
+    if kernel.flags_of(s) & kernel.SF_PUB != 0:
         flags = LI_PUB
     if kind == LI_FUNC_TYPE and typetab.is_recursive(t):
         flags = flags | LI_RECURSIVE
@@ -221,10 +226,10 @@ def write_named_type(stream, s):
     elif kind == LI_TYPE:
         write_type(stream, t)
     elif kind == LI_RECORD:
-        kernel.put(stream, kernel.byte_of(s, kernel.C_PARAMS))
-        for f in range(s + 1, s + 1 + kernel.byte_of(s, kernel.C_PARAMS)):
+        kernel.put(stream, kernel.params_of(s))
+        for f in range(s + 1, s + 1 + kernel.params_of(s)):
             kernel.put_name(stream, kernel.word_of(f, kernel.C_NAME))
-            write_type(stream, kernel.byte_of(f, kernel.C_TYPE))
+            write_type(stream, kernel.type_of(f))
 
 
 def write_members(stream, first, count):
@@ -236,58 +241,58 @@ def write_members(stream, first, count):
 
 def write_signature(stream, s):
     """The parameters and results of function or function type `s`."""
-    write_members(stream, kernel.word_of(s, kernel.C_MEMBERS), kernel.byte_of(s, kernel.C_PARAMS))
-    write_members(stream, kernel.word_of(s, kernel.C_MEMBERS) + kernel.byte_of(s, kernel.C_PARAMS), kernel.byte_of(s, kernel.C_RESULTS))
+    write_members(stream, kernel.word_of(s, kernel.C_MEMBERS), kernel.params_of(s))
+    write_members(stream, kernel.word_of(s, kernel.C_MEMBERS) + kernel.params_of(s), kernel.byte_of(s, kernel.C_RESULTS))
 
 
 def write_function(stream, s):
     kernel.put(stream, LI_FUNC)
     kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_EXTERN != 0:
+    if kernel.flags_of(s) & kernel.SF_EXTERN != 0:
         kernel.put(stream, LI_EXTERN)
-        kernel.put_word(stream, kernel.word_of(s, kernel.C_VALUE))
-    elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_ASM != 0:
+        kernel.put_word(stream, kernel.value_of(s))
+    elif kernel.flags_of(s) & kernel.SF_ASM != 0:
         kernel.put(stream, LI_ASM)
-    elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0:
+    elif kernel.flags_of(s) & kernel.SF_RECURSIVE != 0:
         kernel.put(stream, LI_RECURSIVE)
-    elif kernel.byte_of(s, kernel.C_FLAGS) & inline.SF_INLINE != 0:
+    elif kernel.flags_of(s) & inline.SF_INLINE != 0:
         kernel.put(stream, LI_INLINE)
-    elif kernel.byte_of(s, kernel.C_FLAGS) & inline.SF_INTERRUPT != 0:
+    elif kernel.flags_of(s) & inline.SF_INTERRUPT != 0:
         kernel.put(stream, LI_INTERRUPT)
     else:
         kernel.put(stream, 0)
     write_signature(stream, s)
-    if kernel.byte_of(s, kernel.C_FLAGS) & inline.SF_INLINE != 0:
+    if kernel.flags_of(s) & inline.SF_INLINE != 0:
         inline.write(stream, s)
 
 
 def write_constant(stream, s):
-    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0:
+    if kernel.flags_of(s) & kernel.SF_IN != 0:
         kernel.put(stream, LI_CONST_IN)
         kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-        write_type(stream, kernel.byte_of(s, kernel.C_TYPE))
+        write_type(stream, kernel.type_of(s))
         kernel.put_word(stream, 0)
-        kernel.put_name(stream, kernel.word_of(s, kernel.C_VALUE))
+        kernel.put_name(stream, kernel.value_of(s))
         return
     kernel.put(stream, LI_CONST)
     kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-    write_type(stream, kernel.byte_of(s, kernel.C_TYPE))
-    kernel.put_word(stream, kernel.word_of(s, kernel.C_VALUE))
+    write_type(stream, kernel.type_of(s))
+    kernel.put_word(stream, kernel.value_of(s))
 
 
 def write_variable(stream, s):
     kernel.put(stream, LI_VAR)
     kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-    write_type(stream, kernel.byte_of(s, kernel.C_TYPE))
-    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT != 0:
+    write_type(stream, kernel.type_of(s))
+    if kernel.flags_of(s) & kernel.SF_AT != 0:
         kernel.put(stream, LI_AT)
-        kernel.put_word(stream, kernel.word_of(s, kernel.C_VALUE))
-    elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0:
+        kernel.put_word(stream, kernel.value_of(s))
+    elif kernel.flags_of(s) & kernel.SF_IN != 0:
         kernel.put(stream, LI_IN)
-        kernel.put_name(stream, kernel.word_of(s, kernel.C_VALUE))
-    elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_ZP != 0:
+        kernel.put_name(stream, kernel.value_of(s))
+    elif kernel.flags_of(s) & kernel.SF_ZP != 0:
         kernel.put(stream, LI_ZP)
-    elif kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_NOZP != 0:
+    elif kernel.flags_of(s) & kernel.SF_NOZP != 0:
         kernel.put(stream, LI_NOZP)
     else:
         kernel.put(stream, 0)
@@ -304,29 +309,29 @@ def write_interface():
     kernel.put_name(stream, kernel.module_name[0])
     expands = False                     # an importer may expand an inline function of this one
     for s in range(0, kernel.sym_count):
-        if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC \
-                and kernel.byte_of(s, kernel.C_FLAGS) & (kernel.SF_PUB | inline.SF_INLINE) == kernel.SF_PUB | inline.SF_INLINE:
+        if kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_FUNC \
+                and kernel.flags_of(s) & (kernel.SF_PUB | inline.SF_INLINE) == kernel.SF_PUB | inline.SF_INLINE:
             expands = True
     # What each exported inline function's body names, newest function first (read_uses()).
     s = kernel.sym_count
     while s > 0:
         s -= 1
-        if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC \
-                and kernel.byte_of(s, kernel.C_FLAGS) & (kernel.SF_PUB | inline.SF_INLINE) == kernel.SF_PUB | inline.SF_INLINE:
+        if kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_FUNC \
+                and kernel.flags_of(s) & (kernel.SF_PUB | inline.SF_INLINE) == kernel.SF_PUB | inline.SF_INLINE:
             kernel.put(stream, LI_USES)
             kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
             inline.write_uses(stream, s)
     for s in range(0, kernel.sym_count):
-        if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_TYPE:
+        if kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_TYPE:
             write_named_type(stream, s)
-        elif kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE:
+        elif kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_MODULE:
             if expands:
                 kernel.put(stream, LI_MODULE)
                 kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-        elif kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB != 0:
-            if kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC:
+        elif kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.flags_of(s) & kernel.SF_PUB != 0:
+            if kernel.kind_of(s) == kernel.K_FUNC:
                 write_function(stream, s)
-            elif kernel.byte_of(s, kernel.C_KIND) == kernel.K_CONST:
+            elif kernel.kind_of(s) == kernel.K_CONST:
                 write_constant(stream, s)
             else:
                 write_variable(stream, s)
@@ -362,9 +367,9 @@ def imported_type(stream):
     if scope == kernel.module_count:
         err.fatal(err.E_TYPE_MODULE)
     s, found = kernel.sym_find(scope, inline.read_name(stream))
-    if not found or kernel.byte_of(s, kernel.C_KIND) != kernel.K_TYPE:
+    if not found or kernel.kind_of(s) != kernel.K_TYPE:
         err.fatal(err.E_BAD_INTERFACE)
-    return kernel.byte_of(s, kernel.C_TYPE)
+    return kernel.type_of(s)
 
 
 def read_named_type(stream, scope, kind, again):
@@ -422,11 +427,11 @@ def skip_named_type(stream, kind):
 
 def add_field(s, name, t):
     """A field called `name` of type `t` after the others of the record that `s` declares."""
-    r = kernel.byte_of(s, kernel.C_TYPE)
+    r = kernel.type_of(s)
     f = kernel.sym_add(kernel.SCOPE_FIELDS + r, name, kernel.K_FIELD)
     kernel.set_byte(f, kernel.C_TYPE, t)
     kernel.set_word(f, kernel.C_VALUE, typetab.grow(r, typetab.size(t)))
-    kernel.set_byte(s, kernel.C_PARAMS, kernel.byte_of(s, kernel.C_PARAMS) + 1)
+    kernel.set_byte(s, kernel.C_PARAMS, kernel.params_of(s) + 1)
 
 
 def read_members(stream):
@@ -561,11 +566,11 @@ def pending(number):
             if not found:
                 more = True
             elif listed(i):
-                kind = kernel.byte_of(s, kernel.C_KIND)
+                kind = kernel.kind_of(s)
                 if kind == kernel.K_MODULE or (kind == kernel.K_TYPE
-                                               and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB == 0):
+                                               and kernel.flags_of(s) & kernel.SF_PUB == 0):
                     not_exported(i)
-                kernel.set_byte(s, kernel.C_FLAGS, kernel.byte_of(s, kernel.C_FLAGS) & ~kernel.SF_HIDDEN)
+                kernel.set_byte(s, kernel.C_FLAGS, kernel.flags_of(s) & ~kernel.SF_HIDDEN)
             if found:
                 want_flags[i] = want_flags[i] | W_FOUND
     return more
@@ -834,7 +839,7 @@ def module_line():
     if lex.value != kernel.module_name[0]:
         err.fatal(err.E_MODULE_NAME)
     lex.next()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def import_list(name):
@@ -892,7 +897,7 @@ def import_line():
     want_count = 0
     kernel.set_word(s, kernel.C_VALUE, m)
     err.position(lex.line, lex.col)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 # ---- Functions ---------------------------------------------------------------------------
@@ -904,11 +909,11 @@ def function_symbol(flags):
     if lex.tok != lex.T_NAME:
         err.fatal(err.E_NAME_EXPECTED)
     s, found = kernel.sym_find(kernel.SCOPE_MODULE, lex.value)
-    if found and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_FORWARD != 0 \
+    if found and kernel.kind_of(s) == kernel.K_FUNC and kernel.flags_of(s) & kernel.SF_FORWARD != 0 \
             and flags & kernel.SF_FORWARD == 0:
         if flags & (inline.SF_INLINE | inline.SF_INTERRUPT) != 0:
             err.fatal(err.E_ATTRIBUTES)
-        if (kernel.byte_of(s, kernel.C_FLAGS) ^ flags) & kernel.SF_RECURSIVE != 0:
+        if (kernel.flags_of(s) ^ flags) & kernel.SF_RECURSIVE != 0:
             err.fatal(err.E_FORWARD)
         kernel.set_byte(s, kernel.C_FLAGS, flags)
         lex.next()
@@ -997,7 +1002,7 @@ def extern_declaration(flags):
     kernel.set_byte(s, kernel.C_RESULTS, register_results())
     lex.expect(lex.T_AT, err.E_AT_EXPECTED)
     kernel.set_word(s, kernel.C_VALUE, expr.constant_number())
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def asm_function_declaration(flags):
@@ -1016,17 +1021,17 @@ def asm_function_declaration(flags):
     gen.function_end(object_flags(s) | out.FUNC_REGISTERS)
     kernel.scope_end()
     lex.next()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def object_flags(s):
     """The flags of function `s` as its FUNC record has them."""
     flags = 0
-    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB != 0:
+    if kernel.flags_of(s) & kernel.SF_PUB != 0:
         flags = out.FUNC_EXPORTED
-    if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0:
+    if kernel.flags_of(s) & kernel.SF_RECURSIVE != 0:
         flags = flags | out.FUNC_RECURSIVE
-    if kernel.byte_of(s, kernel.C_FLAGS) & inline.SF_INTERRUPT != 0:
+    if kernel.flags_of(s) & inline.SF_INTERRUPT != 0:
         flags = flags | out.FUNC_INTERRUPT
     return flags
 
@@ -1042,7 +1047,7 @@ def member(s, fresh, index, where):
         where = result_register(t)
     if fresh:
         kernel.member_add(t, where)
-    elif index >= kernel.byte_of(s, kernel.C_PARAMS) + kernel.byte_of(s, kernel.C_RESULTS) \
+    elif index >= kernel.params_of(s) + kernel.byte_of(s, kernel.C_RESULTS) \
             or kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + index) != t \
             or kernel.member_value_of(kernel.word_of(s, kernel.C_MEMBERS) + index) != where:
         err.position(line, col)
@@ -1103,26 +1108,26 @@ def head(s, fresh):
     count = parameters(s, fresh)
     if fresh:
         kernel.set_byte(s, kernel.C_PARAMS, count)
-    elif count != kernel.byte_of(s, kernel.C_PARAMS):
+    elif count != kernel.params_of(s):
         err.fatal(err.E_FORWARD)
     count = results(s, fresh, count)
     if fresh:
         kernel.set_byte(s, kernel.C_RESULTS, count)
     elif count != kernel.byte_of(s, kernel.C_RESULTS):
         err.fatal(err.E_FORWARD)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def lasting_variables(first, scope):
     """Write the VAR record of each variable of `scope` from symbol `first` on that lives for
     the whole program. Its weight is complete: nothing that follows can use it."""
     for s in range(first, kernel.sym_count):
-        if kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR and kernel.byte_of(s, kernel.C_SCOPE) == scope \
-                and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_AT == 0:
-            if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0:
-                out.region(kernel.word_of(s, kernel.C_VALUE))
-            out.variable(kernel.word_of(s, kernel.C_OBJ), typetab.size(kernel.byte_of(s, kernel.C_TYPE)),
-                         parts.zp_class(kernel.byte_of(s, kernel.C_FLAGS)), kernel.byte_of(s, kernel.C_WEIGHT))
+        if kernel.kind_of(s) == kernel.K_VAR and kernel.scope_of(s) == scope \
+                and kernel.flags_of(s) & kernel.SF_AT == 0:
+            if kernel.flags_of(s) & kernel.SF_IN != 0:
+                out.region(kernel.value_of(s))
+            out.variable(kernel.word_of(s, kernel.C_OBJ), typetab.size(kernel.type_of(s)),
+                         parts.zp_class(kernel.flags_of(s)), kernel.byte_of(s, kernel.C_WEIGHT))
 
 
 def function_declaration(flags):
@@ -1137,13 +1142,13 @@ def function_declaration(flags):
     # been read: every name made from here on is a parameter's or a local's.
     kernel.scope_begin()
     gen.function_begin(reg.object_symbol(s))
-    gen.saves_frame = kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0
+    gen.saves_frame = kernel.flags_of(s) & kernel.SF_RECURSIVE != 0
     head(s, fresh)
     if flags & kernel.SF_FORWARD != 0:
         kernel.scope_end()
         return
     if flags & inline.SF_INTERRUPT != 0:
-        if kernel.byte_of(s, kernel.C_PARAMS) + kernel.byte_of(s, kernel.C_RESULTS) != 0:
+        if kernel.params_of(s) + kernel.byte_of(s, kernel.C_RESULTS) != 0:
             err.position(line, col)
             err.fatal(err.E_INTERRUPT_HEAD)
         gen.interrupt_entry()
@@ -1157,7 +1162,7 @@ def function_declaration(flags):
     # taken for one of the function's own names.
     kernel.scope_end()
     lex.next()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def inline_declaration(flags):
@@ -1173,7 +1178,7 @@ def inline_declaration(flags):
     kernel.local_names = kernel.name_top
     kernel.scope_end()
     lex.next()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def attributed_declaration(flags):
@@ -1229,7 +1234,7 @@ def constant_declaration(flags):
         if region != 0:
             kernel.set_byte(s, kernel.C_FLAGS, flags | kernel.SF_IN)
             kernel.set_word(s, kernel.C_VALUE, region)
-        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+        line_end()
         return
     if region != 0:
         parts.not_in_region()
@@ -1244,7 +1249,7 @@ def constant_declaration(flags):
     kernel.set_byte(s, kernel.C_TYPE, reg.op_type[reg.depth - 1])
     kernel.set_word(s, kernel.C_VALUE, reg.op_value[reg.depth - 1])
     reg.pop()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def init_symbol(number):
@@ -1271,8 +1276,8 @@ def init_early():
 def check_bodies():
     """Every function declared `forward` must have had its body."""
     for s in range(0, kernel.sym_count):
-        if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC \
-                and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_FORWARD != 0:
+        if kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_FUNC \
+                and kernel.flags_of(s) & kernel.SF_FORWARD != 0:
             err.fatal(err.E_NO_BODY)
 
 
@@ -1288,7 +1293,7 @@ def record_type(s):
     t = typetab.declared(typetab.FORM_RECORD, s)
     kernel.set_byte(s, kernel.C_TYPE, t)
     lex.next()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     while lex.tok != lex.T_END:
         name = parts.new_name(kernel.SCOPE_FIELDS + t)
         lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
@@ -1300,7 +1305,7 @@ def record_type(s):
         if typetab.innermost(f) == t:
             err.fatal(err.E_RECORD_SELF)
         add_field(s, name, f)
-        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+        line_end()
     if typetab.size(t) == 0:
         err.fatal(err.E_EMPTY_RECORD)
     lex.next()
@@ -1352,7 +1357,7 @@ def type_declaration(flags):
         err.position(line, col)
         parts.layout(t)
         kernel.set_byte(type_symbol(name, flags), kernel.C_TYPE, t)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def enum_declaration(flags):
@@ -1362,7 +1367,7 @@ def enum_declaration(flags):
     s = type_symbol(parts.new_name(kernel.SCOPE_MODULE), flags)
     t = typetab.declared(typetab.FORM_ENUM, s)
     kernel.set_byte(s, kernel.C_TYPE, t)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     value = 0
     while lex.tok != lex.T_END:
         line = lex.line
@@ -1381,9 +1386,9 @@ def enum_declaration(flags):
         kernel.set_byte(c, kernel.C_TYPE, t)
         kernel.set_word(c, kernel.C_VALUE, value)
         value += 1
-        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+        line_end()
     lex.next()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
 
 
 def declaration():
@@ -1427,10 +1432,10 @@ def declaration():
         enum_declaration(flags)
     elif lex.tok == lex.T_VAR:
         expr.variable(flags, expr.LEVEL_MODULE)
-        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+        line_end()
     elif lex.tok == lex.T_HASH_IF:
         expr.directive()
-        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+        line_end()
     elif lex.tok == lex.T_STATIC:
         err.fatal(err.E_UNSUPPORTED)
     else:
@@ -1455,7 +1460,7 @@ def unit():
         err.fatal(err.E_CREATE)
     out.begin_module(gen.cpu, kernel.module_name[0])
     for s in range(0, kernel.sym_count):
-        if kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE and kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE:
+        if kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_MODULE:
             out.imported(kernel.word_of(s, kernel.C_NAME))
     while lex.tok != lex.T_EOF:
         if gen.init_count >= gen.INIT_FLUSH:

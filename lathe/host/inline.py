@@ -130,7 +130,7 @@ def put_word(value):
 
 def param(f, i):
     """Where the record of inline function `f` has its parameter `i`."""
-    return kernel.word_of(f, kernel.C_VALUE) + R_PARAMS + i * PARAM_SIZE
+    return kernel.value_of(f) + R_PARAMS + i * PARAM_SIZE
 
 
 def begin_record(f, line, file_name):
@@ -141,7 +141,7 @@ def begin_record(f, line, file_name):
     put_word(file_name)
     put(0)
     put_word(0)
-    for i in range(0, kernel.byte_of(f, kernel.C_PARAMS)):
+    for i in range(0, kernel.params_of(f)):
         put_word(0)
         put(0)
 
@@ -150,7 +150,7 @@ def begin_record(f, line, file_name):
 
 def parameter_number(f, name):
     """The number of the parameter of `f` called `name`, or 0xFF."""
-    for i in range(0, kernel.byte_of(f, kernel.C_PARAMS)):
+    for i in range(0, kernel.params_of(f)):
         if word_at(param(f, i)) == name:
             return i
     return 0xFF
@@ -179,15 +179,15 @@ def check_name(f, name):
     s, found = kernel.sym_lookup(name)
     if not found:
         err.fatal(err.E_UNDEFINED)
-    if kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_PUB != 0 and kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE \
-            and kernel.byte_of(s, kernel.C_KIND) != kernel.K_MODULE and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB == 0:
+    if kernel.flags_of(f) & kernel.SF_PUB != 0 and kernel.scope_of(s) == kernel.SCOPE_MODULE \
+            and kernel.kind_of(s) != kernel.K_MODULE and kernel.flags_of(s) & kernel.SF_PUB == 0:
         err.fatal(err.E_INLINE_PRIVATE)
 
 
 def calls(name):
     """True if `name` followed by "(" is a call: it names a function (not a type or `lo`)."""
     s, found = kernel.sym_lookup(name)
-    return found and kernel.byte_of(s, kernel.C_KIND) == kernel.K_FUNC
+    return found and kernel.kind_of(s) == kernel.K_FUNC
 
 
 def assignment(f, before, before_value):
@@ -213,7 +213,7 @@ def assignment(f, before, before_value):
             scan_flags = scan_flags & ~PURE
         return
     s, _ = kernel.sym_lookup(target)            # check_name() has found it
-    if kernel.byte_of(s, kernel.C_KIND) != kernel.K_VAR or (indexed and typetab.is_pointer(kernel.byte_of(s, kernel.C_TYPE))) \
+    if kernel.kind_of(s) != kernel.K_VAR or (indexed and typetab.is_pointer(kernel.type_of(s))) \
             or (scan_written != 0 and scan_written != target):
         scan_flags = scan_flags & ~PURE
     else:
@@ -267,7 +267,7 @@ def save(f):
     global local_count, scan_flags, scan_written, scan_index, scan_first, scan_first_value, \
         scan_brackets, scan_close
     begin_record(f, lex.line, src.name)
-    for i in range(0, kernel.byte_of(f, kernel.C_PARAMS)):
+    for i in range(0, kernel.params_of(f)):
         set_word_at(param(f, i), kernel.word_of(kernel.local_base + i, kernel.C_NAME))
     local_count = 0
     scan_flags = PURE
@@ -286,7 +286,7 @@ def save(f):
         token = lex.tok
         if token == lex.T_EOF:
             err.fatal(err.E_END_EXPECTED)
-        if token == lex.T_NAME and dotted != kernel.NO_SYM and kernel.byte_of(dotted, kernel.C_FLAGS) & kernel.SF_LIST != 0:
+        if token == lex.T_NAME and dotted != kernel.NO_SYM and kernel.flags_of(dotted) & kernel.SF_LIST != 0:
             kernel.module_find(dotted, lex.value)       # `m.name`: in m's list (error 101)
         if token == lex.T_ASM or token == lex.T_STATIC or token == lex.T_HASH_IF \
                 or token == lex.T_WITH:
@@ -335,7 +335,7 @@ def save(f):
         named = kernel.NO_SYM
         if token == lex.T_NAME and before != lex.T_DOT and not is_own(f, lex.value):
             s, found = kernel.sym_lookup(lex.value)
-            if found and kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE:
+            if found and kernel.kind_of(s) == kernel.K_MODULE:
                 named = s
         at_line = save_token(at_line)
         scan_index += 1
@@ -347,7 +347,7 @@ def save(f):
         lex.next()
     if returns == 1 and last == lex.T_RETURN:
         scan_flags = scan_flags | LAST_RETURN
-    r = kernel.word_of(f, kernel.C_VALUE)
+    r = kernel.value_of(f)
     set_word_at(r + R_END, saved_top)
     kernel.set_token_byte(r + R_FLAGS, scan_flags)
     if scan_flags & PURE != 0:
@@ -370,7 +370,7 @@ def write(stream, f):
     """Write the record of exported inline function `f` after its entry in the interface: the
     file name as a string, the line, the flags, each parameter's name and whether it is
     assigned to, then the tokens with each name as a string, and T_EOF."""
-    r = kernel.word_of(f, kernel.C_VALUE)
+    r = kernel.value_of(f)
     name = word_at(r + R_FILE)
     length = 0
     while env.mem[name + length] != 0:
@@ -385,10 +385,10 @@ def write(stream, f):
     else:
         kernel.put(stream, 1)
         kernel.put_name(stream, word_at(r + R_WRITTEN))
-    for i in range(0, kernel.byte_of(f, kernel.C_PARAMS)):
+    for i in range(0, kernel.params_of(f)):
         kernel.put_name(stream, word_at(param(f, i)))
         kernel.put(stream, kernel.token_byte(param(f, i) + 2))
-    p = r + R_PARAMS + kernel.byte_of(f, kernel.C_PARAMS) * PARAM_SIZE
+    p = r + R_PARAMS + kernel.params_of(f) * PARAM_SIZE
     while p < word_at(r + R_END):
         token = kernel.token_byte(p)
         kernel.put(stream, token)
@@ -476,9 +476,9 @@ def write_uses(stream, f):
     global local_count, use_count
     local_count = 0
     use_count = 0
-    r = kernel.word_of(f, kernel.C_VALUE)
+    r = kernel.value_of(f)
     last = word_at(r + R_END)
-    p = r + R_PARAMS + kernel.byte_of(f, kernel.C_PARAMS) * PARAM_SIZE
+    p = r + R_PARAMS + kernel.params_of(f) * PARAM_SIZE
     before = lex.T_NL
     while p < last:
         token = kernel.token_byte(p)
@@ -490,13 +490,13 @@ def write_uses(stream, f):
             elif not is_own(f, name):
                 s, found = kernel.sym_lookup(name)
                 q = p + 2 + token_size(p)
-                if found and kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE:
+                if found and kernel.kind_of(s) == kernel.K_MODULE:
                     if q < last and kernel.token_byte(q) == lex.T_DOT:
                         q += 2
                         if q < last and kernel.token_byte(q) == lex.T_NAME:
                             use(name, word_at(q + 2))
-                elif found and kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_MODULE \
-                        and kernel.byte_of(s, kernel.C_KIND) >= kernel.K_FUNC and kernel.byte_of(s, kernel.C_KIND) <= kernel.K_VAR:
+                elif found and kernel.scope_of(s) == kernel.SCOPE_MODULE \
+                        and kernel.kind_of(s) >= kernel.K_FUNC and kernel.kind_of(s) <= kernel.K_VAR:
                     use(0, name)
         if token != lex.SAVED_LINE:
             before = token
@@ -519,11 +519,11 @@ def read(stream, f):
     env.mem[name + length] = 0
     begin_record(f, kernel.get_word(stream), name)
     flags, _ = kernel.get(stream)
-    kernel.set_token_byte(kernel.word_of(f, kernel.C_VALUE) + R_FLAGS, flags)
+    kernel.set_token_byte(kernel.value_of(f) + R_FLAGS, flags)
     written, _ = kernel.get(stream)
     if written != 0:
-        set_word_at(kernel.word_of(f, kernel.C_VALUE) + R_WRITTEN, read_name(stream))
-    for i in range(0, kernel.byte_of(f, kernel.C_PARAMS)):
+        set_word_at(kernel.value_of(f) + R_WRITTEN, read_name(stream))
+    for i in range(0, kernel.params_of(f)):
         set_word_at(param(f, i), read_name(stream))
         assigned, _ = kernel.get(stream)
         kernel.set_token_byte(param(f, i) + 2, assigned)
@@ -546,7 +546,7 @@ def read(stream, f):
             for i in range(0, length):
                 b, _ = kernel.get(stream)
                 put(b)
-    set_word_at(kernel.word_of(f, kernel.C_VALUE) + R_END, saved_top)
+    set_word_at(kernel.value_of(f) + R_END, saved_top)
 
 
 # ---- Expansions --------------------------------------------------------------------------
@@ -560,18 +560,18 @@ def lookup(name):
     if level == 0:
         return kernel.sym_lookup(name)
     scope = SCOPE_INLINE + level
-    home = kernel.byte_of(expanding[level], kernel.C_SCOPE)
+    home = kernel.scope_of(expanding[level])
     s = kernel.name_symbol(name)
-    while s != kernel.NO_SYM and kernel.byte_of(s, kernel.C_SCOPE) != scope and kernel.byte_of(s, kernel.C_SCOPE) != home \
-            and kernel.byte_of(s, kernel.C_SCOPE) != kernel.SCOPE_PREDECLARED:
+    while s != kernel.NO_SYM and kernel.scope_of(s) != scope and kernel.scope_of(s) != home \
+            and kernel.scope_of(s) != kernel.SCOPE_PREDECLARED:
         s = kernel.word_of(s, kernel.C_LINK)
-    if home != kernel.SCOPE_MODULE and (s == kernel.NO_SYM or kernel.byte_of(s, kernel.C_SCOPE) == kernel.SCOPE_PREDECLARED):
+    if home != kernel.SCOPE_MODULE and (s == kernel.NO_SYM or kernel.scope_of(s) == kernel.SCOPE_PREDECLARED):
         # An imported module's symbol may be frozen, or thawed under another entry of the name.
         t, found = kernel.sym_find(home, name)
         if found:
             s = t
-    if s != kernel.NO_SYM and kernel.byte_of(s, kernel.C_KIND) == K_ALIAS:
-        s = kernel.word_of(s, kernel.C_VALUE)
+    if s != kernel.NO_SYM and kernel.kind_of(s) == K_ALIAS:
+        s = kernel.value_of(s)
     return s, s != kernel.NO_SYM
 
 
@@ -614,7 +614,7 @@ def enter(f, results_wanted):
     of the calls whose arguments are being read stand for. Only expansions whose bodies are
     being compiled count for recursion: `f(f(x))` is two calls, one inside the other's arguments."""
     global depth
-    if kernel.token_byte(kernel.word_of(f, kernel.C_VALUE) + R_FLAGS) & PURE == 0 or word_at(kernel.word_of(f, kernel.C_VALUE) + R_WRITTEN) != 0:
+    if kernel.token_byte(kernel.value_of(f) + R_FLAGS) & PURE == 0 or word_at(kernel.value_of(f) + R_WRITTEN) != 0:
         copy_aliases()
     d = level
     while d > 0:
@@ -643,7 +643,7 @@ def argument_symbol(f, i):
     constant, or that variable, and no slot is used. Otherwise it is a slot that the newest
     expansion owns, and the argument is stored there. The operand is used up."""
     global alias_count
-    r = kernel.word_of(f, kernel.C_VALUE)
+    r = kernel.value_of(f)
     t = kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + i)
     j = reg.depth - 1
     kind = kernel.K_LOCAL
@@ -690,13 +690,13 @@ def copy_aliases():
     gen.protect()
     for n in range(0, alias_count):
         s = alias[n]
-        t = kernel.byte_of(s, kernel.C_TYPE)
+        t = kernel.type_of(s)
         slot = own_slot(typetab.size(t))
         gen.local(t, slot)
-        if kernel.byte_of(s, kernel.C_KIND) == K_ALIAS:
-            gen.variable(kernel.word_of(s, kernel.C_VALUE))
+        if kernel.kind_of(s) == K_ALIAS:
+            gen.variable(kernel.value_of(s))
         else:
-            gen.local(t, kernel.word_of(s, kernel.C_VALUE))
+            gen.local(t, kernel.value_of(s))
         gen.store()
         kernel.set_byte(s, kernel.C_KIND, kernel.K_LOCAL)
         kernel.set_word(s, kernel.C_VALUE, slot)
@@ -713,8 +713,8 @@ def body_begin(f):
     global level, alias_count
     alias_count = alias_base[depth]
     level = depth
-    r = kernel.word_of(f, kernel.C_VALUE)
-    src.open_saved(r + R_PARAMS + kernel.byte_of(f, kernel.C_PARAMS) * PARAM_SIZE, word_at(r + R_END),
+    r = kernel.value_of(f)
+    src.open_saved(r + R_PARAMS + kernel.params_of(f) * PARAM_SIZE, word_at(r + R_END),
                    word_at(r + R_FILE), word_at(r + R_LINE))
 
 
@@ -725,7 +725,7 @@ def leaves_operand():
     and the expansion owns no slot that the operand could use."""
     f = expanding[level]
     return wanted[level] and kernel.byte_of(f, kernel.C_RESULTS) == 1 \
-        and kernel.token_byte(kernel.word_of(f, kernel.C_VALUE) + R_FLAGS) & LAST_RETURN != 0 \
+        and kernel.token_byte(kernel.value_of(f) + R_FLAGS) & LAST_RETURN != 0 \
         and owned_count == owned_base[level]
 
 

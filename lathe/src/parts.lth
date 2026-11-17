@@ -19,9 +19,10 @@ import fold (ADD, BAND, BOR, BXOR, DIV, EQ, GE, GT, LE, LT, MUL, NE, REM, SHL, S
 import gen (anonymous, binary, compare, field, fixed_name, jump_false, local, OP_BNE, record_of,
             settle, step, test_left, test_right, variable)
 import inlines (copies_due, copy_aliases, lookup)
-import kernel (byte_of, C_FLAGS, C_KIND, C_OBJ, C_TYPE, C_VALUE, K_CONST, K_LOCAL, K_MODULE, K_VAR,
-               module_find, module_name, NO_OBJ, SCOPE_FIELDS, set_byte, set_word, SF_AT, SF_IN,
-               SF_NOZP, SF_PUB, SF_ZP, sym_add, sym_count, sym_find, word_of)
+import kernel (C_FLAGS, C_OBJ, C_TYPE, C_VALUE, flags_of, K_CONST, K_LOCAL, K_MODULE, K_VAR,
+               kind_of, module_find, module_name, NO_OBJ, SCOPE_FIELDS, set_byte, set_word, SF_AT,
+               SF_IN, SF_NOZP, SF_PUB, SF_ZP, sym_add, sym_count, sym_find, type_of, value_of,
+               word_of)
 import lex (col, expect, line, next, string_byte, string_length, T_AMP, T_BAR, T_BOOL, T_BYTE,
             T_CARET, T_DOT, T_EQ, T_GE, T_GT, T_INT, T_LE, T_LT, T_MINUS, T_MOD, T_NAME, T_NE,
             T_PLUS, T_SBYTE, T_SHL, T_SHR, T_SLASH, T_STAR, T_WORD, tok, value)
@@ -84,14 +85,14 @@ pub func named_symbol(): word
     err.fatal(err.E_UNDEFINED)
   end
   lex.next()
-  if kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE then
+  if kernel.kind_of(s) == kernel.K_MODULE then
     m = s
     lex.expect(lex.T_DOT, err.E_DOT_EXPECTED)
     if lex.tok != lex.T_NAME then
       err.fatal(err.E_NAME_EXPECTED)
     end
     s, found = kernel.module_find(m, lex.value)
-    if not found or kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB == 0 then
+    if not found or kernel.flags_of(s) & kernel.SF_PUB == 0 then
       err.fatal(err.E_UNDEFINED)
     end
     lex.next()
@@ -115,7 +116,7 @@ pub func field(line: word, col: word)
   if not found then
     err.fatal(err.E_NO_FIELD)
   end
-  gen.field(kernel.word_of(f, kernel.C_VALUE), kernel.byte_of(f, kernel.C_TYPE))
+  gen.field(kernel.value_of(f), kernel.type_of(f))
   lex.next()
 end
 
@@ -234,8 +235,8 @@ end
 
 ; Push variable `s`: a local, or one that lives for the whole program.
 pub func push_variable(s: word)
-  if kernel.byte_of(s, kernel.C_KIND) == kernel.K_LOCAL then
-    gen.local(kernel.byte_of(s, kernel.C_TYPE), lo(kernel.word_of(s, kernel.C_VALUE)))
+  if kernel.kind_of(s) == kernel.K_LOCAL then
+    gen.local(kernel.type_of(s), lo(kernel.value_of(s)))
   else
     gen.variable(s)
   end
@@ -252,10 +253,10 @@ pub func loop_variable(): word
   if not found then
     err.fatal(err.E_UNDEFINED)
   end
-  if kernel.byte_of(s, kernel.C_KIND) != kernel.K_LOCAL and kernel.byte_of(s, kernel.C_KIND) != kernel.K_VAR then
+  if kernel.kind_of(s) != kernel.K_LOCAL and kernel.kind_of(s) != kernel.K_VAR then
     err.fatal(err.E_NOT_VAR)
   end
-  if not typetab.is_number(kernel.byte_of(s, kernel.C_TYPE)) then
+  if not typetab.is_number(kernel.type_of(s)) then
     err.fatal(err.E_TYPE)
   end
   lex.next()
@@ -362,9 +363,9 @@ end
 pub func region_symbol(region: word): word
   var s: word
   for s = 0 until kernel.sym_count do
-    if (kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR or kernel.byte_of(s, kernel.C_KIND) == kernel.K_CONST) and
-        kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0 and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ and
-        reg.same_region(kernel.word_of(s, kernel.C_VALUE), region) then
+    if (kernel.kind_of(s) == kernel.K_VAR or kernel.kind_of(s) == kernel.K_CONST) and
+        kernel.flags_of(s) & kernel.SF_IN != 0 and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ and
+        reg.same_region(kernel.value_of(s), region) then
       return kernel.word_of(s, kernel.C_OBJ)
     end
   end

@@ -8,14 +8,14 @@ module kerneltest
 
 import err (init)
 import kernel (byte_of, C_FLAGS, C_KIND, C_LINK, C_MEMBERS, C_NAME, C_OBJ, C_PARAMS, C_RESULTS,
-               C_SCOPE, C_TYPE, C_VALUE, C_WEIGHT, close, freeze, freeze_member, get, get_word,
-               init, K_CONST, K_FUNC, K_LOCAL, K_VAR, keep_argument, member_add, member_type_of,
-               member_value_of, module_add, name_add, name_begin, name_char, name_end, name_length,
-               name_set_token, name_symbol, name_token, name_top, open_in, open_memory, open_out,
-               path, path_add, path_add_name, path_add_text, path_begin, path_end, put, put_name,
-               put_word, scope_begin, scope_end, SCOPE_LOCAL, SCOPE_MODULE, set_byte, set_word,
-               SF_PUB, sym_add, sym_count, sym_find, sym_lookup, sym_release, text_reserve,
-               thaw_top, word_of)
+               C_SCOPE, C_TYPE, C_VALUE, C_WEIGHT, close, flags_of, freeze, freeze_member, get,
+               get_word, init, K_CONST, K_FUNC, K_LOCAL, K_VAR, keep_argument, kind_of, member_add,
+               member_type_of, member_value_of, module_add, name_add, name_begin, name_char,
+               name_end, name_length, name_set_token, name_symbol, name_token, name_top, open_in,
+               open_memory, open_out, params_of, path, path_add, path_add_name, path_add_text,
+               path_begin, path_end, put, put_name, put_word, scope_begin, scope_end, SCOPE_LOCAL,
+               SCOPE_MODULE, scope_of, set_byte, set_word, SF_PUB, sym_add, sym_count, sym_find,
+               sym_lookup, sym_release, text_reserve, thaw_top, type_of, value_of, word_of)
 import sys (exit, put_byte)
 
 const HEX: [16]byte = "0123456789ABCDEF"
@@ -181,6 +181,13 @@ func columns()
   put_hex(kernel.byte_of(s, kernel.C_PARAMS))
   put_hex(kernel.byte_of(s, kernel.C_RESULTS))
   put_hex(kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS)))
+  nl()
+  put_hex(kernel.scope_of(s))           ; the accessors of one column each
+  put_hex(kernel.kind_of(s))
+  put_hex(kernel.flags_of(s))
+  put_hex(kernel.type_of(s))
+  put_hex(kernel.params_of(s))
+  put_word(kernel.value_of(s))
   nl()
 end
 

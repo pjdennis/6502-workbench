@@ -84,10 +84,10 @@ import gen (accept, address, address_of, anonymous, arguments_end, as_value, ass
 import inlines (argument_symbol, body_begin, copy_aliases, depth, done, enter, expanding, lazy,
                 leave, leaves_operand, level, local_scope, MAX_DEPTH, own_slot, SF_INLINE,
                 SF_INTERRUPT, slot_name, wanted)
-import kernel (byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_NAME, C_PARAMS, C_RESULTS, C_TYPE, C_VALUE,
-               K_CONST, K_FUNC, K_LOCAL, K_TYPE, K_VAR, member_type_of, member_value_of, NO_OBJ,
+import kernel (byte_of, C_MEMBERS, C_NAME, C_RESULTS, C_TYPE, C_VALUE, flags_of, K_CONST, K_FUNC,
+               K_LOCAL, K_TYPE, K_VAR, kind_of, member_type_of, member_value_of, NO_OBJ, params_of,
                SCOPE_MODULE, set_byte, set_word, SF_AT, SF_IN, SF_NOZP, SF_ROWS, SF_ZP, sym_add,
-               word_of)
+               type_of, value_of, word_of)
 import lex (choose, col, expect, line, next, open_brackets, resume, string_byte, string_length,
             T_ADDRESS, T_AND, T_ARROW, T_ASM, T_ASSIGN, T_AT, T_BREAK, T_CARET, T_CASE, T_COLON,
             T_COMMA, T_CONTINUE, T_CRITICAL, T_DO, T_DOT, T_DOWNTO, T_ELIF, T_ELSE, T_END, T_EOF,
@@ -140,6 +140,16 @@ pub func init()
   pending_count = 0
   nesting = 0
   parts.init()
+end
+
+; The current token must end the line; the next line's first token is read.
+func line_end()
+  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+end
+
+; Errors found from now on are at the current token.
+func here()
+  err.position(lex.line, lex.col)
 end
 
 ; One more level of nesting begins.
@@ -195,11 +205,11 @@ pub recursive func type_spec(): byte
     lex.next()
   elif lex.tok == lex.T_NAME then
     s = parts.named_symbol()
-    if kernel.byte_of(s, kernel.C_KIND) != kernel.K_TYPE then
+    if kernel.kind_of(s) != kernel.K_TYPE then
       err.position(line, col)
       err.fatal(err.E_TYPE_EXPECTED)
     end
-    t = kernel.byte_of(s, kernel.C_TYPE)
+    t = kernel.type_of(s)
   elif lex.tok == lex.T_RECORD then
     err.fatal(err.E_RECORD_PLACE)
   elif lex.tok == lex.T_FUNC or lex.tok == lex.T_RECURSIVE then
@@ -225,7 +235,7 @@ pub func value_type(): byte
   if typetab.is_record(t) then
     err.fatal(err.E_RECORD_VALUE)
   end
-  err.position(lex.line, lex.col)
+  here()
   return t
 end
 
@@ -248,7 +258,7 @@ recursive func builtin(which: byte)
     else
       gen.part(which)
     end
-    err.position(lex.line, lex.col)
+    here()
   end
   lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
 end
@@ -265,25 +275,25 @@ recursive func designator()
   line = lex.line
   col = lex.col
   s = parts.named_symbol()
-  kind = kernel.byte_of(s, kernel.C_KIND)
+  kind = kernel.kind_of(s)
   if kind == kernel.K_FUNC then
     gen.function(s)
-  elif kind == kernel.K_CONST and typetab.is_array(kernel.byte_of(s, kernel.C_TYPE)) then
+  elif kind == kernel.K_CONST and typetab.is_array(kernel.type_of(s)) then
     err.position(line, col)     ; a table in a region is used only inside `with`
     gen.table(s)
-    err.position(lex.line, lex.col)
+    here()
   elif kind == kernel.K_CONST then
-    gen.constant(kernel.byte_of(s, kernel.C_TYPE), kernel.word_of(s, kernel.C_VALUE))
+    gen.constant(kernel.type_of(s), kernel.value_of(s))
   elif kind == kernel.K_LOCAL then
-    gen.local(kernel.byte_of(s, kernel.C_TYPE), lo(kernel.word_of(s, kernel.C_VALUE)))
+    gen.local(kernel.type_of(s), lo(kernel.value_of(s)))
   elif kind == kernel.K_VAR then
     err.position(line, col)
     gen.variable(s)
-    err.position(lex.line, lex.col)
+    here()
   elif kind == kernel.K_TYPE then
-    conversion(kernel.byte_of(s, kernel.C_TYPE), line, col)
+    conversion(kernel.type_of(s), line, col)
   else
-    builtin(lo(kernel.word_of(s, kernel.C_VALUE)))
+    builtin(lo(kernel.value_of(s)))
   end
   while lex.tok == lex.T_LBRACKET or lex.tok == lex.T_DOT do
     line = lex.line
@@ -297,7 +307,7 @@ recursive func designator()
       lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
       err.position(line, col)
       gen.index()
-      err.position(lex.line, lex.col)
+      here()
     end
   end
 end
@@ -329,7 +339,7 @@ recursive func argument(t: byte, stored: bool)
   else
     gen.accept(t)
   end
-  err.position(lex.line, lex.col)
+  here()
 end
 
 forward func add_pending(f: word)
@@ -348,7 +358,7 @@ recursive func arguments(f: word)
   count = 0
   if lex.tok != lex.T_RPAREN then
     loop
-      if count == kernel.byte_of(f, kernel.C_PARAMS) then
+      if count == kernel.params_of(f) then
         err.fatal(err.E_ARG_COUNT)
       end
       by_register = gen.in_register(f, count)
@@ -371,7 +381,7 @@ recursive func arguments(f: word)
   if lex.tok != lex.T_RPAREN then
     err.fatal(err.E_RPAREN_EXPECTED)
   end
-  if count != kernel.byte_of(f, kernel.C_PARAMS) then
+  if count != kernel.params_of(f) then
     err.fatal(err.E_ARG_COUNT)
   end
   pending_count = saved_pending
@@ -410,10 +420,10 @@ recursive func call(wanted: bool)
   var f: word
   var saved: bool
   f = reg.op_var[reg.depth - 1]
-  if not gen.through(f) and kernel.byte_of(f, kernel.C_FLAGS) & inlines.SF_INTERRUPT != 0 then
+  if not gen.through(f) and kernel.flags_of(f) & inlines.SF_INTERRUPT != 0 then
     err.fatal(err.E_INTERRUPT_CALL)
   end
-  if not gen.through(f) and kernel.byte_of(f, kernel.C_FLAGS) & inlines.SF_INLINE != 0 then
+  if not gen.through(f) and kernel.flags_of(f) & inlines.SF_INLINE != 0 then
     reg.pop()
     inlines.enter(f, wanted)    ; errors at the "("
     lex.next()
@@ -458,7 +468,7 @@ recursive func call_value(line: word, col: word)
   end
   err.position(line, col)
   check_not_pending(f)
-  err.position(lex.line, lex.col)
+  here()
   call(true)
   if lex.tok == lex.T_ARROW then
     if kernel.byte_of(f, kernel.C_RESULTS) != 2 then
@@ -471,7 +481,7 @@ recursive func call_value(line: word, col: word)
     target(line, col)
     err.position(line, col)
     gen.store_arrow()
-    err.position(lex.line, lex.col)
+    here()
   elif kernel.byte_of(f, kernel.C_RESULTS) == 2 and passing then
     passed = gen.mark()
   elif kernel.byte_of(f, kernel.C_RESULTS) == 0 then
@@ -488,7 +498,7 @@ recursive func conversion(t: byte, line: word, col: word)
   expression()
   err.position(line, col)
   gen.convert(t)
-  err.position(lex.line, lex.col)
+  here()
   lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
 end
 
@@ -557,7 +567,7 @@ recursive func factor()
     else
       gen.complement()
     end
-    err.position(lex.line, lex.col)
+    here()
   else
     lex.next()
     var outer: byte
@@ -568,16 +578,16 @@ recursive func factor()
     err.position(line, col)
     var i: byte
     i = reg.depth - 1
-    if reg.op_kind[i] == reg.O_FUNC and kernel.byte_of(reg.op_var[i], kernel.C_FLAGS) & inlines.SF_INTERRUPT != 0 then
+    if reg.op_kind[i] == reg.O_FUNC and kernel.flags_of(reg.op_var[i]) & inlines.SF_INTERRUPT != 0 then
       gen.code_address(reg.op_var[i])   ; a ^byte, never a value of a function type
-    elif reg.op_kind[i] == reg.O_FUNC and kernel.byte_of(reg.op_var[i], kernel.C_FLAGS) & inlines.SF_INLINE != 0 then
+    elif reg.op_kind[i] == reg.O_FUNC and kernel.flags_of(reg.op_var[i]) & inlines.SF_INLINE != 0 then
       err.fatal(err.E_INLINE_ADDRESS)
     elif reg.op_kind[i] == reg.O_FUNC then
       gen.function_address()
     else
       gen.address()
     end
-    err.position(lex.line, lex.col)
+    here()
   end
 end
 
@@ -648,7 +658,7 @@ recursive func inverse()
   unnest()
   err.position(line, col)
   gen.invert()
-  err.position(lex.line, lex.col)
+  here()
 end
 
 const OP_PHP = $08
@@ -715,7 +725,7 @@ pub recursive func constant(t: byte)
   if t != typetab.NO_TYPE then
     reg.assignable(reg.depth - 1, t)
   end
-  err.position(lex.line, lex.col)
+  here()
 end
 
 ; constExpr where a number that is not below zero is wanted, as for an address. Returns its
@@ -738,7 +748,7 @@ pub recursive func constant_number(): word
   if typetab.is_signed(reg.op_type[i]) and reg.op_value[i] >= $8000 then
     err.fatal(err.E_RANGE)
   end
-  err.position(lex.line, lex.col)
+  here()
   reg.pop()
   return reg.op_value[i]
 end
@@ -811,7 +821,7 @@ recursive func initial_assignment(s: word)
   expression()
   err.position(line, col)
   gen.store()
-  err.position(lex.line, lex.col)
+  here()
 end
 
 forward recursive func table_data(t: byte, symbol: word)
@@ -855,7 +865,7 @@ pub recursive func variable(more: byte, level: byte)
   if (typetab.is_array(t) or typetab.is_record(t)) and flags & kernel.SF_ZP == 0 then
     flags = flags | kernel.SF_NOZP      ; nor a record: never in zero page unless asked
   end
-  err.position(lex.line, lex.col)
+  here()
   var s: word
   if level == LEVEL_LOCAL and flags & kernel.SF_AT == 0 then
     s = kernel.sym_add(scope, name, kernel.K_LOCAL)
@@ -988,7 +998,7 @@ recursive func assignment(line: word, col: word)
   else
     gen.assign(token - lex.T_PLUS_ASSIGN + fold.ADD)
   end
-  err.position(lex.line, lex.col)
+  here()
 end
 
 ; "," designator "=" call, after the designator at `line`, `col`: the value and the status of a
@@ -1017,7 +1027,7 @@ recursive func pair_assignment(line: word, col: word)
   call(true)
   err.position(line, col)
   gen.store_pair()
-  err.position(lex.line, lex.col)
+  here()
 end
 
 ; designator ( assignOp expression | "," designator "=" call | arguments ): the token after
@@ -1035,7 +1045,7 @@ recursive func name_statement()
     end
     err.position(line, col)
     check_not_pending(reg.op_var[reg.depth - 1])    ; in an inline body, inside arguments
-    err.position(lex.line, lex.col)
+    here()
     call(false)                 ; a call used as a statement may ignore its results
   elif lex.tok == lex.T_LPAREN then
     err.fatal(err.E_NOT_FUNC)
@@ -1061,7 +1071,7 @@ pub recursive func test(): word
   err.position(line, col)
   var target: word
   target = gen.jump_false()
-  err.position(lex.line, lex.col)
+  here()
   return target
 end
 
@@ -1084,7 +1094,7 @@ recursive func if_statement()
     lex.next()
     skip = test()
     lex.expect(lex.T_THEN, err.E_THEN_EXPECTED)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     body()
     if lex.tok != lex.T_ELIF and lex.tok != lex.T_ELSE then
       reg.label(byte(skip))
@@ -1099,7 +1109,7 @@ recursive func if_statement()
     reg.label(byte(skip))
     if lex.tok == lex.T_ELSE then
       lex.next()
-      lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+      line_end()
       body()
       break
     end
@@ -1130,7 +1140,7 @@ recursive func while_statement()
   exit_label = test()
   next_label = top
   lex.expect(lex.T_DO, err.E_DO_EXPECTED)
-  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  line_end()
   body()
   end_of_block()
   if fbuf.runs_on() then
@@ -1159,7 +1169,7 @@ recursive func loop_statement()
   saved_with = with_loop
   with_loop = fbuf.NO_SLOT
   lex.next()
-  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  line_end()
   top = fbuf.new_label()
   reg.loop_label(top)
   gen.loop_begin()
@@ -1199,7 +1209,7 @@ recursive func limit_value(t: byte)
   if reg.in_registers(reg.depth - 1) then
     reg.spill(reg.depth - 1)
   end
-  err.position(lex.line, lex.col)
+  here()
 end
 
 ; "for" name "=" expression ( "to" | "downto" | "until" ) expression "do" NL body "end". The
@@ -1225,7 +1235,7 @@ recursive func for_statement()
   with_loop = fbuf.NO_SLOT
   lex.next()
   s = parts.loop_variable()
-  t = kernel.byte_of(s, kernel.C_TYPE)
+  t = kernel.type_of(s)
   lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
   parts.push_variable(s)
   line = lex.line
@@ -1242,7 +1252,7 @@ recursive func for_statement()
   end
   first = reg.op_value[reg.depth - 1]
   gen.store()
-  err.position(lex.line, lex.col)
+  here()
   if lex.tok != lex.T_TO and lex.tok != lex.T_DOWNTO and lex.tok != lex.T_UNTIL then
     err.fatal(err.E_TO_EXPECTED)
   end
@@ -1255,7 +1265,7 @@ recursive func for_statement()
   var top: byte
   limit = reg.depth - 1
   lex.expect(lex.T_DO, err.E_DO_EXPECTED)
-  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  line_end()
   op = fold.LE
   if down then
     op = fold.GE
@@ -1366,8 +1376,8 @@ recursive func case_statement()
   if reg.in_registers(selector) then
     reg.spill(selector)
   end
-  err.position(lex.line, lex.col)
-  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  here()
+  line_end()
   var done: byte
   var base: word
   var chosen: byte
@@ -1378,7 +1388,7 @@ recursive func case_statement()
     lex.next()
     chosen = fbuf.new_label()
     other = case_constants(selector, chosen, base)
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     reg.label(chosen)           ; the selector is in A on every way in
     body()
     if lex.tok == lex.T_END then
@@ -1392,7 +1402,7 @@ recursive func case_statement()
   end
   if lex.tok == lex.T_ELSE then
     lex.next()
-    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    line_end()
     body()
   end
   end_of_block()
@@ -1405,7 +1415,7 @@ end
 ; leave the block restore the flags first (docs/codegen.md, "Statements").
 recursive func critical_statement()
   lex.next()
-  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  line_end()
   fbuf.op(OP_PHP)
   fbuf.op(OP_SEI)
   critical_depth += 1
@@ -1427,7 +1437,7 @@ recursive func with_statement()
   var col: word
   line = lex.line
   col = lex.col
-  if kernel.byte_of(function, kernel.C_FLAGS) & inlines.SF_INTERRUPT != 0 then
+  if kernel.flags_of(function) & inlines.SF_INTERRUPT != 0 then
     err.fatal(err.E_WITH_INTERRUPT)
   end
   if inlines.level > 0 then
@@ -1441,7 +1451,7 @@ recursive func with_statement()
   region = lex.value
   lex.next()
   lex.expect(lex.T_DO, err.E_DO_EXPECTED)
-  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  line_end()
   var outer_region: word
   var outer_used: word
   var saved_function: byte
@@ -1509,7 +1519,7 @@ pub recursive func directive()
     err.fatal(err.E_TYPE)
   end
   reg.pop()
-  err.position(lex.line, lex.col)
+  here()
   if lex.tok != lex.T_NL then
     err.fatal(err.E_NL_EXPECTED)
   end
@@ -1541,7 +1551,7 @@ recursive func status()
   expression()
   err.position(line, col)
   gen.carry()
-  err.position(lex.line, lex.col)
+  here()
 end
 
 ; True if the expression just parsed is nothing but a call that gives a value of type `t` and a
@@ -1570,7 +1580,7 @@ recursive func value_and_status(t: byte)
   end
   err.position(line, col)
   gen.accept(t)
-  err.position(lex.line, lex.col)
+  here()
   lex.expect(lex.T_COMMA, err.E_RESULTS)
   status()                      ; may need A: the value waits where it is
   gen.load_result()
@@ -1582,7 +1592,7 @@ recursive func return_statement()
   var results: byte
   var first: word
   results = kernel.byte_of(function, kernel.C_RESULTS)
-  first = kernel.word_of(function, kernel.C_MEMBERS) + kernel.byte_of(function, kernel.C_PARAMS)
+  first = kernel.word_of(function, kernel.C_MEMBERS) + kernel.params_of(function)
   if critical_depth > 0 and results > 0 and kernel.member_value_of(first + results - 1) == gen.REG_C then
     err.fatal(err.E_STATUS_IN_CRITICAL)     ; PLP would change the carry flag
   end
@@ -1610,7 +1620,7 @@ recursive func return_statement()
     if not keep or gen.pend_op == 0 or gen.pend_type != t then
       gen.accept(t)
     end
-    err.position(lex.line, lex.col)
+    here()
     if not keep and t != typetab.BOOL_TYPE then
       gen.load_result()
     end
@@ -1667,7 +1677,7 @@ recursive func statement()
   else
     err.fatal(err.E_STMT_EXPECTED)
   end
-  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  line_end()
 end
 
 ; True for the tokens that end a body; which of them is right is for the caller to check.
@@ -1697,7 +1707,7 @@ recursive func inline_argument(f: word, i: byte)
   gen.as_value()
   gen.accept(kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + i))
   inlines.argument_symbol(f, i)
-  err.position(lex.line, lex.col)
+  here()
 end
 
 ; What expand() keeps while an expansion's body is compiled, by inlines.depth: in arrays and not
@@ -1720,7 +1730,7 @@ recursive func inline_arguments(f: word)
   count = 0
   if lex.tok != lex.T_RPAREN then
     loop
-      if count == kernel.byte_of(f, kernel.C_PARAMS) then
+      if count == kernel.params_of(f) then
         err.fatal(err.E_ARG_COUNT)
       end
       inline_argument(f, count)
@@ -1734,7 +1744,7 @@ recursive func inline_arguments(f: word)
   if lex.tok != lex.T_RPAREN then
     err.fatal(err.E_RPAREN_EXPECTED)
   end
-  if count != kernel.byte_of(f, kernel.C_PARAMS) then
+  if count != kernel.params_of(f) then
     err.fatal(err.E_ARG_COUNT)
   end
 end

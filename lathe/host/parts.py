@@ -63,13 +63,13 @@ def named_symbol():
     if not found:
         err.fatal(err.E_UNDEFINED)
     lex.next()
-    if kernel.byte_of(s, kernel.C_KIND) == kernel.K_MODULE:
+    if kernel.kind_of(s) == kernel.K_MODULE:
         m = s
         lex.expect(lex.T_DOT, err.E_DOT_EXPECTED)
         if lex.tok != lex.T_NAME:
             err.fatal(err.E_NAME_EXPECTED)
         s, found = kernel.module_find(m, lex.value)
-        if not found or kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_PUB == 0:
+        if not found or kernel.flags_of(s) & kernel.SF_PUB == 0:
             err.fatal(err.E_UNDEFINED)
         lex.next()
     return s
@@ -86,7 +86,7 @@ def field(line, col):
     f, found = kernel.sym_find(kernel.SCOPE_FIELDS + t, lex.value)
     if not found:
         err.fatal(err.E_NO_FIELD)
-    gen.field(kernel.word_of(f, kernel.C_VALUE), kernel.byte_of(f, kernel.C_TYPE))
+    gen.field(kernel.value_of(f), kernel.type_of(f))
     lex.next()
 
 
@@ -183,8 +183,8 @@ def test_operator(wanted, line, col, is_left):
 
 def push_variable(s):
     """Push variable `s`: a local, or one that lives for the whole program."""
-    if kernel.byte_of(s, kernel.C_KIND) == kernel.K_LOCAL:
-        gen.local(kernel.byte_of(s, kernel.C_TYPE), kernel.word_of(s, kernel.C_VALUE))
+    if kernel.kind_of(s) == kernel.K_LOCAL:
+        gen.local(kernel.type_of(s), kernel.value_of(s))
     else:
         gen.variable(s)
 
@@ -196,9 +196,9 @@ def loop_variable():
     s, found = inline.lookup(lex.value)
     if not found:
         err.fatal(err.E_UNDEFINED)
-    if kernel.byte_of(s, kernel.C_KIND) != kernel.K_LOCAL and kernel.byte_of(s, kernel.C_KIND) != kernel.K_VAR:
+    if kernel.kind_of(s) != kernel.K_LOCAL and kernel.kind_of(s) != kernel.K_VAR:
         err.fatal(err.E_NOT_VAR)
-    if not typetab.is_number(kernel.byte_of(s, kernel.C_TYPE)):
+    if not typetab.is_number(kernel.type_of(s)):
         err.fatal(err.E_TYPE)
     lex.next()
     return s
@@ -294,9 +294,9 @@ def region_symbol(region):
     variable or table of the region, and the module has no symbol of another module's that it
     has not used."""
     for s in range(0, kernel.sym_count):
-        if (kernel.byte_of(s, kernel.C_KIND) == kernel.K_VAR or kernel.byte_of(s, kernel.C_KIND) == kernel.K_CONST) \
-                and kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0 and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ \
-                and reg.same_region(kernel.word_of(s, kernel.C_VALUE), region):
+        if (kernel.kind_of(s) == kernel.K_VAR or kernel.kind_of(s) == kernel.K_CONST) \
+                and kernel.flags_of(s) & kernel.SF_IN != 0 and kernel.word_of(s, kernel.C_OBJ) != kernel.NO_OBJ \
+                and reg.same_region(kernel.value_of(s), region):
             return kernel.word_of(s, kernel.C_OBJ)
     return kernel.NO_OBJ
 

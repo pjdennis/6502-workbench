@@ -72,7 +72,7 @@ Because there is no syntax tree, memory holds only tables, and each lives no lon
 |---|---|---|---|---|---|
 | Name heap: names, frozen imports | kernel | 9,216 × 1 | 9,216 | 7,068 (`expr.lth`, 13 imports with lists; 8,099 before `parts` left it, 2026-11-15) | in a data bank when banked (`NAMES`, bank 4). With import lists (2026-11-14): `decl.lth` 6,793, `gen.lth` 6,688, `reg.lth` 4,909, `inlines.lth` 3,832, `asmblock.lth` 3,772, `lex.lth` 3,734, `kernel.lth` 3,354, `lathec.lth` 1,811; the largest test programs `inlinetest` 2,768, `regcmd` 2,821. Before the lists: `expr.lth` 18,122, `decl.lth` 17,151, `asmblock.lth` 14,966, `inlines.lth` 15,379, `gen.lth` 14,681, `lathec.lth` 13,209, `reg.lth` 11,627. A name is 6 + its length; a frozen import is 8 + its length (+ 2 + 2 a member for a function); an import a list names is a symbol at once, on the name the list made |
 | Symbol columns | kernel | 560 × 17 | 9,520 | 460 (`gen.lth`) | own symbols, locals, and the imported symbols the module names; `expr.lth` 455 since `parts` left it (539 before); `decl.lth` 366, `reg.lth` 298, `lathec.lth` 113. The seven byte columns one after another in `sym_bytes`, the five word columns in `sym_words`, in the region `SYMS` in the twin, reached through `kernel.byte_of()` and the rest (2026-11-15, below) |
-| Members (parameters, results) | kernel | 432 × 2 | 864 | 419 (`gen.lth`) | `reg.lth` 285; in `SYMS` too |
+| Members (parameters, results) | kernel | 512 × 2 | 1,024 | 437 (`gen.lth`) | `reg.lth` 317; in `SYMS` too. 432 until 2026-11-17, when `gen.lth` needed 427 and the column accessors (`kernel.flags_of()` and five more) took it to 437 |
 | Name buckets, streams, modules, where each column starts | kernel | | 276 | | |
 | Text memory: file name, arguments, file names of inline functions | kernel | 2,048 × 1 | 2,048 | about 1,350 | fixed: the system reads names from it (768 in the small build) |
 | Token memory: INLINE's saved tokens | kernel | 2,048 × 1 | 2,048 | 520 | out of the text memory since step 10, reached through `kernel.token_byte()`; in a data bank when banked (`TOKENS`, bank 6; 384 in the small build) |
@@ -86,7 +86,7 @@ Because there is no syntax tree, memory holds only tables, and each lives no lon
 | Types | typetab | 64 × 7 + 16 × 3 | 496 | 35 | |
 | Initial values, stubs, saving calls | gen | | 744 | 22 inits of 32 | |
 | ASM labels; inline expansions; `case` values; interface entry | asmblock, inline, expr, decl | | 1,343 | | ASMBLOCK's label numbers and INLINE's byte columns are bytearrays (1,408 to 1,252); what `expr.expand()` keeps for each expansion, 91 bytes, which `expr.lth` would otherwise push on rt_frame's stack |
-| **Total** | | | **43,203** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
+| **Total** | | | **43,363** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
 
 What changed, and what each change saved:
 

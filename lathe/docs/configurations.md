@@ -839,6 +839,26 @@ EXPR and STMT call each other: a statement holds expressions, and an `inline` ca
 
 **Faults found in existing code**: none in the compiler or the linker. `rt_bank.map(0)`, which every block of a fixed region calls, mapped bank 0 for nothing (above: now 32 cycles, `WithBlocks`).
 
+### Kernel's functions out of fixed memory, and accessors of one column (2026-11-17)
+
+For the BBC's 128 KB module at ADFS's PAGE, where the compiler's ROM form had 51 bytes of main RAM free ([`bbc.md`](bbc.md), "Room for the compiler at ADFS's PAGE"), in host and twin, every compile byte for byte as before:
+
+- **The name heap through four small functions.** `name_word`, `name_set_word` (they were `inline`, used only inside blocks) and the new `name_byte` and `name_set_byte` are plain functions, each with its own block of `NAMES`; a caller inside a block of `NAMES` already gets a nested block, which maps back what it found. `sym_find`, `thaw`, `freeze`, `freeze_member`, `built_symbol`, `built_frozen`, `built_loaded` and `chain_find` read and write the heap only through them (and `same_spelling(a, b)`, `built_is(n)` and `name_hash(n)`, which keep a block each), so they have no block and are code of kernel's bank, no longer kept in fixed memory: the twin's functions are now the host's line for line. `name_symbol` and `name_set_symbol` lost their blocks (the call has one). `name_end`'s walk of a bucket, 128,000 of the self-compile's 176,000 reads of a link (counted in the host), still reads the link in its own block.
+- **Accessors of one column.** `kernel.scope_of(s)`, `kind_of`, `flags_of`, `type_of`, `params_of` and `value_of` give what `byte_of(s, C_...)` and `word_of(s, C_VALUE)` give, for the 213 calls of the twin that read those columns (host 216). Each has its own block of `SYMS` and reads at a constant offset (`FLAGS_AT + s`), so it is fixed code (31 to 35 bytes) and a call saves the `LDY #column` and the lookup of `byte_base`. The forms weighed above said 23 accessors would cost about 830 bytes of fixed code and the linker's limit of functions; six cost 192 and save 445 in the banks. Accessors without a block would be code of kernel's bank, and a call from another bank a far call: of the 423,000 reads of those two functions the host counts in the self-compile, most come from other banks, at 211 cycles each up to 9 % of its cycles (estimated), so that form was not built. `gen.lth` needed 427 of the 432 members, and 437 with the six it imports: `MAX_MEMBERS` is 512 (160 bytes more in `SYMS`).
+
+Measured: the compiler for the eight-bank image (banks as placed, slot 13's constants and the resident part, `test_bbc_rom128.build_tools`) 81,278 bytes before these two and 80,838 after, its resident part 13,610 and 11,932: main RAM free in the eight-bank ROM form at ADFS's PAGE, `BBCFS 2`, 547 and 2,166. With kernel's code larger (1,614 bytes as judged to 3,639), kernel's bank was over, so `lathec-bbc.env` has one layout for both images: bank 1 `expr`, `parts` and `out`; 2 `gen` and `lathec`; 3 `decl` and `asmblock`; 4 `inlines`, `kernel`, `lex`, `fbuf`, `src` and `err`; 5 `reg`, `cond`, `fold` and `typetab` (in the developer's form `out` is in bank 4, since bank 1 with its variables would be 226 bytes over). Far calls counted with `farcall_matrix.py` over the self-compile: 529,452, against 728,822 with the sixteen-bank image's layout before and 545,201 with the eight-bank one's. The self-compile's cycles, every file the host's:
+
+| After | Wendy 2 (`bank_report.py --selfhost`) | BBC, ROM form, sixteen banks (`test_bbc_selfhost.py`) |
+|---|---|---|
+| (before, 05824fd) | 850,482,585 | 947,037,040 |
+| `name_word` and `name_set_word` plain functions | 871,592,367 (+2.5 %) | 963,062,478 (+1.7 %) |
+| with `expr.here()`, `line_end()` and `name_symbol` without its block | 863,819,774 | 954,235,601 |
+| and `name_end` reading the link in its block | 846,134,218 (−0.5 %) | 942,621,013 (−0.5 %) |
+| kernel's functions out of fixed memory, and the layout | 847,929,877 | 897,091,717 (the layout) |
+| the six accessors | 833,828,782 (−2.0 % in all) | 882,863,694 (−6.8 % in all) |
+
+On Wendy 2 kernel is fixed code (`compiler-bank.env`), so only the blocks and calls change there.
+
 ### The same for the linker (2026-11-16)
 
 The linker's large tables went the same way, so that it links the compiler and itself on both machines: its work area is two tables, `lk_tab.work` (region `LKWORK`) and `lk_tab.nodes` (`LKNODES`), beside the regions it already had (`LKLOCAL`, `LKCALLS`, `LKSLOTS`), and every module reads and writes the work area through `lk_tab.wk` and `set_wk`, which choose the table; the hottest column readers have blocks of their own and are kept fixed. On the BBC the regions fill sideways slots 0, 1 and 12; on Wendy 2 at full size (`linker-full.env`) data banks 4 and 5. The design, where each table lives and what it costs are in [`architecture.md`](architecture.md), "The large tables in regions".

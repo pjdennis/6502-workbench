@@ -323,7 +323,7 @@ def names_release(mark):
 # one symbol per module that has the name, and the local that hides it.
 
 MAX_SYMS = 560
-MAX_MEMBERS = 432
+MAX_MEMBERS = 512           # gen.lth needs 437 (432 until 2026-11-17, when it needed 427)
 MAX_MODULES = 16            # the module being compiled and those it imports
 
 NO_SYM = 0xFFFF
@@ -432,6 +432,36 @@ def set_word(s, column, value):
     sym_words[word_base[column] + s] = value
 
 
+def scope_of(s):
+    """byte_of(s, C_SCOPE): the columns read most have an accessor each."""
+    return sym_bytes[SCOPE_AT + s]
+
+
+def kind_of(s):
+    """byte_of(s, C_KIND)."""
+    return sym_bytes[KIND_AT + s]
+
+
+def flags_of(s):
+    """byte_of(s, C_FLAGS)."""
+    return sym_bytes[FLAGS_AT + s]
+
+
+def type_of(s):
+    """byte_of(s, C_TYPE)."""
+    return sym_bytes[TYPE_AT + s]
+
+
+def params_of(s):
+    """byte_of(s, C_PARAMS)."""
+    return sym_bytes[PARAMS_AT + s]
+
+
+def value_of(s):
+    """word_of(s, C_VALUE)."""
+    return sym_words[VALUE_AT + s]
+
+
 def member_type_of(m):
     """Member `m`'s type."""
     return member_type[m]
@@ -489,9 +519,9 @@ def module_find(m, name):
     """The symbol `name` of the module that module symbol `m` stands for, and whether there is
     one: what `m.name` means. Through an `import` with a list (SF_LIST), only what the list
     names can be named (error 101): not what the bodies of inline functions alone need."""
-    listed = byte_of(m, C_FLAGS) & SF_LIST != 0
-    s, found = sym_find(word_of(m, C_VALUE), name)
-    if listed and (not found or byte_of(s, C_FLAGS) & SF_HIDDEN != 0):
+    listed = flags_of(m) & SF_LIST != 0
+    s, found = sym_find(value_of(m), name)
+    if listed and (not found or flags_of(s) & SF_HIDDEN != 0):
         err.fatal(err.E_NOT_LISTED)
     return s, found
 
@@ -511,7 +541,7 @@ def sym_lookup(name):
     one. Symbols of imported modules are skipped: those are written module.name."""
     s = name_word(name + N_SYMBOL)
     while s != NO_SYM:
-        scope = byte_of(s, C_SCOPE)
+        scope = scope_of(s)
         if scope == SCOPE_LOCAL or scope == SCOPE_MODULE or scope == SCOPE_PREDECLARED:
             break
         s = word_of(s, C_LINK)
@@ -624,7 +654,7 @@ def built_loaded(scope, show):
     s = built_symbol(scope)
     if s != NO_SYM:
         if show:
-            set_byte(s, C_FLAGS, byte_of(s, C_FLAGS) & ~SF_HIDDEN)
+            set_byte(s, C_FLAGS, flags_of(s) & ~SF_HIDDEN)
         return True
     f = built_frozen(scope)
     if f == 0:

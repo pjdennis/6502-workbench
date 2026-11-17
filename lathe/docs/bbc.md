@@ -500,6 +500,8 @@ The chosen layout is in `linker-bbc.env` under `when ROM128`. Fixing lk_out and 
 | five banks as in `lathec-bbc.env` | 15,717 / 15,154 / 15,441 / 14,367 / 14,309 | 13,989 | 733,977 | 945,267,054 |
 | **`when ROM128`** | 15,717 / 15,154 / 15,714 / 14,716 / 13,687 | 13,959 | 551,124 | 901,564,042 (-4.6 %) |
 
+(2026-11-17, later: with kernel's sym_find, thaw and freeze in its bank, kernel's bank was over, and `lathec-bbc.env` now has one layout for both images, `parts` and `out` beside `expr` and `asmblock` beside `decl`: banks of 15,466, 15,396, 15,343, 12,342 and 13,648 bytes as judged, 529,452 far calls counted; [`configurations.md`](configurations.md), "Kernel's functions out of fixed memory, and accessors of one column".)
+
 ### The account (the gate)
 
 `test_bbc_rom128.py` links both tools for the eight-bank image (the compiler in banks 0 to 4, the linker in 5 to 7) with `lk_judged.py`, so that a tool that does not link is measured too, and lays the image out from what the links give. `test_both_tools_fit_the_128k_image` is an expected failure whose message gives the bytes over; `LATHE_BBC_ROM128_REPORT=1` prints the whole account. On 2026-11-17:
@@ -779,6 +781,19 @@ Options, measured or counted on 2026-11-17 (none built but the fault's fix, whic
 | The eight-bank layout's choice of what is resident | 30 (the compiler's resident part is 14,024 bytes there against 14,054) | nothing: it is what the layout gives today; the compiler's kept functions (kernel 4,220, fbuf 3,188, lex 1,023...) are fixed because they have `with` blocks or run in one, and cannot be banked without restructuring |
 
 The shadow screen is the option worth building: 1 KB for an environment entry and a check, no change to the compiler.
+
+**Built instead (2026-11-17): the compiler's own code made smaller and less of it fixed** ([`configurations.md`](configurations.md), "Kernel's functions out of fixed memory, and accessors of one column"; [`spikes.md`](spikes.md), "Built: the compiler's source made smaller"). None of the options above was needed, and the shadow screen is still the owner's to decide. Main RAM free, of the bytes each form has (`$1F00` or `$1900` to `$7BFF`, and `$0401-$06FF`), the code, constants, stubs and variables of the compiler's map counted against it whatever the split (`lk_mainram.py` as `test_bbc_rom128.AdfsMainRam` links it):
+
+| The compiler | Before (05824fd) | After |
+|---|---|---|
+| **eight-bank ROM form at `$1F00`, `BBCFS 2`** | **51** | **2,166** |
+| sixteen-bank ROM form at `$1F00`, `BBCFS 2` | 15 | 2,166 |
+| developer's form at `$1F00`, `BBCFS 2` | 3,199 | 5,526 |
+| sixteen-bank ROM form at `$1900`, `BBCFS 0` / `1` | 1,636 / 1,610 | 3,787 / 3,760 |
+| eight-bank ROM form at `$1900`, `BBCFS 0` / `1` | 1,672 / 1,646 | 3,787 / 3,760 |
+| developer's form at `$1900`, `BBCFS 0` / `1` | 5,329 / 4,893 | 7,655 / 7,219 |
+
+The two images now have one layout, so their ROM forms are alike. The splits in `lathec-bbc.env` moved to about halfway between the end of the code and where the variables must start: ROM form `$5020` to `$4F00`, developer's form `$5200` to `$57A0`, and at ADFS's PAGE `$5640` to `$5220` and `$58A0` to `$5B00`. `BBCFS 2` with `ADFS 0` now fits the developer's form too.
 
 LOADMOD is assembled at PAGE, its buffer for a bank from PAGE + `$0700`: `bbcrom.loader(OUT, 0x1F00)` makes it for `$1F00` (buffer `$2600-$65FF`); with the default page it is the same 459 bytes as before. That is the only change in `bbcrom.py`.
 
