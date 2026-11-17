@@ -43,6 +43,7 @@ to hold for MOS 2.00, which is itself a **memory** assumption.
 | That device is the 128K carrier SpellMaster used, 1987 | partly | MAME's comment says "switching zones for SpellMaster"; the year is **memory** |
 | The real latch powers up undefined | memory | |
 | `direct16` | — | this project's own design; no real hardware |
+| `direct8` (eight banks, `$BFF8-$BFFF` mirroring `$BFF0-$BFF7`) | — | this project's own design for one 128 KB EPROM; no real hardware, and no board has been built to check it |
 | A real NMOS 6502 reads the byte after a one-byte opcode, and an indexed read first reads the unfixed address | memory | the emulator's core makes neither read |
 
 ## Paged ROMs and service calls

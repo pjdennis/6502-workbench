@@ -8,6 +8,10 @@ int bbc_module_banks(enum bbc_module_scheme scheme) {
     return scheme == BBC_MODULE_DIRECT16 ? 16 : 8;
 }
 
+const char *bbc_module_scheme_name(enum bbc_module_scheme scheme) {
+    return scheme == BBC_MODULE_DIRECT16 ? "direct16" : scheme == BBC_MODULE_DIRECT8 ? "direct8" : "cc128";
+}
+
 static void select_bank(struct bbc_module_state *s, int bank) {
     if (s->bank != bank) s->switches++;
     s->bank = (uint8_t)bank;
@@ -17,6 +21,8 @@ uint8_t bbc_module_read(struct bbc_module_state *s, uint16_t offset) {
     offset &= BBC_MODULE_BANK_SIZE - 1;
     if (s->scheme == BBC_MODULE_DIRECT16) {
         if (offset >= 0x3FF0) select_bank(s, offset - 0x3FF0);
+    } else if (s->scheme == BBC_MODULE_DIRECT8) {
+        if (offset >= 0x3FF0) select_bank(s, (offset - 0x3FF0) & 7);
     } else if (offset == 0x3FE0) {
         select_bank(s, 0);
     } else if (s->bank == 0 && offset >= 0x3F00 && offset < 0x3FE0) {

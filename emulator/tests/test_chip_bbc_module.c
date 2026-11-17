@@ -1,6 +1,7 @@
 /* The banked sideways ROM module (chips/bbc_module.h): the Computer Concepts
  * 128K carrier's switching zones and its bank-0-only rule, the direct16
- * scheme's sixteen addresses, the ROM and RAM forms, and the chip on the bus. */
+ * scheme's sixteen addresses, the direct8 scheme's eight and their mirror,
+ * the ROM and RAM forms, and the chip on the bus. */
 
 #include <stdint.h>
 #include <stdio.h>
@@ -34,9 +35,15 @@ static void direct16(int ram) {
     fill_banks();
 }
 
+static void direct8(int ram) {
+    bbc_module_init(&mod_chip, &mod, BBC_MODULE_DIRECT8, ram, 0);
+    fill_banks();
+}
+
 TEST cc128_has_eight_banks_and_direct16_sixteen(void) {
     ASSERT_EQ(8, bbc_module_banks(BBC_MODULE_CC128));
     ASSERT_EQ(16, bbc_module_banks(BBC_MODULE_DIRECT16));
+    ASSERT_EQ(8, bbc_module_banks(BBC_MODULE_DIRECT8));
     PASS();
 }
 
@@ -111,6 +118,59 @@ TEST direct16_bfef_and_the_cc128_zones_do_not_switch(void) {
         ASSERT_EQ(5, bbc_module_read(&mod, quiet[i]));
         ASSERT_EQ(5, mod.bank);
     }
+    PASS();
+}
+
+/* direct8: a read of $3FF0+n selects bank n (0 to 7) from any bank, and
+ * $3FF8+n is its mirror (the decode ignores A3), selecting bank n too. */
+TEST direct8_every_address_selects_its_bank_from_any_bank(void) {
+    for (int from = 0; from < 8; from++) {
+        for (int n = 0; n < 16; n++) {
+            direct8(0);
+            bbc_module_read(&mod, (uint16_t)(0x3FF0 + from));
+            ASSERT_EQ(from, mod.bank);
+            ASSERT_EQ_FMT(n & 7, bbc_module_read(&mod, (uint16_t)(0x3FF0 + n)), "%d");
+            ASSERT_EQ(n & 7, mod.bank);
+        }
+    }
+    PASS();
+}
+
+TEST direct8_bfef_and_the_cc128_zones_do_not_switch(void) {
+    direct8(0);
+    bbc_module_read(&mod, 0x3FF5);
+    uint16_t quiet[] = { 0x3FEF, 0x3FE0, 0x3FC0, 0x3F00, 0x0000, 0x0050 };
+    for (unsigned i = 0; i < sizeof quiet / sizeof quiet[0]; i++) {
+        ASSERT_EQ(5, bbc_module_read(&mod, quiet[i]));
+        ASSERT_EQ(5, mod.bank);
+    }
+    PASS();
+}
+
+TEST direct8_ram_form_writes_the_selected_bank_and_load_takes_eight(void) {
+    direct8(1);
+    bbc_module_read(&mod, 0x3FFE);              /* the mirror of $3FF6: bank 6 */
+    bbc_module_write(&mod, 0x3FF1, 0xCC);       /* writes never switch */
+    ASSERT_EQ(6, mod.bank);
+    ASSERT_EQ(0xCC, mod.data[6 * BBC_MODULE_BANK_SIZE + 0x3FF1]);
+    bbc_module_init(&mod_chip, &mod, BBC_MODULE_DIRECT8, 0, 15);
+    ASSERT_EQ(7, mod.bank);                     /* the power-on bank, of eight */
+
+    char path[] = "/tmp/bbc_module_test8XXXXXX";
+    int fd = mkstemp(path);
+    ASSERT(fd >= 0);
+    FILE *f = fdopen(fd, "wb");
+    for (int b = 0; b < 8; b++)
+        for (int i = 0; i < BBC_MODULE_BANK_SIZE; i++) fputc(0x20 + b, f);
+    fclose(f);
+    ASSERT_EQ(8L * BBC_MODULE_BANK_SIZE, bbc_module_load(&mod, path));
+    ASSERT_EQ(0x27, bbc_module_read(&mod, 0x0000));
+    ASSERT_EQ(0x23, bbc_module_read(&mod, 0x3FFB));
+    f = fopen(path, "ab");                      /* nine banks: too large */
+    fputc(0, f);
+    fclose(f);
+    ASSERT_EQ(-2, bbc_module_load(&mod, path));
+    remove(path);
     PASS();
 }
 
@@ -264,6 +324,9 @@ SUITE(bbc_module_suite) {
     RUN_TEST(cc128_counts_switches_that_change_the_bank);
     RUN_TEST(direct16_every_address_selects_its_bank_from_any_bank);
     RUN_TEST(direct16_bfef_and_the_cc128_zones_do_not_switch);
+    RUN_TEST(direct8_every_address_selects_its_bank_from_any_bank);
+    RUN_TEST(direct8_bfef_and_the_cc128_zones_do_not_switch);
+    RUN_TEST(direct8_ram_form_writes_the_selected_bank_and_load_takes_eight);
     RUN_TEST(rom_form_ignores_writes_and_writes_never_switch);
     RUN_TEST(ram_form_writes_the_selected_bank);
     RUN_TEST(init_selects_the_power_on_bank_and_empties_the_module);

@@ -678,6 +678,11 @@ TEST cli_bbcbplus_options_parsed(void) {
     ASSERT_EQ(1, opts.bbc_dfs);
     ASSERT_STR_EQ("d", opts.disk_dir);
     ASSERT_EQ(1, opts.exit_report);
+    char *eight[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m.bin",
+                     "--bbc-module-scheme", "direct8", "--bbc-module-bank", "7", NULL};
+    ASSERT_EQ_FMT(0, parse(eight, &opts), "%d");
+    ASSERT_EQ(BBC_SCHEME_DIRECT8, opts.bbc_module_scheme);
+    ASSERT_EQ(7, opts.bbc_module_bank);
     PASS();
 }
 
@@ -710,6 +715,9 @@ TEST cli_bbcbplus_errors(void) {
     char *bank16[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m",
                       "--bbc-module-scheme", "direct16", "--bbc-module-bank", "16", NULL};
     ASSERT(bbc_error(bank16, "--bbc-module-bank must be 0 to 15"));
+    char *bank8[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m",
+                     "--bbc-module-scheme", "direct8", "--bbc-module-bank", "8", NULL};
+    ASSERT(bbc_error(bank8, "--bbc-module-bank must be 0 to 7 for --bbc-module-scheme direct8"));
     char *scheme[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m",
                       "--bbc-module-scheme", "spell", NULL};
     ASSERT(bbc_error(scheme, "--bbc-module-scheme must be"));

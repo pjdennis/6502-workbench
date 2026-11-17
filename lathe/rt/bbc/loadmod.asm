@@ -6,21 +6,25 @@
 ; reads the image file IMAGE (lathe/host/driver/bbcrom.py) into the module in slot SLOT (4 if not
 ; given) bank by bank, and enters the module's type in the MOS's ROM type table, so that the MOS
 ; offers it service calls from then on, without a reset. After it the module's * commands work
-; as from the ROM. The file holds the sixteen banks (262,144 bytes), or banks 0 to N only
+; as from the ROM. The module has sixteen banks (scheme direct16) or eight (direct8, where a read
+; of $BFF8+n selects bank n as $BFF0+n does); the loader finds out which: it writes 0 at $804F of
+; bank 0 and 8 at $804F of bank 8, and reads bank 0's again. The file holds all the banks
+; (262,144 or 131,072 bytes), or banks 0 to N only
 ; (bbcrom.py --short: the banks in use, which fit a disc's side where the whole image does not);
 ; each bank after the file's last gets the reserved bytes alone, $8000-$804F as the last bank
 ; read has them with its own number at $804F, so that every bank still holds the header and
 ; service code whichever bank the latch is at, and the rest of it is left as it was. A file that
-; ends inside a bank, or is empty, is not a module image. lathe/host/driver/bbcrom.py assembles it with
+; ends inside a bank, or is empty, is not a module image, and one with more banks than the module
+; is too large for it. lathe/host/driver/bbcrom.py assembles it with
 ; asm/pyasm.py (bbcrom.loader(), or its --loader option) into LOADMOD and LOADMOD.inf, loaded and
 ; entered at $1900.
 ;
 ; A bank is read with OSGBPB into main RAM, $2000-$5FFF, and only then copied into the module
 ; with its slot selected: on a real machine the filing system is itself a sideways ROM, in the
-; window while it runs, so it cannot write the module there. The last 32 bytes of a bank are not
-; copied: the image has nothing there ($BFE0-$BFFF hold the switching addresses, and a write
-; there, through STA (zp),Y, makes a dummy read of its address first on an NMOS 6502). $F4 and
-; ROMSEL are put back as they were before each MOS call.
+; window while it runs, so it cannot write the module there. The last 16 bytes of a bank are not
+; copied: the image has nothing there ($BFF0-$BFFF are the switching addresses, and a write there,
+; through STA (zp),Y, makes a dummy read of its address first on an NMOS 6502). $F4 and ROMSEL
+; are put back as they were before each MOS call.
 
 osfind: = $FFCE
 osgbpb: = $FFD1
@@ -39,6 +43,7 @@ slot: = $79
 bank: = $7A
 entry: = $7B
 rest: = $7C                    ; 0 while the file has banks; then not 0
+banks: = $7D                   ; the module's banks: 16 or 8
 blk: = $80
 buffer: = $2000
 
@@ -118,6 +123,26 @@ start:
   STA handle
   LDA romcopy
   STA entry
+  LDA slot                     ; how many banks: is bank 8 bank 0 again?
+  STA romcopy
+  STA romsel
+  LDA latch
+  LDA #$00
+  STA $804F
+  LDA latch+$08
+  LDA #$08
+  STA $804F
+  LDA latch
+  LDA $804F
+  LDX entry
+  STX romcopy
+  STX romsel
+  LDX #$10
+  CMP #$08
+  BNE .sixteen
+  LDX #$08
+.sixteen:
+  STX banks
   LDA #$00
   STA bank
   STA rest
@@ -193,10 +218,10 @@ start:
   CMP #$BF
   BNE .page
 .last:
-  LDA (src),Y                  ; $BF00-$BFDF
+  LDA (src),Y                  ; $BF00-$BFEF
   STA (dst),Y
   INY
-  CPY #$E0
+  CPY #$F0
   BNE .last
 .copied:
   LDA entry
@@ -204,10 +229,33 @@ start:
   STA romsel
   INC bank
   LDA bank
-  CMP #$10
+  CMP banks
   BEQ .loaded
   JMP .bank
 .loaded:
+  LDA rest                     ; the file must end here
+  BNE .ended
+  LDA handle                   ; OSGBPB 4: one byte more, which must not be there
+  STA blk
+  LDA #<buffer
+  STA blk+$01
+  LDA #>buffer
+  STA blk+$02
+  LDA #$00
+  STA blk+$03
+  STA blk+$04
+  STA blk+$06
+  STA blk+$07
+  STA blk+$08
+  LDA #$01
+  STA blk+$05
+  LDA #$04
+  LDX #blk
+  LDY #$00
+  JSR osgbpb
+  BCS .ended
+  JMP large
+.ended:
   LDA #$00                     ; close it
   LDY handle
   JSR osfind
@@ -259,6 +307,13 @@ short:
   BRK
   .byte 220
   .asciiz "Not a module image (too short)"
+large:
+  LDA #$00                     ; close it
+  LDY handle
+  JSR osfind
+  BRK
+  .byte 220
+  .asciiz "Image too large for the module"
 
 name:
   .byte $00

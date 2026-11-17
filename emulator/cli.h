@@ -15,6 +15,7 @@
 /* --bbc-module-scheme: how the banked module switches (chips/bbc_module.h) */
 #define BBC_SCHEME_CC128    0
 #define BBC_SCHEME_DIRECT16 1
+#define BBC_SCHEME_DIRECT8  2
 
 /* LCD panel selection for the wendy2c web/live render. Defaults to
  * the standard 16x2 5x8 module shipped on the breadboard; the 16x1

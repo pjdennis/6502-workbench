@@ -13,7 +13,7 @@ DIR/judged exist already, it reads them instead. Then, from bbcrom.py's listing,
 and those notes:
 
 1. the budget: each bank's bytes in use and left over, the bytes of the two tools in all,
-   against eight and seven banks of 16,272 bytes ($8050-$BFDF);
+   against eight and seven banks of 16,288 bytes ($8050-$BFEF, what bbcrom.py fills);
 2. each tool's banks as judged and as placed, module by module;
 3. each tool's parts: resident code, stubs and constants, banked code and constants, constants
    copied to a sideways slot; per module, with the lines of its source (code lines: not blank,
@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.join(LATHE, 'host', 'driver'))
 import mapenv  # noqa: E402
 
 BANK = 0xBFDF - 0x8050 + 1      # a bank's room for programs: $8050-$BFDF, 16,272 bytes
+COPIED = 0xBFEF - 0x8050 + 1    # and for what is copied (bbcrom.TOP): 16,288 bytes
 SEARCH = [os.path.join(LATHE, 'src'), os.path.join(LATHE, 'rt', 'bbc'), os.path.join(LATHE, 'rt')]
 FUNC_RE = re.compile(r'^(?:pub\s+|inline\s+|recursive\s+|interrupt\s+)*(?:asm\s+)?func\s+(\w+)')
 TWIN = {'inline': 'inlines'}
@@ -155,12 +156,14 @@ def main(argv):
     for n, rest in re.findall(r'^bank +(\d+): (.*)$', listing, re.M):
         inuse = sum(int(x) for x in re.findall(r'(\d+) bytes\)', rest))
         used += inuse
-        if 'code and constants' in rest and 'free' not in rest:
-            left_in_code_banks += BANK - inuse
-    print(f'In use: {used} bytes, {module_code} of them the module\'s own code and tables. Left at the '
-          f'ends of the code banks, which bbcrom.py fills with nothing else: {left_in_code_banks}.')
+        free = re.search(r'; (\d+) bytes free', rest)
+        if 'code and constants' in rest and free:
+            left_in_code_banks += int(free.group(1))
+    print(f'In use: {used} bytes, {module_code} of them the module\'s own code and tables. Left free '
+          f'at the ends of the code banks (to $BFEF): {left_in_code_banks}.')
     for banks in (8, 7):
-        print(f'  {banks} banks hold {banks * BANK}: {used - banks * BANK} bytes too many, packed perfectly')
+        print(f'  {banks} banks hold {banks * COPIED} to $BFEF: {used - banks * COPIED} bytes too many, '
+              f'packed perfectly (lathe/tests/test_bbc_rom128.py has the eight-bank account)')
     print()
 
     # 2. The banks as judged.

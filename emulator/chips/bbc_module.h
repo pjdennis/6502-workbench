@@ -19,6 +19,10 @@
  *   sixteen banks: a read of offset $3FF0+n selects bank n, from any
  *   bank; no other address switches. The byte returned comes from the
  *   newly selected bank.
+ * BBC_MODULE_DIRECT8: the same scheme for one 128 KB EPROM, eight banks:
+ *   a read of offset $3FF0+n selects bank n (0 to 7), from any bank, and
+ *   $3FF8-$3FFF mirror $3FF0-$3FF7 (the latch takes A0-A2 and the decode
+ *   ignores A3), so a read of $3FF0+n selects bank n AND 7 for n 0 to 15.
  *
  * Writes never switch. In the ROM form they are ignored; in the RAM form
  * (the developer's module holding RAM) they write the selected bank.
@@ -31,7 +35,7 @@
 #define BBC_MODULE_MAX_BANKS 16
 #define BBC_MODULE_MAX_SIZE (BBC_MODULE_MAX_BANKS * BBC_MODULE_BANK_SIZE)
 
-enum bbc_module_scheme { BBC_MODULE_CC128, BBC_MODULE_DIRECT16 };
+enum bbc_module_scheme { BBC_MODULE_CC128, BBC_MODULE_DIRECT16, BBC_MODULE_DIRECT8 };
 
 struct bbc_module_state {
     uint8_t data[BBC_MODULE_MAX_SIZE];
@@ -41,7 +45,10 @@ struct bbc_module_state {
     uint64_t switches;  /* reads that changed the bank */
 };
 
-/* Banks the scheme has: 8 (cc128) or 16 (direct16). */
+/* Banks the scheme has: 8 (cc128, direct8) or 16 (direct16). */
+/* Its name: "cc128", "direct16" or "direct8". */
+const char *bbc_module_scheme_name(enum bbc_module_scheme scheme);
+
 int bbc_module_banks(enum bbc_module_scheme scheme);
 
 /* Empty module (all bytes $FF in the ROM form, as an erased EPROM; 0 in

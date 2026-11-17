@@ -1,6 +1,6 @@
 # Lathe on a BBC Model B+128
 
-Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"), and step 4: the compiler compiles itself on the B+128 at its full capacities, from the ROM and from the RAM module ("Step 4, as built"), and step 5: the linker in the same image, started by `*LLINK`, so that a program is compiled, linked and run on the B+128 with every file the host's tools write ("Step 5, as built"), and file names for the DFS: with `define BBCFS 1` the BBC's build maps every name the tools give to an Acorn DFS name, and the chain and the self-compile run so under the emulator's DFS rules ("File names on the BBC", 2026-11-16). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
+Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"), and step 4: the compiler compiles itself on the B+128 at its full capacities, from the ROM and from the RAM module ("Step 4, as built"), and step 5: the linker in the same image, started by `*LLINK`, so that a program is compiled, linked and run on the B+128 with every file the host's tools write ("Step 5, as built"), and file names for the DFS: with `define BBCFS 1` the BBC's build maps every name the tools give to an Acorn DFS name, and the chain and the self-compile run so under the emulator's DFS rules ("File names on the BBC", 2026-11-16); and the module's eight-bank form for one 128 KB EPROM, with the gate that says by how many bytes the two tools do not fit it yet ("The 128 KB module", 2026-11-17). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
 
 ## The idea
 
@@ -14,7 +14,7 @@ The owner's proposal: the compiler and the linker in **one sideways ROM socket**
 | Main RAM | `$0000-$7FFF`. Zero page `$00-$8F` belongs to the current language; `$0400-$07FF` is the language's workspace; a program has PAGE to HIMEM, `$1900-$7BFF` with DFS in mode 7 (25,344 bytes) |
 | Sideways window | `$8000-$BFFF`, one of sixteen slots chosen by ROMSEL at `$FE30`, with its copy at `$F4` |
 | Sideways RAM | four 16 KB slots (0, 1, 12, 13 on the B+128) |
-| The module | one slot; sixteen 16 KB banks of ROM (256 KB) behind it |
+| The module | one slot; sixteen 16 KB banks of ROM (256 KB) behind it, or eight (one 128 KB EPROM: "The 128 KB module") |
 
 **How the module switches.** A ROM socket has no write line, so the bank is chosen by reading: a read of `$BFF0+n` selects bank n, from any bank. This is this project's own design, in the manner of the Computer Concepts carriers of 1987 (Inter-Word, SpellMaster), which switch on reads of addresses at the top of the ROM. The emulator also models the SpellMaster carrier itself (eight banks, 128 KB), which holds the compiler alone but not the compiler and the linker together (measured below).
 
@@ -217,7 +217,7 @@ A bank's numbers are code and constants (its file) + variables, of 16,352 bytes;
 | `$8049-$804E` | 0 |
 | `$804F` | `number`: the bank's own number, the one byte that differs |
 
-So the reserved bytes are 80; a program's banks are linked with the window `$8050-$BFDF` (`bbc-rom.env`), and `$BFE0-$BFFF` of every bank hold nothing ($FF). For any service call but 4 and 9 the code changes only the flags; for 4 and 9 a command the module does not know, and `*HELP`, go back to the bank they came in, so an unknown command a tool passes to OSCLI from a bank of the module returns there. Bank 0 holds, from `$8050`, its code (416 bytes), the command table, the `*HELP` text and each command's copy list, then the programs' resident parts and their regions' constants as far as they fit; the rest goes in the banks no program's code is in, in order.
+So the reserved bytes are 80; a program's banks are linked with the window `$8050-$BFDF` (`bbc-rom.env`), and `$BFE0-$BFFF` of every bank hold nothing ($FF) in this image (in the eight-bank one, pieces copied may run to `$BFEF`: "The 128 KB module"). For any service call but 4 and 9 the code changes only the flags; for 4 and 9 a command the module does not know, and `*HELP`, go back to the bank they came in, so an unknown command a tool passes to OSCLI from a bank of the module returns there. Bank 0 holds, from `$8050`, its code (416 bytes), the command table, the `*HELP` text and each command's copy list, then the programs' resident parts and their regions' constants as far as they fit; the rest goes in the banks no program's code is in, in order.
 
 **Bank numbers.** A program's banks of the module are the banks of the image its environment names (`bank WIN N $8n FILE`, and `rom WIN N`); bank 0 is the module's. `bbcrom.rom_env(SOURCE, OUT, FIRST)` makes a program's ROM environment from its `*RUN` one (`bbc-bank.env` and its lines): the window `$8050-$BFDF`, its banks of the module renumbered from FIRST in the order of their `bank` lines, each `rom`; it returns the next number, so programs numbered one after the other never collide. The tool checks it: every bank of the module `rom` (else the linker would have put variables there), numbered 1 to 15, used by one program only (the error names both), its file within `$8050-$BFDF`; regions in sideways RAM slots (0, 1, 12, 13); the window; `exit return $0400` and `output raw`; the resident part in the code range from `$0800`; no code, data or `more data` range over `$0700-$07FF`; commands of capitals and digits, each once; and that the resident parts and region constants fit the banks left (saying by how many bytes they do not). Resident parts are placed after the links, so no program's bank number can collide with them.
 
@@ -453,6 +453,98 @@ Far calls are about 7 % of the compiler's link (at about 190 cycles), blocks abo
 
 **A packer on the BBC.** The ROM image is still made on the host by `bbcrom.py`. A packer on the BBC would read each tool's resident file, bank files and map, and write the sixteen banks: every bank starts with the 80 bytes of header and service code, bank 0 holds the module's code and its tables of commands, resident parts and copies, then the parts as far as they fit. It needs: the module's code from `lathe/rt/bbc/module.asm` as a file of bytes (assembled once on the host, or by a Lathe program, since nothing on the BBC assembles), with the places its tables go known; a buffer of one bank, which a sideways slot is; the map, to find the resident part's length and entry; and somewhere to put 256 KB. A DFS disc holds 100 or 200 KB, so the image would be written as sixteen bank files, or straight into the module's RAM form (as `LOADMOD` fills it) and saved by a ROM programmer. The packer itself would be small, a few KB of Lathe: copying bytes and filling tables. It is not built.
 
+## The 128 KB module (2026-11-17)
+
+The owner wants the compiler and the linker in one 128 KB EPROM: eight banks of 16 KB. This is the layout's part of that: an eight-bank form of the module that can use every byte of the eight banks, and a gate that says how far the tools are from fitting it. The tools themselves are being made smaller elsewhere. Built: the scheme `direct8` in the emulator, `bbcrom.py --banks 8`, the home bank, the packing, LOADMOD for both schemes, the `ROM128` layouts in `lathec-bbc.env` and `linker-bbc.env`, `lathe/tests/test_bbc_rom128.py` (the gate) and `lathe/tests/farcall_matrix.py` (the far calls between modules, counted on the BBC).
+
+### The form: direct8
+
+The project's own direct scheme, cut to eight banks of one 128 KB EPROM (a 27C010): **a read of `$BFF0+n` selects bank n, n = 0 to 7, from any bank; `$BFF8-$BFFF` mirror `$BFF0-$BFF7`** (a read of `$BFF0+n` selects bank n AND 7). The mirror is the simplest hardware: the latch takes A0-A2 and the decode ignores A3, so the board is the EPROM, a three-bit latch and the comparator of A4-A13 that `direct16` needs anyway. Nothing else switches, so `$8050-$BFEF` of every bank can hold bytes that are read (`$BFE0-$BFEF` only as data: an instruction must not end within a byte of `$BFF0`).
+
+Why this and not `cc128`: the same code as `direct16` works unchanged (`rt_bbc`'s `LDA LATCH-$80,Y` and the module's `LDA $BFF0+n`), every bank has the same room, and every bank can be reached in one read from every other. What `cc128` would take is below.
+
+The emulator: `--bbc-module-scheme direct8` (`emulator/chips/bbc_module.c`; its C tests are in `emulator/tests/test_chip_bbc_module.c`: every address from every bank, the mirror, `$BFEF` and the `cc128` zones not switching, the RAM form, an image of eight banks and one of nine refused; `--bbc-module-bank` is 0 to 7 for it, in `test_cli.c`). `boards.run_module` takes the scheme (`boards.MODULE_SCHEME` when none is given).
+
+### What changed in the module
+
+- **The home bank.** The module's own code and tables (the command table, the copy lists, the `*HELP` text) are in one bank, the home bank, after the code of the program there, at any address. `module.asm` is assembled with two constants before it, `home` and `home_at`: the service code selects the home bank with `LDA $BFF0+home` (an instruction of the reserved bytes, which are the same in every bank), the stub at `$07F0` and the copier end with the same read. So bank 0 can hold a tool's code. In the sixteen-bank image the home bank is bank 0 at `$8050`, as before, and the image is byte for byte what it was (no program may use bank 0 there). In the eight-bank one it is the bank with the most room after its code among the banks the image holds anyway, or the first bank no program uses.
+- **The packing.** In the eight-bank image (and in the sixteen-bank one with `--tails`) the resident parts and the regions' constants go in pieces in the room left at the end of every bank, to `$BFEF`: first in the banks the image holds anyway, the one with the most room first, then in the banks after them in order, so that the image uses as few banks as it can. Each piece is an entry of the command's copy list (8 bytes in the home bank; the copier already takes any number, and reads its source with `LDA (zp),Y` with Y = 0, which makes no dummy read, so pieces can run to `$BFEF`). A gap of 8 bytes or fewer is left empty, since its entry would cost what it holds. When things do not fit, `ImageError.over` is the bytes over, counting the entries. The sixteen-bank image keeps its old way (bank 0 to `$BFDF`, then the banks no program uses) so that every existing test passes unchanged; with `--tails` both tools' image takes banks 0 to 10, not 0 to 11 (`test_bbc_dfs.py` checks for twelve).
+- **LOADMOD** finds the module's size: it writes 0 at `$804F` of bank 0 and 8 at `$804F` of bank 8, and reads bank 0's again (8 on an eight-bank module, where bank 8 is bank 0). It loads that many banks, copies `$8000-$BFEF` of each (it copied to `$BFDF`), and refuses a file with more banks than the module (`Image too large for the module`). It is 591 bytes (459).
+- **rom_env** takes the image's size: `rom_env(SOURCE, OUT, FIRST, 8)` numbers from FIRST (0 allowed), refuses a bank past 7, and sets a source's `define ROM128 0` to 1, so `when ROM128` and `unless ROM128` entries give what differs in the eight-bank form (a `bank` entry under them is renumbered if it is an entry of the result). `rt_bbc.lth` needed no change.
+
+**Tested** (`test_bbc_rom128.py`; every run `--bbc-strict` on filled memory): `bbcrom.layout()` on made-up programs (the home bank, pieces to `$BFEF` in the order of their destination, the bytes over to the byte, the sixteen-bank layout kept unless asked); `test_bbc_rom.py`'s three programs in an eight-bank image numbered from bank 0 (so bank 0 holds `*FIRST`'s code and the home bank is bank 2, after `*FIRST`'s bank 3): each command in every power-on bank, through LOADMOD whole and short in slots 4 and 7, a nine-bank file refused, bank `$88` refused; and the compiler alone in an eight-bank image (banks 0 to 4, the home bank 4 after its code), which compiles modules of `lathe/src` from the ROM and through LOADMOD as the host compiler does (`err`, `src` and `fold` by default; all 18 with `LATHE_BBC_ROM128_SELFHOST=1`).
+
+### The tools' banks
+
+A module of a tool must fit a bank whole as the linker judges it (before zero page shrinks code). Eight banks give the compiler five and the linker three: the compiler is 74,988 bytes as judged (4.61 banks), the linker 50,884 (3.13). So the linker needs a new layout, and it does not fit yet.
+
+**Far calls decide the layout.** `farcall_matrix.py` links a counting copy of a tool with each group of modules in a bank of its own (13 groups for the linker, 11 for the compiler, the developer's form) and counts each pair (where the call comes from, the bank called) in `rt_bbc.call`, fixed memory counted apart. A layout that keeps each group whole has as its far calls the pairs it splits and the calls from fixed memory. Checked against the counting copy that counts all far calls together ("The linker links the compiler" above: 1,276,282 for the compiler's link, 42,983 for outtest's), the five-bank layout's sum is 1,276,580 and 43,015. A far call costs 211 cycles more than a `JSR` and `RTS`: the compiler's link takes 3,410,932,750 cycles in the developer's form in five banks and 3,479,179,312 in thirteen, for 323,378 far calls more (outtest's: 212.9).
+
+In the compiler's link, lk_alloc calls lk_graph 1,150,365 times: 90 % of its far calls, because the five-bank layout has them in banks 4 and 3. Together they are 16,688 bytes as judged, 416 over a bank by themselves.
+
+**The linker in three banks**, all layouts with every module whole, searched over every assignment of the 13 groups (and lk_out and lk_op fixed or not); cycles measured for five banks and estimated for three from the far calls at 211 cycles each, since no three-bank layout links yet:
+
+| Layout | Banks as judged (over) | Far calls, the compiler's link | Cycles, the compiler's link | Far calls, outtest | Cycles, outtest |
+|---|---|---|---|---|---|
+| five banks (`linker-bbc.env`) | 9,225 / 10,714 / 9,176 / 10,285 / 11,484 | 1,276,580 | 3,410,932,750 measured | 43,015 | 335,198,852 measured |
+| **chosen**: link, lk_err, lk_file, lk_envf, lk_win, lk_place, lk_fix, lk_emit / lk_scan, lk_name, lk_boot, lk_map / lk_graph, lk_alloc; lk_out and lk_op fixed | 16,844 (572) / 16,471 (199) / 16,688 (416) | 100,512 | 3,162,800,000 (-7.3 %) | 17,021 | 329,700,000 (-1.6 %) |
+| the most even: link, lk_err, lk_file, lk_scan, lk_map, lk_emit / lk_envf, lk_name, lk_win, lk_boot, lk_place, lk_fix / lk_graph, lk_alloc; lk_out and lk_op fixed | 16,696 (424) / 16,619 (347) / 16,688 (416) | 271,898 | 3,198,900,000 | 58,935 | 338,600,000 |
+| by phase, lk_graph and lk_alloc apart: link, lk_err, lk_file, lk_envf, lk_scan, lk_win / lk_name, lk_graph, lk_boot, lk_place, lk_fix / lk_alloc, lk_map, lk_emit, lk_out, lk_op | 16,258 / 16,779 (507) / 17,847 (1,575) | 1,429,290 | 3,443,100,000 | 80,893 | 343,200,000 |
+
+The chosen layout is in `linker-bbc.env` under `when ROM128`. Fixing lk_out and lk_op (803 bytes as placed) uses the room the code range `$1900-$3FFF` had left (972 bytes) and takes 881 bytes as judged out of the banks; it saves only 1,288 far calls, since lk_emit, their caller, shares their bank. The resident part is 9,767 bytes (9,012 in five banks: lk_out and lk_op, and fewer stubs). With `BBCFS 1` the ROM form puts `bbcfs` in bank 1 as well (`when ROMFORM`), which that build must also make room for.
+
+**The compiler in five banks** fits as it is; the search over every assignment of its 11 groups to five banks that fit found a better one, which `lathec-bbc.env` gives under `when ROM128`: bank 1 expr; 2 gen and lathec; 3 decl and asmblock; 4 parts, out, inlines, kernel, lex, fbuf, src and err; 5 reg, cond, fold and typetab (reg's and gen's calls of fold and typetab were the most of any pair, 98,212 and 71,079). Measured from the eight-bank image, the 18 compiles of the self-compile, every file the host's:
+
+| Layout | Banks as judged | Resident | Far calls (18 compiles) | Cycles (18 compiles, ROM form) |
+|---|---|---|---|---|
+| five banks as in `lathec-bbc.env` | 15,717 / 15,154 / 15,441 / 14,367 / 14,309 | 13,989 | 733,977 | 945,267,054 |
+| **`when ROM128`** | 15,717 / 15,154 / 15,714 / 14,716 / 13,687 | 13,959 | 551,124 | 901,564,042 (-4.6 %) |
+
+### The account (the gate)
+
+`test_bbc_rom128.py` links both tools for the eight-bank image (the compiler in banks 0 to 4, the linker in 5 to 7) with `lk_judged.py`, so that a tool that does not link is measured too, and lays the image out from what the links give. `test_both_tools_fit_the_128k_image` is an expected failure whose message gives the bytes over; `LATHE_BBC_ROM128_REPORT=1` prints the whole account. On 2026-11-17:
+
+| Bank | Tool | Judged | Placed | Over as judged | Left to `$BFEF` | Modules |
+|---|---|---|---|---|---|---|
+| 0 | LATHE | 15,717 | 14,756 | | 1,532 | expr |
+| 1 | LATHE | 15,154 | 13,533 | | 2,755 | gen, lathec |
+| 2 | LATHE | 15,714 | 13,768 | | 2,520 | decl, asmblock |
+| 3 | LATHE | 14,716 | 12,550 | | 3,738 | inlines, parts, out, lex, kernel, fbuf, src, err |
+| 4 | LATHE | 13,687 | 11,992 | | 4,296 | reg, cond, fold, typetab |
+| 5 | LLINK | 16,844 | 14,961 | **572** | 1,327 | lk_envf, lk_err, lk_emit, lk_place, lk_fix, lk_win, lk_file, link |
+| 6 | LLINK | 16,471 | 13,772 | **199** | 2,516 | lk_scan, lk_name, lk_map, lk_boot |
+| 7 | LLINK | 16,688 | 13,572 | **416** | 2,716 | lk_alloc, lk_graph |
+
+Copied at the commands: the compiler's messages for slot 13 (5,494 bytes), its resident part (13,959) and the linker's (9,767). In use: 108,904 bytes of code banks and 29,220 copied, 138,124 of the 130,304 the eight banks hold to `$BFEF`; with the module's code and tables (about 500 bytes) and the copy entries, **8,363 bytes over**. The linker does not link yet: link error 45, its bank 1 (the image's 5) 572 bytes over.
+
+**What must still shrink for the gate to pass**: 8,363 bytes anywhere in the two tools (code of a bank, a resident part or the messages copied to slot 13: a byte saved is a byte saved), and of that, as the linker judges them, 572 bytes in the linker's bank 1 (lk_envf, lk_err, lk_emit, lk_place, lk_fix, lk_win, lk_file, link), 199 in its bank 2 (lk_scan, lk_name, lk_map, lk_boot) and 416 in its bank 3 (lk_alloc, lk_graph). The compiler's banks fit as they are. Moving the compiler's 5,494 bytes of messages out of the ROM removes them from the copy (and the slot-13 copy at every `*LATHE`). When the account is 0, `test_both_tools_fit_the_128k_image` succeeds unexpectedly: remove its `expectedFailure`, and the same file runs the tool chain on two small programs (`hello`, and `farcall` banked through LOADMOD) from the 128 KB image; `LATHE_BBC_ROM128_SELFHOST=1` the self-compile from it in the ROM and loader forms, `LATHE_BBC_ROM128_SELFLINK=1` the linker linking the compiler, `LATHE_BBC_ROM128_LOOP=1` the rebuild loop.
+
+What the packing recovered: the sixteen-bank image of both tools left 53,013 bytes unused at the ends of its ten code banks; in the eight-bank layout every one of those bytes can take a piece, and `$BFE0-$BFEF` of each bank (128 bytes in eight banks) is room it did not have. What the eight banks cannot use: the reserved bytes (80 a bank), 16 bytes at the top of each, 8 bytes an entry, and gaps of 8 bytes or fewer.
+
+### Start-up
+
+Each command copies its pieces a byte at a time with a bank switch a byte, as before; a piece more costs an entry's walk (about 150 cycles). `*LATHE` and `*LLINK` with no arguments, before (2026-11-17, the sixteen-bank image) and after:
+
+| Image | `*LATHE` | `*LLINK` |
+|---|---|---|
+| sixteen banks, before | 1,467,942 | 554,928 |
+| sixteen banks, now (the same bytes) | 1,467,942 | 554,928 |
+| sixteen banks with `--tails` (banks 0 to 10; `*LLINK` copies 2 pieces, not 1) | 1,467,942 | 555,088 |
+| eight banks, the compiler alone (`when ROM128` layout, banks 0 to 4) | 1,466,112 | |
+| eight banks, the linker alone in its five banks (banks 0 to 4) | | 554,975 |
+
+The linker in three banks has 755 bytes more to copy (9,767), about 45,000 cycles more at 60 a byte; it cannot be measured until it links.
+
+### What `cc128` would take
+
+The Computer Concepts carrier (the emulator's `cc128`, as MAME models it): a read of `$BFE0` selects bank 0 from any bank; only while bank 0 is selected, a read in `$BFC0-$BFDF` selects bank 1, `$BFA0-$BFBF` bank 2, ... `$BF00-$BF1F` bank 7. It is a real board, which `direct8` is not. For Lathe:
+
+- **Switching.** Bank n from any bank is two reads: `$BFE0`, then `$BF00 + (7 - n) * 32` (for n = 0 that is `$BFE0` again, so one formula serves every bank, and `LDA $BF00,X` with X = (7 - n) * 32 stays in its page). `rt_bbc`'s three switches (call, back and select/unmap) would be `LDA $BFE0` and `LDX`/`LDA $BF00,X` from a table of eight bytes: about 8 bytes and 8 cycles a switch more, a `define` of the scheme for the resident parts of both tools. The service code's entry and its `back` and `claim` likewise, in the reserved bytes; the copier's switch of a byte's source bank too (about 6 cycles a byte more, 10 % of the start-up's copying). LOADMOD likewise; a RAM form with that decode does not exist outside the emulator.
+- **Room.** Bank 0 can hold nothing at `$BF00-$BFDF` that is ever read, and its code must end below `$BF00` with no indexed read reaching that page: 224 bytes lost, so bank 0 has `$8050-$BEFF` (16,048 bytes). Banks 1 to 7 keep `$8050-$BFDF` (16,272; `$BFE1-$BFFF` could hold copied data, 31 bytes each, not counted). In all 129,952 bytes against `direct8`'s 130,304: 352 bytes less for the tools to lose.
+- **Which bank 0 holds.** All eight banks hold code, so one of the compiler's banks would be bank 0 with `bbcrom.py` checking that its code ends by `$BEFF` (its bank 5, 11,992 bytes as placed, has room to spare); the linker's window stays `$8050-$BFDF`.
+
+Not built: the owner can choose `cc128` for its existing hardware at 352 bytes and a few cycles a switch, or `direct8` for its single-read switching on a board of our own.
+
 ## File names on the BBC
 
 **Built (2026-11-16)** for the Acorn DFS: `lathe/rt/bbc/bbcfs.lth` (the mapping), `lathe/rt/bbcfs.lth` (the same module for every other machine), the call in `lathe/rt/bbc.lth`, `define BBCFS` in every BBC environment, `lathe/env/bbc-dfs.env`, `lathe/host/driver/bbcfs.py` (the host's twin), the emulator's `--bbc-fs dfs` (`emulator/README.md`, "bbcbplus"), and the tests `lathe/tests/test_bbc_dfs.py`. The recipe is in [`boards.md`](boards.md), "The tool chain on the BBC".
@@ -600,6 +692,7 @@ From the emulator's cycles in the ROM form (2026-11-16). The time of the disc is
 - **How a tool ends.** As a command it uses the language's zero page and the memory from PAGE, so the language that was running (BASIC) cannot be returned to as it was. ~~The tool should end by starting the current language again (OSBYTE 142).~~ Done so in step 3 (ROM form); a program run with `*RUN` still returns into the language, which may not survive it.
 - **The command's tail** is copied to `$0700`, at most 239 bytes: the linker's longest command lines must fit that (the MOS's own line is 255 at most). The corpus's links fit; the compiler's own link is 247 bytes (step 5). The linker reads its arguments from a file, `*LLINK @FILE` (2026-11-16); the compiler has no such form yet, and its command lines are short.
 - **The image's addresses.** The linker writes an image's bytes and not its catalogue entry; on the BBC `*SAVE` gives it its load and execution addresses (step 5). The linker could set them with OSFILE when its environment says `output raw` on the BBC, at the cost of a call the host linker does not have.
+- **The 128 KB module's hardware**: `direct8`, a board of our own (an EPROM, a three-bit latch, a comparator), or the Computer Concepts carrier `cc128`, which exists, at 352 bytes less room and a second read a switch ("The 128 KB module", "What `cc128` would take").
 - **Sideways RAM** slots a program's regions name are taken without asking: whatever the owner had loaded in them (a ROM image in sideways RAM) is overwritten at the command.
 - **Other filing systems and screen modes** move PAGE and HIMEM; the layout is fixed at link time. One build per case, or one build for the smallest case.
 
@@ -610,4 +703,5 @@ From the emulator's cycles in the ROM form (2026-11-16). The time of the disc is
 - The dummy reads of a real NMOS 6502. The module's code, the copier and the loader are written to keep them out of `$BFF0-$BFFF` (no instruction ends near it, indexed accesses there stay in their page, `$BFE0-$BFFF` are never read or written by a copy), but the emulator's core makes none, so that is by inspection only.
 - A real DFS: LOADMOD's OSGBPB of 16 KB at a time, and how the DFS lays files out on the disc, so "Can't extend" and a full disc. The names, five files open and 31 a drive are shown with `--bbc-fs dfs` ("File names on the BBC"), against rules read in third parties' documents, not Acorn's (`emulator/NOTES-bbcbplus.md`).
 - Timing against real discs. The compiler compiling itself is 933 million cycles on the BBC ("Step 4, as built"), 7.8 minutes at 2 MHz, before the cost of reading 654,341 bytes and writing 398,290 through a real filing system, which the emulator's MOS does not charge.
+- The `direct8` board: it is this project's design, and nothing has been built; the mirror of `$BFF8-$BFFF` is what the simplest decode would give, not a measured fact. The `cc128` carrier exists, but Lathe is not built for it.
 - The real module's electrical behaviour. MAME models the SpellMaster carrier, so the eight-bank form (the compiler alone) could be tried there against the real MOS by someone who has the ROMs.

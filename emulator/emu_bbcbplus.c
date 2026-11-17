@@ -19,7 +19,7 @@ static void report(const struct bbc_machine *m, const struct emu_opts *opts) {
             (unsigned long long)m->mos_calls);
     if (m->module)
         fprintf(stderr, "bbcbplus: module: slot %d, %s %s, bank %d, bank switches %llu\n", opts->bbc_module_slot,
-                m->module->scheme == BBC_MODULE_DIRECT16 ? "direct16" : "cc128", m->module->ram ? "RAM" : "ROM",
+                bbc_module_scheme_name(m->module->scheme), m->module->ram ? "RAM" : "ROM",
                 m->module->bank, (unsigned long long)m->module->switches);
     fprintf(stderr, "bbcbplus: files: opened=%llu  bytes-read=%llu  bytes-written=%llu\n",
             (unsigned long long)m->files_opened, (unsigned long long)m->bytes_read,
@@ -60,6 +60,7 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
     int has_module = opts->bbc_module_filename || opts->bbc_module_ram;
     if (has_module) {
         enum bbc_module_scheme scheme = opts->bbc_module_scheme == BBC_SCHEME_DIRECT16 ? BBC_MODULE_DIRECT16
+                                        : opts->bbc_module_scheme == BBC_SCHEME_DIRECT8 ? BBC_MODULE_DIRECT8
                                                                                        : BBC_MODULE_CC128;
         bbc_module_init(&module_chip, &module, scheme, opts->bbc_module_ram, opts->bbc_module_bank);
         if (opts->fill_ram) fill_ram_bbc_module(&module);

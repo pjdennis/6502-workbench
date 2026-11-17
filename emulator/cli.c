@@ -155,8 +155,9 @@ void emu_opts_usage(FILE *fp) {
 "  --bbc-module-ram       the module holds RAM, written through the window\n"
 "  --bbc-module-slot N    the module's slot (default 4)\n"
 "  --bbc-module-bank N    the module's bank at power on (default 0)\n"
-"  --bbc-module-scheme S  cc128 (the Computer Concepts 128K carrier, default) or\n"
-"                         direct16 (sixteen banks, a read of $BFF0+n selects n)\n"
+"  --bbc-module-scheme S  cc128 (the Computer Concepts 128K carrier, default),\n"
+"                         direct16 (sixteen banks, a read of $BFF0+n selects n) or\n"
+"                         direct8 (eight banks, a read of $BFF0+n selects n AND 7)\n"
 "  --bbc-shadow           OSBYTE 132 (HIMEM) answers $8000, not $7C00\n"
 "  --bbc-page HEX         OSBYTE 131 (PAGE) answers HEX (default 1900)\n"
 "  --bbc-strict           a write to MOS memory or a ROMSEL unlike $F4 at a MOS\n"
@@ -348,8 +349,9 @@ static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
         if (take_str_value(argc, argv, i, arg, &value)) return 1;
         if (strcmp(value, "cc128") == 0) opts->bbc_module_scheme = BBC_SCHEME_CC128;
         else if (strcmp(value, "direct16") == 0) opts->bbc_module_scheme = BBC_SCHEME_DIRECT16;
+        else if (strcmp(value, "direct8") == 0) opts->bbc_module_scheme = BBC_SCHEME_DIRECT8;
         else {
-            fprintf(stderr, "error: --bbc-module-scheme must be 'cc128' or 'direct16'\n");
+            fprintf(stderr, "error: --bbc-module-scheme must be 'cc128', 'direct16' or 'direct8'\n");
             return 1;
         }
     } else if (strcmp(arg, "--bbc-fs") == 0) {
@@ -415,7 +417,7 @@ static int bbc_check(struct emu_opts *opts) {
     int banks = opts->bbc_module_scheme == BBC_SCHEME_DIRECT16 ? 16 : 8;
     if (opts->bbc_module_bank >= banks) {
         fprintf(stderr, "error: --bbc-module-bank must be 0 to %d for --bbc-module-scheme %s\n", banks - 1,
-                banks == 16 ? "direct16" : "cc128");
+                banks == 16 ? "direct16" : opts->bbc_module_scheme == BBC_SCHEME_DIRECT8 ? "direct8" : "cc128");
         return 1;
     }
     if (module) {

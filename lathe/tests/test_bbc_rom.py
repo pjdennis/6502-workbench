@@ -122,8 +122,12 @@ def language_rom(path):
     return path
 
 
-@unittest.skipUnless(HAVE_TOOLS, 'compiler or emulator missing')
-class RomModule(unittest.TestCase):
+class RomImage:
+    """The image of the three programs, of BANKS banks, their banks numbered from FIRST_BANK, and
+    the helpers that run them (test_bbc_rom128.py's eight-bank form uses them too)."""
+    BANKS = 16
+    FIRST_BANK = 1
+
     @classmethod
     def setUpClass(cls):
         d = cls.dir = tempfile.mkdtemp(prefix='lathe-bbc-rom-')
@@ -136,7 +140,7 @@ class RomModule(unittest.TestCase):
             with open(os.path.join(src, name + '.lth'), 'w') as f:
                 f.write(text)
         cls.specs, cls.runs, cls.flats, cls.maps, cls.envs = [], {}, {}, {}, {}
-        first = 1
+        first = cls.FIRST_BANK
         for command, main, lines in PROGRAMS:
             source = os.path.join(src, main + '.lth')
             rom = os.path.join(d, 'rom-' + command)
@@ -146,7 +150,7 @@ class RomModule(unittest.TestCase):
                 shutil.copy(ROM_ENV, env)
             else:
                 run_env = tbb.bank_env(os.path.join(d, command.lower() + '-run.env'), lines, ports=0)
-                first = bbcrom.rom_env(run_env, env, first)
+                first = bbcrom.rom_env(run_env, env, first, cls.BANKS)
                 run_dir = os.path.join(d, 'run-' + command)
                 os.makedirs(run_dir)
                 build.build(source, os.path.join(run_dir, command), run_env,
@@ -171,7 +175,8 @@ class RomModule(unittest.TestCase):
             cls.flats[command] = (os.path.join(flat_dir, command), flat_env)
         cls.image = os.path.join(d, 'MODULE')
         cls.short = os.path.join(d, 'MODSHORT')
-        cls.listing = bbcrom.image(cls.specs, cls.image, os.path.join(d, 'MODULE.txt'), short=cls.short)
+        cls.listing = bbcrom.image(cls.specs, cls.image, os.path.join(d, 'MODULE.txt'), short=cls.short,
+                                   banks=cls.BANKS)
         cls.language = language_rom(os.path.join(d, 'LANG.rom'))
 
     @classmethod
@@ -187,6 +192,7 @@ class RomModule(unittest.TestCase):
     def command(self, command, args=(), **options):
         """(status, output, error output, the emulator's report) of *COMMAND ARGS."""
         disk = options.pop('disk', None) or self.disk()
+        options.setdefault('scheme', bbcrom.SCHEMES[self.BANKS])
         status, out, err, _ = boards.run_module(BOARD, self.image, disk, command, args, raw=True,
                                                 **options)
         report = err.decode('latin-1')
@@ -210,6 +216,10 @@ class RomModule(unittest.TestCase):
                     self.assertEqual(f.read(), tbb.INPUT)
         self.assertEqual(len(set(found)), 1, found)
         return found[0]
+
+
+@unittest.skipUnless(HAVE_TOOLS, 'compiler or emulator missing')
+class RomModule(RomImage, unittest.TestCase):
 
     # ---- The programs ------------------------------------------------------------------------
 

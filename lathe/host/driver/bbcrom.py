@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """The image of a Lathe module for the BBC Model B+128: one file of sixteen 16 KB banks (262,144
-bytes, scheme direct16), which holds one or more programs, each started by a * command
-(lathe/docs/bbc.md, "Step 3, as built: the ROM form").
+bytes, scheme direct16) or eight (131,072 bytes, one 128 KB EPROM, scheme direct8), which holds
+one or more programs, each started by a * command (lathe/docs/bbc.md, "Step 3, as built: the ROM
+form" and "The 128 KB module").
 
     python3 lathe/host/driver/bbcrom.py -o IMAGE [--listing FILE] [--loader FILE] [--short FILE]
-                                        COMMAND=PROGRAM,ENV[,MAP]...
+                                        [--banks 16|8] COMMAND=PROGRAM,ENV[,MAP]...
 
 Each program is linked on its own, by build.py, with an environment of its own (rom_env() makes
 one from a program's *RUN environment): lathe/env/bbc-rom.env's machine, its banks of the module
@@ -12,24 +13,30 @@ one from a program's *RUN environment): lathe/env/bbc-rom.env's machine, its ban
 and constants, from its load address, the start of the environment's `code` range), and its bank
 files are beside it (build.py copies them there). MAP is its map, for the listing.
 
-What goes where:
+What goes where (layout()):
 
 - Every bank: the reserved bytes $8000-$804F of lathe/rt/bbc/module.asm (the sideways ROM header
   and the service code; $804F holds the bank's own number).
-- Bank 0: the module's own code and tables after them, then resident parts as far as they fit.
 - The banks of the programs' code: each bank file of the module ($80 + n in its `bank` entry)
   in bank n, from $8050.
-- The banks no program's code is in, in order: the rest of the resident parts and the constants
-  of the programs' regions (a region bank's file), which bank 0 copies at the * command into main
-  RAM and the sideways RAM slots.
+- The home bank: the module's own code and tables, after the code of the bank (bank 0, at
+  $8050, in the sixteen-bank image; in the eight-bank one the bank with the most room after its
+  code of those up to the last program's, or the first bank no program uses).
+- The programs' resident parts and the constants of their regions (a region bank's file), in
+  pieces, which the home bank copies at the * command into main RAM and the sideways RAM slots.
+  In the eight-bank image (or with --tails) in the rest of every bank, to $BFEF: first in the
+  banks the image holds anyway, the one with the most room first, then in the banks after them,
+  in order. In the sixteen-bank image, as it was before the eight-bank one, in bank 0 to $BFDF,
+  then in the banks no program's code is in, in order.
 
 Bank numbers. A program's bank of the module is bank n of the image where its environment says
 `bank WIN N $8n FILE`; the environment chooses, and this tool checks: every such bank must be
-`rom`, its number 1 to 15 (bank 0 is the module's), used by one program only, and its file must
-fit $8050-$BFDF. rom_env() numbers a program's banks of the module from a first bank given, in
-the order of its `bank` lines, and returns the next: so a set of programs numbered one after the
-other from 1 never collides. The resident parts are placed after the programs are linked, in the
-banks left over, so no number of a program's bank can collide with them.
+`rom`, its number within the image (1 to 15 in the sixteen-bank image, where bank 0 is the
+module's; 0 to 7 in the eight-bank one), used by one program only, and its file must fit
+$8050-$BFDF. rom_env() numbers a program's banks of the module from a first bank given, in the
+order of its `bank` lines, and returns the next: so a set of programs numbered one after the
+other never collides. The resident parts are placed after the programs are linked, in the room
+left over, so no number of a program's bank can collide with them.
 
 --loader also writes the developer's loader (lathe/rt/bbc/loadmod.asm), which fills the module's
 RAM form from the image: `*RUN LOADMOD IMAGE [SLOT]`. --short also writes the image's banks from 0
@@ -37,8 +44,8 @@ to the last one in use, and no more: the file for the loader on a disc, where th
 (256 KB) is more than a side holds (lathe/docs/bbc.md, "File names on the BBC"). The loader fills
 each bank the file does not hold with the reserved bytes alone.
 
-image() and loader() are the functions the tests call; ImageError says what does not fit or
-collides.
+image(), layout() and loader() are the functions the tests call; ImageError says what does not
+fit (with .over, the bytes over, where it is room that is short) or collides.
 """
 import argparse
 import os
@@ -58,7 +65,8 @@ import pyasm  # noqa: E402
 MODULE_ASM = os.path.join(ROOT, 'lathe', 'rt', 'bbc', 'module.asm')
 LOADER_ASM = os.path.join(ROOT, 'lathe', 'rt', 'bbc', 'loadmod.asm')
 LOADER_LOAD = 0x1900                    # LOADMOD is loaded and entered at PAGE
-BANKS = 16
+BANKS = 16                              # the sixteen-bank image, scheme direct16
+SCHEMES = {16: 'direct16', 8: 'direct8'}  # an image's banks, and the emulator's scheme for them
 BANK_SIZE = 0x4000
 IMAGE_SIZE = BANKS * BANK_SIZE
 WINDOW = 0x8000
@@ -66,6 +74,10 @@ RESERVED = 0x50                         # $8000-$804F in every bank
 NUMBER_AT = 0x4F                        # the bank's own number, the last reserved byte
 FIRST = WINDOW + RESERVED               # $8050: the window of a program's banks starts here
 LAST = 0xBFDF                           # ... and ends here, as the developer's form's
+TOP = 0xBFEF                            # the pieces copied may run to here: the copier reads them
+                                        # with LDA (zp),Y and Y = 0, which makes no dummy read
+ROOM = LAST - FIRST + 1                 # a bank's room for code: 16,272 bytes
+ENTRY = 8                               # the bytes of a copy list entry, in the home bank
 FILL = 0xFF                             # an erased EPROM
 SIDEWAYS_RAM = (0, 1, 12, 13)           # the B+128's
 MAIN_RAM = 0xFF                         # a copy's destination in main RAM (module.asm, copier)
@@ -121,8 +133,9 @@ def read_env_banks(path):
     return first, last, banks
 
 
-def load_program(p):
-    """Reads a program's environment, resident image and bank files, and checks them."""
+def load_program(p, size=BANKS):
+    """Reads a program's environment, resident image and bank files, and checks them, for an
+    image of `size` banks."""
     env = mapenv.read_env(p.env)
     where = f'{p.command} ({os.path.basename(p.env)})'
     if not COMMAND_RE.match(p.command):
@@ -154,12 +167,12 @@ def load_program(p):
     beside = os.path.dirname(os.path.abspath(p.image))
     for b in banks:
         if b.value & 0x80:
-            if b.value > 0x8F:
+            if b.value >= 0x80 + size:
                 raise ImageError(f'{where}: bank {b.number} has the value ${b.value:02X}: a bank of the '
-                                 f'module is $80 to $8F')
-            if b.value == 0x80:
+                                 f'module is $80 to ${0x7F + size:02X}')
+            if b.value == 0x80 and size == BANKS:
                 raise ImageError(f'{where}: bank {b.number} is bank 0 of the module ($80), which holds '
-                                 f'the module\'s own code')
+                                 f'the module\'s own code in the sixteen-bank image')
             if not b.rom:
                 raise ImageError(f'{where}: bank {b.number} (${b.value:02X}) is not `rom`: in a ROM the '
                                  f'linker must keep its variables in main RAM')
@@ -218,32 +231,47 @@ def tables(programs, lists):
     return '\n'.join(out) + '\n'
 
 
-def module_code(programs, lists):
+def module_code(programs, lists, home=0, at=FIRST):
+    """The module's code assembled with its home bank `home` and its code and tables at `at` there:
+    (the reserved bytes, the code and tables, the global labels)."""
     with open(MODULE_ASM) as fh:
         source = fh.read()
-    code, labels = assemble(source + tables(programs, lists))
+    code, labels = assemble(f'home: = ${home:02X}\nhome_at: = ${at:04X}\n' + source + tables(programs, lists))
     if labels['reserved_end'] != FIRST or len(code) > LAST - WINDOW + 1:
-        raise ImageError(f'module.asm: the reserved bytes must end at ${FIRST:04X}, and bank 0 fit')
-    return code, labels
+        raise ImageError(f'module.asm: the reserved bytes must end at ${FIRST:04X}, and its code fit a bank')
+    return code[:RESERVED], code[at - WINDOW:], labels
 
 
 # ---- The image ------------------------------------------------------------------------------
 
-def place(blobs, areas):
+def over_error(text, over):
+    e = ImageError(text)
+    e.over = over
+    return e
+
+
+def place(blobs, areas, skip=True):
     """Lays the blobs [(what, bytes, unit, destination)] in the free areas [[bank, first, last]]
-    in order, splitting one over areas where it must. Returns [(what, bank, address, bytes, unit,
-    destination)]; ImageError if they do not fit."""
+    in order, splitting one over areas where it must, in pieces (each an entry of 8 bytes in a
+    copy list): with skip, an area with ENTRY bytes left or fewer is passed over unless the rest
+    fits it, since a piece there would cost the home bank's table as much as it holds. Returns [(what,
+    bank, address, bytes, unit, destination)]; ImageError if they do not fit, with .over the
+    bytes over."""
     placed, i = [], 0
-    for what, data, unit, dest in blobs:
+    for k, (what, data, unit, dest) in enumerate(blobs):
         done = 0
         while done < len(data):
-            while i < len(areas) and areas[i][1] > areas[i][2]:
+            while i < len(areas) and (areas[i][2] < areas[i][1] or skip
+                                      and areas[i][2] - areas[i][1] + 1 < len(data) - done
+                                      and areas[i][2] - areas[i][1] + 1 <= ENTRY):
                 i += 1
             if i == len(areas):
                 need = sum(len(b[1]) for b in blobs)
-                raise ImageError(f'the resident parts and region constants ({need} bytes) do not fit in '
-                                 f'the banks the programs leave free: {what} is '
-                                 f'{len(data) - done} bytes over')
+                over = len(data) - done + sum(len(b[1]) for b in blobs[k + 1:])
+                e = over_error(f'the resident parts and region constants ({need} bytes) do not fit in '
+                               f'the banks the programs leave free: {over} bytes over', over)
+                e.pieces = len(placed)          # the entries a fit would take, at least
+                raise e
             bank, first, last = areas[i]
             n = min(len(data) - done, last - first + 1)
             placed.append((what, bank, first, data[done:done + n], unit, dest + done))
@@ -252,71 +280,141 @@ def place(blobs, areas):
     return placed
 
 
-def image(specs, out, listing=None, short=None):
-    """Writes the module image `out` (262,144 bytes) for the programs specs, [(command, resident
-    image, environment[, map])], and the listing (text) to `listing` if given; with `short`,
-    also the image's banks from 0 to the last one in use (bank 0, a program's code or what bank
-    0 copies), to that file. Returns the listing."""
-    programs = [load_program(Program(s[0].upper(), s[1], s[2], s[3] if len(s) > 3 else None))
-                for s in specs]
-    if not programs:
-        raise ImageError('no program')
-    owner = {}
+@dataclass
+class Layout:
+    banks: int                  # 16 (direct16) or 8 (direct8)
+    owner: dict                 # bank -> whose code it holds
+    code_end: dict              # bank -> the first address after the program's code in it
+    home: int = 0               # the home bank
+    home_at: int = FIRST        # where the module's code and tables are in it
+    reserved: bytes = b''       # $8000-$804F of every bank (its number at $804F apart)
+    code: bytes = b''           # the module's code and tables
+    placed: list = field(default_factory=list)
+    areas: list = field(default_factory=list)   # what is left free, [[bank, first, last]]
+
+
+def layout(programs, banks=BANKS, tails=None):
+    """Where everything goes (lathe/docs/bbc.md, "The 128 KB module"): each program's code in its
+    banks from $8050; the module's code and tables in the home bank, after the code there (bank
+    0, at $8050, in the sixteen-bank image, where no program may use bank 0; with tails the bank
+    with the most room of those up to the last program's, or the first empty bank); then the programs'
+    region constants and resident parts, in pieces.
+
+    With tails (the eight-bank image's way, and the default there), the pieces go in the room
+    left at the ends of the banks, to $BFEF: first in the banks the image holds anyway (the home
+    bank and every bank up to the last program's), the one with the most room first, then in the
+    banks after them in order, so that the image uses as few banks as it can. Without it (the
+    sixteen-bank image's default, which it had before the eight-bank one), in the home bank to
+    $BFDF and then in the banks no program's code is in, in order.
+
+    Returns a Layout; ImageError (with .over, the bytes over) if they do not fit."""
+    if tails is None:
+        tails = banks != BANKS
+    owner, code_end = {}, {}
     for p in programs:
-        if [q.command for q in programs].count(p.command) > 1:
-            raise ImageError(f'the command {p.command} is given twice')
         for b in p.banks:
             if b.value & 0x80:
-                n = b.value & 0x0F
+                n = b.value & 0x7F
                 if n in owner:
                     raise ImageError(f'bank {n} of the module is {owner[n]}\'s and {p.command}\'s too: '
                                      f'number their banks apart (bbcrom.rom_env)')
                 owner[n] = f'{p.command} (its bank {b.number}, {b.file})'
+                code_end[n] = FIRST + len(b.data)
     blobs = []
     for p in programs:
         for b in p.banks:
             if not b.value & 0x80 and b.file is not None:
                 blobs.append((f'{p.command} slot {b.value} ({b.file})', b.data, b.value, FIRST))
         blobs.append((f'{p.command} resident', p.resident, MAIN_RAM, p.load))
-    # Bank 0's code depends on the copy lists only through their length: lay it out once with
-    # empty lists of the right length, then for good.
-    dummy = [[(0, 0, 1, 0, 0)] * 64 for _ in programs]
-    code, labels = module_code(programs, dummy)
-    lists = None
-    for _ in range(4):
-        areas = [[0, WINDOW + len(code), LAST]] + [[n, FIRST, LAST] for n in range(1, BANKS)
-                                                   if n not in owner]
-        placed = place(blobs, areas)
-        lists = [[(addr, dest, len(data), bank, unit)
-                  for what, bank, addr, data, unit, dest in placed if what.startswith(p.command + ' ')]
-                 for p in programs]
-        new_code, labels = module_code(programs, lists)
-        if len(new_code) == len(code):
-            code = new_code
-            break
-        code = new_code
+    lay = Layout(banks, owner, code_end)
+    starts = {n: code_end.get(n, FIRST) for n in range(banks)}
+    if not tails:
+        lay.home = 0
     else:
-        raise ImageError('bank 0 did not settle')
-    banks = [bytearray([FILL]) * BANK_SIZE for _ in range(BANKS)]
-    for n in range(BANKS):
-        banks[n][:RESERVED] = code[:RESERVED]
-        banks[n][NUMBER_AT] = n
-    banks[0][:len(code)] = code
-    banks[0][NUMBER_AT] = 0
+        # The bank with the most room of those the image holds anyway (every bank up to the last
+        # program's), if the code with no pieces fits it; else the first bank no program uses.
+        smallest = len(module_code(programs, [[] for _ in programs])[1])
+        held = range(max(owner) + 1 if owner else 1)
+        lay.home = max(held, key=lambda n: (LAST - starts[n], -n))
+        if LAST - starts[lay.home] + 1 < smallest + 4 * ENTRY:
+            lay.home = min([n for n in range(banks) if n not in owner] or [lay.home])
+    lay.home_at = starts[lay.home]
+    last_held = max([lay.home] + list(owner))
+
+    def areas_after(size):
+        if not tails:
+            return [[lay.home, lay.home_at + size, LAST]] + [[n, FIRST, LAST] for n in range(banks)
+                                                              if n not in owner and n != lay.home]
+        held = [[n, starts[n] + (size if n == lay.home else 0), TOP] for n in range(last_held + 1)]
+        held.sort(key=lambda a: (a[1] - a[2], a[0]))
+        return held + [[n, FIRST, TOP] for n in range(last_held + 1, banks)]
+
+    # The code depends on the copy lists only through their length (the number of pieces), and
+    # that on the room the code leaves: lay it out with no pieces, then again until it settles.
+    lists = [[] for _ in programs]
+    size = None
+    for _ in range(8):
+        lay.reserved, lay.code, labels = module_code(programs, lists, lay.home, lay.home_at)
+        if size is not None and len(lay.code) <= size:
+            break
+        size = len(lay.code)
+        if lay.home_at + size - 1 > LAST:
+            over = lay.home_at + size - 1 - LAST
+            raise over_error(f'the module\'s code and tables ({size} bytes) do not fit bank {lay.home} after '
+                             f'its program\'s code: {over} bytes over', over)
+        lay.areas = areas_after(size)
+        try:
+            lay.placed = place(blobs, lay.areas, tails)
+        except ImageError as e:
+            # Over: each piece it would take has an entry in the tables, which take room too.
+            e.over += ENTRY * max(0, e.pieces - sum(map(len, lists)))
+            e.args = (re.sub(r'\d+ bytes over', f'{e.over} bytes over', e.args[0]),)
+            raise
+        lists = [[(addr, dest, len(data), bank, unit)
+                  for what, bank, addr, data, unit, dest in lay.placed if what.startswith(p.command + ' ')]
+                 for p in programs]
+    else:
+        raise ImageError('the home bank did not settle')
+    if len(lay.code) < size:                # a piece fewer than laid out for: a gap after the tables
+        lay.code += bytes([FILL]) * (size - len(lay.code))
+    return lay
+
+
+def image(specs, out, listing=None, short=None, banks=BANKS, tails=None):
+    """Writes the module image `out` (banks of 16 KB: sixteen, 262,144 bytes, scheme direct16, or
+    eight, 131,072 bytes, scheme direct8) for the programs specs, [(command, resident image,
+    environment[, map])], and the listing (text) to `listing` if given; with `short`, also the
+    image's banks from 0 to the last one in use (the home bank, a program's code or a piece), to
+    that file; tails as layout() has it. Returns the listing."""
+    if banks not in SCHEMES:
+        raise ImageError(f'an image has 16 or 8 banks, not {banks}')
+    programs = [load_program(Program(s[0].upper(), s[1], s[2], s[3] if len(s) > 3 else None), banks)
+                for s in specs]
+    if not programs:
+        raise ImageError('no program')
+    for p in programs:
+        if [q.command for q in programs].count(p.command) > 1:
+            raise ImageError(f'the command {p.command} is given twice')
+    lay = layout(programs, banks, tails)
+    data = [bytearray([FILL]) * BANK_SIZE for _ in range(banks)]
+    for n in range(banks):
+        data[n][:RESERVED] = lay.reserved
+        data[n][NUMBER_AT] = n
+    at = lay.home_at - WINDOW
+    data[lay.home][at:at + len(lay.code)] = lay.code
     for p in programs:
         for b in p.banks:
             if b.value & 0x80:
-                n = b.value & 0x0F
-                banks[n][RESERVED:RESERVED + len(b.data)] = b.data
-    for what, bank, addr, data, unit, dest in placed:
-        banks[bank][addr - WINDOW:addr - WINDOW + len(data)] = data
+                data[b.value & 0x7F][RESERVED:RESERVED + len(b.data)] = b.data
+    for what, bank, addr, piece, unit, dest in lay.placed:
+        data[bank][addr - WINDOW:addr - WINDOW + len(piece)] = piece
     with open(out, 'wb') as fh:
-        fh.write(b''.join(banks))
-    used = max([0] + list(owner) + [bank for what, bank, addr, data, unit, dest in placed])
+        fh.write(b''.join(data))
+    used = max([lay.home] + list(lay.owner) + [e[1] for e in lay.placed])
     if short:
         with open(short, 'wb') as fh:
-            fh.write(b''.join(banks[:used + 1]))
-    text = describe(out, programs, code, owner, placed, areas)
+            fh.write(b''.join(data[:used + 1]))
+    text = describe(out, programs, lay)
     text += f'banks in use: 0 to {used}, {(used + 1) * BANK_SIZE} bytes (--short)\n'
     if listing:
         with open(listing, 'w') as fh:
@@ -324,45 +422,47 @@ def image(specs, out, listing=None, short=None):
     return text
 
 
-def describe(out, programs, code, owner, placed, areas):
+def describe(out, programs, lay):
     """The listing: what is where, bank by bank, and what each command copies."""
-    lines = [f'Lathe module image {os.path.basename(out)}: {BANKS} banks of 16 KB, scheme direct16, '
-             f'{IMAGE_SIZE} bytes',
+    banks = lay.banks
+    lines = [f'Lathe module image {os.path.basename(out)}: {banks} banks of 16 KB, scheme {SCHEMES[banks]}, '
+             f'{banks * BANK_SIZE} bytes',
              f'every bank: $8000-${FIRST - 1:04X} the header and service code (module.asm), '
              f'${WINDOW + NUMBER_AT:04X} the bank\'s number', '']
-    for n in range(BANKS):
+    for n in range(banks):
         parts = []
-        if n == 0:
-            parts.append(f'${FIRST:04X}-${WINDOW + len(code) - 1:04X} the module\'s code and tables '
-                         f'({len(code) - RESERVED} bytes)')
         for p in programs:
             for b in p.banks:
                 if b.value == 0x80 + n:
                     parts.append(f'${FIRST:04X}-${FIRST + len(b.data) - 1:04X} {p.command} bank {b.number} '
                                  f'code and constants ({b.file}, {len(b.data)} bytes)')
-        for what, bank, addr, data, unit, dest in placed:
+        if n == lay.home:
+            parts.append(f'${lay.home_at:04X}-${lay.home_at + len(lay.code) - 1:04X} the module\'s code and '
+                         f'tables ({len(lay.code)} bytes)')
+        for what, bank, addr, data, unit, dest in sorted(lay.placed, key=lambda e: e[2]):
             if bank == n:
                 parts.append(f'${addr:04X}-${addr + len(data) - 1:04X} {what}, to '
                              + (f'${dest:04X}' if unit == MAIN_RAM else f'slot {unit} ${dest:04X}')
                              + f' ({len(data)} bytes)')
-        free = sum(a[2] - a[1] + 1 for a in areas if a[0] == n)
+        free = sum(a[2] - a[1] + 1 for a in lay.areas if a[0] == n)
         lines.append(f'bank {n:2d}: ' + ('; '.join(parts) if parts else 'empty')
                      + (f'; {free} bytes free' if free else ''))
     lines.append('')
     for p in programs:
         regions = [f'slot {b.value}' + (f' ({b.file})' if b.file else '') for b in p.banks
                    if not b.value & 0x80]
+        pieces = sum(1 for e in lay.placed if e[0].startswith(p.command + ' '))
         lines.append(f'*{p.command}: {os.path.basename(p.image)}, {len(p.resident)} bytes resident at '
                      f'${p.load:04X}-${p.load + len(p.resident) - 1:04X}, entered at ${p.load:04X}; banks '
-                     + (', '.join(str(b.value & 0x0F) for b in p.banks if b.value & 0x80) or 'none')
-                     + '; regions in ' + (', '.join(regions) or 'none'))
+                     + (', '.join(str(b.value & 0x7F) for b in p.banks if b.value & 0x80) or 'none')
+                     + '; regions in ' + (', '.join(regions) or 'none') + f'; {pieces} pieces copied')
         if p.map:
             entries = mapenv.read_map(p.map)
             fixed = [e for e in entries if e.kind == 'V' and e.bank is None and e.addr >= 0x0100]
             if fixed:
                 lines.append(f'    variables in main RAM: {sum(e.size for e in fixed)} bytes, to '
                              f'${max(e.addr + e.size for e in fixed) - 1:04X}')
-    total = sum(a[2] - a[1] + 1 for a in areas)
+    total = sum(a[2] - a[1] + 1 for a in lay.areas)
     lines.append(f'free: {total} bytes')
     return '\n'.join(lines) + '\n'
 
@@ -385,37 +485,62 @@ def loader(out):
 
 # ---- A program's environment for the ROM form ----------------------------------------------
 
-def rom_env(source, out, first=1):
+def rom_env(source, out, first=1, banks=BANKS):
     """Writes to `out` the ROM form of the environment `source` (a program's *RUN environment,
     such as lathe/env/bbc-bank.env with the program's lines): the window $8050-$BFDF, each bank
     of the module ($8n) renumbered, in the order of the `bank` lines, as banks first, first + 1,
-    ... of the image, and `rom` for each. Returns the next bank number free.
+    ... of an image of `banks` banks, and `rom` for each. Returns the next bank number free.
 
     The source defines ROMFORM as 0 and the result as 1, so that `when ROMFORM ENTRY` is an
     entry of the ROM form only and `unless ROMFORM ENTRY` of the developer's form only
     (configurations.md, "The environment file"). The tools use it for what the developer's form
     must keep fixed only because its start-up loads the banks, such as `bbcfs`, which `bbc.open`
-    calls (lathe/docs/bbc.md, "File names on the BBC")."""
+    calls (lathe/docs/bbc.md, "File names on the BBC"). In the same way, for an image of eight
+    banks (the 128 KB module, scheme direct8) a source's `define ROM128 0` becomes 1, so that
+    `when ROM128` and `unless ROM128` entries give what differs there (a tool in fewer banks:
+    lathe/docs/bbc.md, "The 128 KB module"). A `bank` entry of the module under `when` or
+    `unless` is renumbered if it is an entry of the result, and left as it is if not."""
+    if banks not in SCHEMES:
+        raise ImageError(f'an image has 16 or 8 banks, not {banks}')
     lines, roms, n = [], [], first
+    defined = {}
     with open(source) as fh:
         for line in fh:
             words = line.split(';', 1)[0].split()
             if [w.lower() for w in words[:2]] == ['define', 'romform'] and len(words) == 3:
                 line = re.sub(r'(?i)(romform\s+)\S+', r'\g<1>1', line, count=1)
-            elif words and words[0].lower() == 'window' and len(words) == 4:
-                line = f'window    {words[1]} ${FIRST:04X} ${LAST:04X}\n'
-            elif words and words[0].lower() == 'bank' and len(words) in (4, 5) \
-                    and mapenv._number(words[3], source) & 0x80:
-                if n >= BANKS:
-                    raise ImageError(f'{source}: no bank of the module is left for its bank {words[2]}')
-                line = (f'bank      {words[1]} {words[2]} ${0x80 + n:02X}'
-                        + (f' {words[4]}' if len(words) == 5 else '') + '\n')
-                roms.append(f'rom       {words[1]} {words[2]}\n')
+            elif [w.lower() for w in words[:2]] == ['define', 'rom128'] and len(words) == 3:
+                line = re.sub(r'(?i)(rom128\s+)\S+', r'\g<1>' + ('1' if banks == 8 else '0'), line, count=1)
+            entry = _active(words, defined)
+            if entry and entry[0].lower() == 'define' and len(entry) in (2, 3):
+                value = line.split(';', 1)[0].split()[-1] if len(entry) == 3 else '1'
+                defined[entry[1].lower()] = len(entry) == 2 or mapenv._number(value, source) != 0
+            if entry and entry[0].lower() == 'window' and len(entry) == 4:
+                line = f'window    {entry[1]} ${FIRST:04X} ${LAST:04X}\n'
+            elif entry and entry[0].lower() == 'bank' and len(entry) in (4, 5) \
+                    and mapenv._number(entry[3], source) & 0x80:
+                if n >= banks:
+                    raise ImageError(f'{source}: no bank of the module is left for its bank {entry[2]} '
+                                     f'(an image has {banks})')
+                line = (f'bank      {entry[1]} {entry[2]} ${0x80 + n:02X}'
+                        + (f' {entry[4]}' if len(entry) == 5 else '') + '\n')
+                roms.append(f'rom       {entry[1]} {entry[2]}\n')
                 n += 1
             lines.append(line)
     with open(out, 'w') as fh:
         fh.write(''.join(lines) + ''.join(roms))
     return n
+
+
+def _active(words, defined):
+    """The entry `words` is, its `when` and `unless` resolved with the defines so far (of the
+    result: ROMFORM and ROM128 as rom_env writes them), or None if it is not an entry there."""
+    while words and words[0].lower() in ('when', 'unless') and len(words) > 2:
+        on = defined.get(words[1].lower())
+        if on is None or on != (words[0].lower() == 'when'):
+            return None
+        words = words[2:]
+    return words
 
 
 def main(argv):
@@ -426,6 +551,10 @@ def main(argv):
                     'to FILE (and FILE.inf)')
     ap.add_argument('--short', metavar='FILE', help='also write the banks in use alone to FILE, '
                     'for LOADMOD on a disc')
+    ap.add_argument('--banks', type=int, choices=sorted(SCHEMES), default=BANKS,
+                    help='16 (scheme direct16, the default) or 8 (direct8, a 128 KB EPROM)')
+    ap.add_argument('--tails', action='store_true', help='put the resident parts and region constants in '
+                    'the ends of the code banks too (the eight-bank image does so anyway)')
     ap.add_argument('programs', nargs='+', metavar='COMMAND=PROGRAM,ENV[,MAP]')
     a = ap.parse_args(argv)
     specs = []
@@ -437,7 +566,7 @@ def main(argv):
             return 2
         specs.append([command] + parts)
     try:
-        text = image(specs, a.out, a.listing, a.short)
+        text = image(specs, a.out, a.listing, a.short, a.banks, a.tails or None)
         if a.loader:
             loader(a.loader)
     except (ImageError, mapenv.FormatError, OSError) as e:

@@ -297,10 +297,14 @@ def module_command(command, args, tail=None):
     return line
 
 
+MODULE_SCHEME = 'direct16'  # run_module's scheme when none is given: the sixteen-bank image's
+
+
 def run_module(board, image, disk, command, args=(), slot=4, bank=0, ram=False, before=(),
-               roms=(), stdin=None, tail=None, raw=False, cap=None):
+               roms=(), stdin=None, tail=None, raw=False, cap=None, scheme=None):
     """Runs the * command `command` of a module image (lathe/host/driver/bbcrom.py) with args on
-    the BBC, in the directory of files disk: the image in the module, scheme direct16, in `slot`,
+    the BBC, in the directory of files disk: the image in the module, scheme `scheme` (direct16,
+    sixteen banks, or direct8, eight: bbcrom.SCHEMES; MODULE_SCHEME if not given), in `slot`,
     with the latch at `bank` at power on. With ram, the module is the developer's form, RAM, and
     empty: the commands `before` (such as `RUN LOADMOD IMAGE 4`, its loader) run first and fill
     it, and image is not given to the emulator. `roms` are (slot, file) pairs of further ROMs, a
@@ -310,7 +314,7 @@ def run_module(board, image, disk, command, args=(), slot=4, bank=0, ram=False, 
         raise RunError('emulator/emulator.out is missing: run make at the repository root')
     fill = {'disk': os.path.abspath(disk)}
     cmd = ([EMULATOR, '--machine', board.machine] + list(FILL) + [o.format(**fill) for o in board.options]
-           + ['--bbc-module-scheme', 'direct16', '--bbc-module-slot', str(slot),
+           + ['--bbc-module-scheme', scheme or MODULE_SCHEME, '--bbc-module-slot', str(slot),
               '--bbc-module-bank', str(bank)]
            + (['--bbc-module-ram'] if ram else ['--bbc-module', os.path.abspath(image)]))
     for s, path in roms:

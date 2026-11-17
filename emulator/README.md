@@ -194,10 +194,10 @@ do), and the checks with the first few offenders.
 | `--disk DIR` | the host directory the MOS's filing system works in |
 | `--bbc-sideways-ram LIST` | the slots that are sideways RAM (default `0,1,12,13`, the B+128's; `none`) |
 | `--bbc-rom N=FILE` | a plain 16 KB ROM image in slot N (repeatable); in a sideways RAM slot it is loaded into the RAM |
-| `--bbc-module FILE` | the module's image, bank 0 first: up to 131072 bytes (`cc128`) or 262144 (`direct16`) |
+| `--bbc-module FILE` | the module's image, bank 0 first: up to 131072 bytes (`cc128`, `direct8`) or 262144 (`direct16`) |
 | `--bbc-module-slot N` | the module's slot (default 4; it may not be a sideways RAM slot or one given `--bbc-rom`) |
 | `--bbc-module-bank N` | the module's bank at power on (default 0; the real latch powers up undefined): 0-7, or 0-15 for `direct16` |
-| `--bbc-module-scheme S` | `cc128` (default) or `direct16`, below |
+| `--bbc-module-scheme S` | `cc128` (default), `direct16` or `direct8`, below |
 | `--bbc-module-ram` | the developer's form: the module holds RAM |
 | `--bbc-shadow` | OSBYTE 132 (HIMEM) answers `$8000` instead of `$7C00` (mode 7); the shadow screen RAM itself is not modelled |
 | `--bbc-page HEX` | OSBYTE 131 (OSHWM, PAGE) answers HEX instead of `$1900` |
@@ -224,8 +224,8 @@ do), and the checks with the first few offenders.
   `$FE34` (its select) are not modelled; neither are the VIAs, the video,
   the sound, the keyboard, the ADC, Econet, the Tube or any disc
   hardware.
-- **The module** (`chips/bbc_module.c`): eight (`cc128`) or sixteen
-  (`direct16`) 16 KB banks behind one socket. A ROM socket has no write
+- **The module** (`chips/bbc_module.c`): eight (`cc128`, `direct8`) or
+  sixteen (`direct16`) 16 KB banks behind one socket. A ROM socket has no write
   line, so the module switches on reads of addresses at the top of its
   window. It sees only accesses made while its slot is selected and the
   private RAM does not cover the address, which leaves `$B000-$BFFF`,
@@ -238,6 +238,12 @@ do), and the checks with the first few offenders.
     `$3F00-$3F1F` bank 7. The byte returned is the newly selected bank's.
   - `direct16` is this project's own design in the same manner: a read
     of `$BFF0+n` selects bank n, from any bank; no other address switches.
+  - `direct8` is the same design for one 128 KB EPROM, eight banks: a read
+    of `$BFF0+n` selects bank n AND 7, so `$BFF8-$BFFF` mirror
+    `$BFF0-$BFF7` (the latch takes A0-A2 and the decode ignores A3). The
+    exit report names the scheme (`module: slot 4, direct8 ROM, ...`).
+    Lathe's 128 KB module uses it (`lathe/docs/bbc.md`, "The 128 KB
+    module").
   - Writes never switch. In the ROM form they are ignored. In the RAM form
     (`--bbc-module-ram`), the developer's form, as someone would use to
     iterate without burning a ROM, a write to `$8000-$BFFF` while the slot

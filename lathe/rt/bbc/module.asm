@@ -1,9 +1,12 @@
 ; The code of a Lathe module image for the BBC Model B+128 (lathe/docs/bbc.md, "Step 3, as built:
-; the ROM form"): sixteen 16 KB banks behind one sideways slot, scheme direct16 (a read of
-; $BFF0+n latches bank n, from any bank). lathe/host/driver/bbcrom.py assembles this file with
-; asm/pyasm.py, with its own tables (the command table, the copy lists, the *HELP text) after the
-; line `; ---- the tables ----` at the end, and puts the reserved bytes in every bank.
-; Written for the repository's own assembler: upper-case mnemonics, constants before their use.
+; the ROM form", and "The 128 KB module"): sixteen 16 KB banks behind one sideways slot, scheme
+; direct16 (a read of $BFF0+n latches bank n, from any bank), or eight, scheme direct8 (the same
+; for n 0 to 7, $BFF8-$BFFF their mirror). lathe/host/driver/bbcrom.py assembles this file with
+; asm/pyasm.py, with two constants before it, `home` (the bank that holds the module's own code
+; and tables, the home bank) and `home_at` (their address there), and its own tables (the command
+; table, the copy lists, the *HELP text) after the line `; ---- the tables ----` at the end, and
+; puts the reserved bytes in every bank. Written for the repository's own assembler: upper-case
+; mnemonics, constants before their use.
 ;
 ; Every bank begins with the same RESERVED bytes, $8000-$804F: the sideways ROM header, the
 ; service code and the bank's own number at $804F (the one byte that differs), so that the MOS
@@ -13,15 +16,16 @@
 ;
 ; The service code answers only service calls 4 (an unknown * command) and 9 (*HELP). For any
 ; other it returns at once with A, X and Y as they were (only the flags change). For 4 and 9 it
-; pushes the call and this bank's number, selects bank 0 by a read of $BFF0, an instruction of
-; the reserved bytes, so that the next one, the same in bank 0, goes on there; and bank 0 returns
-; through `back` or `claim`, which select the bank of entry again in the same way and return
-; from the service call: unclaimed with A, X (the slot, from $F4) and Y as given, or claimed with
-; A = 0.
+; pushes the call and this bank's number, selects the home bank by a read of $BFF0+home, an
+; instruction of the reserved bytes, so that the next one, the same in the home bank, goes on
+; there; and the home bank returns through `back` or `claim`, which select the bank of entry
+; again in the same way and return from the service call: unclaimed with A, X (the slot, from
+; $F4) and Y as given, or claimed with A = 0.
 ;
-; Bank 0 holds, after the reserved bytes, the code below and the tables, then the resident parts
-; of the programs as far as they fit (the rest in banks no program's code is in). For a command
-; of its table it:
+; The home bank holds, at home_at (after its program's code, if a program has code in it; bank 0
+; and $8050 in the sixteen-bank image), the code below and the tables; the programs' resident
+; parts and their regions' constants are in the ends of the banks, in pieces, wherever there is
+; room. For a command of its table it:
 ;
 ;   1. copies the command's tail, after the spaces, from ($F2),Y to $0700, ended by CR (at most
 ;      239 bytes; from the end down when the line is below $0700, so that it may overlap);
@@ -32,12 +36,13 @@
 ;          $07F3  LDA #slot
 ;          $07F5  STA $F4
 ;          $07F7  STA $FE30          the module's slot again
-;          $07FA  LDA $BFF0          and bank 0
+;          $07FA  LDA $BFF0+home     and the home bank
 ;          $07FD  JMP ended
 ;   3. copies the copier (below) to $0400 and runs it for each entry of the command's copy list:
-;      the program's resident part (its fixed code and constants) from the banks of the image
-;      to its load address in main RAM, and the constants of its regions to their sideways RAM
-;      slots, a byte at a time, selecting the source bank and the destination slot for each;
+;      each piece of the program's resident part (its fixed code and constants) from the banks of
+;      the image to its place in main RAM, and each piece of the constants of its regions to
+;      their sideways RAM slots, a byte at a time, selecting the source bank and the destination
+;      slot for each;
 ;   4. jumps to the stub.
 ;
 ; Why there: $0400-$07FF is the language's workspace and $00-$8F its zero page; once a command of
@@ -50,16 +55,18 @@
 ; * commands, and $8C-$8E of the language's zero page hold the walk of the copy list.
 ;
 ; The end. The program returns to $07F3 (status 0; exit(0) from any depth too, with the stack
-; pointer its start-up code kept at $0400), which selects the module and bank 0 and jumps to
-; `ended`: if the current language (OSBYTE 252) is a language ROM (its type, from the table
+; pointer its start-up code kept at $0400), which selects the module and the home bank and jumps
+; to `ended`: if the current language (OSBYTE 252) is a language ROM (its type, from the table
 ; OSBYTE 170 gives, has bit 6), it is entered again with OSBYTE 142, which does not return, as a
 ; tool that has used the language's memory must; otherwise the service call returns claimed. An
 ; error, exit(N) with N not 0 among them, never comes back here: the MOS's BRK handler goes to the
 ; language's error handler.
 ;
 ; Everything here keeps to what a real NMOS 6502 does: no instruction ends within a byte of the
-; switching addresses, no data is read at $BFE0-$BFFF, and every indexed access to a switching
-; address ($BFF0,X) stays in its page, so that no dummy read latches a bank.
+; switching addresses (the code and tables end by $BFDF), no data is read at $BFF0-$BFFF but to
+; switch, and every indexed access to a switching address ($BFF0,X) stays in its page, so that no
+; dummy read latches a bank. The copier reads its sources with LDA (zp),Y and Y = 0, which makes
+; no dummy read, so pieces may run to $BFEF.
 
 romcopy: = $F4
 cli_ptr: = $F2
@@ -106,7 +113,7 @@ service:
   PHA                          ; the call
   LDA number
   PHA                          ; the bank it came in
-  LDA latch                    ; bank 0: the next instruction is bank 0's, the same
+  LDA latch+home               ; the home bank: the next instruction is its, the same
   JMP bank0
 
 ; Return from the service call, unclaimed: the stack holds the bank of entry and then the call;
@@ -134,7 +141,8 @@ number:
   .byte $00                    ; the bank's own number: bbcrom.py writes it in each bank
 reserved_end:
 
-; ---- bank 0 ----
+; ---- the home bank ----
+* = home_at
 ; From the service code: A and X as they come, Y the argument, the stack the bank of entry and
 ; the call.
 bank0:
@@ -288,7 +296,7 @@ bank0:
 .go:
   JMP stub_ram
 
-; The program has returned: the module and bank 0 are selected. Enter the current language
+; The program has returned: the module and the home bank are selected. Enter the current language
 ; again if it is a language ROM; otherwise return from the service call, claimed.
 ended:
   LDA #$FC                     ; OSBYTE 252: the current language, in X
@@ -343,15 +351,16 @@ stub:
   .byte $85, romcopy           ; STA $F4
   .byte $8D                    ; STA $FE30
   .word romsel
-  .byte $AD                    ; LDA $BFF0
-  .word latch
+  .byte $AD                    ; LDA $BFF0+home
+  .word latch+home
   .byte $4C                    ; JMP ended
   .word ended
 
 ; The copier, copied to $0400 and run there, where switching the module's bank does not pull
 ; the code from under the CPU (so it uses no address of its own: only relative branches).
 ; $A8/$A9 the source, $AA/$AB the destination, $AC/$AD the count (not 0), $AE the source's
-; bank, $AF the destination: $FF main RAM, else a sideways RAM slot. Bank 0 again at the end.
+; bank, $AF the destination: $FF main RAM, else a sideways RAM slot. The home bank again at the
+; end.
 copier:
   LDY #$00
 .loop:
@@ -386,7 +395,7 @@ copier:
   LDA w4
   ORA w5
   BNE .loop
-  LDA latch
+  LDA latch+home
   RTS
 copier_end:
 
