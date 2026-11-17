@@ -1,6 +1,6 @@
 """The names a Lathe program's files have on the BBC's filing system: the host's twin of
 lathe/rt/bbc/bbcfs.lth's map() (lathe/docs/bbc.md, "File names on the BBC"), and where the
-emulator's --bbc-fs dfs keeps a DFS file in its --disk directory.
+emulator's --bbc-fs dfs keeps a DFS file in its --disk directory, and --bbc-fs adfs an ADFS one.
 
     dfs_name('expr.lth')      -> 'L.EXPR'
     dfs_name('./err.lo')      -> 'O.ERR'
@@ -11,6 +11,16 @@ emulator's --bbc-fs dfs keeps a DFS file in its --disk directory.
     host_file('L.EXPR')       -> 'L.EXPR'         (the --disk directory's file)
     host_file('HELLO')        -> '$.HELLO'
     host_file(':2.I.ASMBLOC') -> ':2/I.ASMBLOC'
+
+With BBCFS 2, ADFS:
+
+    adfs_name('expr.lth')       -> 'lth.expr'
+    adfs_name('./asmblock.lo')  -> 'lo.asmblock'
+    adfs_name('1/kerneltest.li')-> ':1.li.kerneltest'
+    adfs_name('LATHE1.BIN')     -> 'BIN.LATHE1'
+    adfs_name('HELLO')          -> 'HELLO'
+    adfs_name('2/x.lo')         -> None           (ADFS has drives 0 and 1)
+    adfs_host_file(':1.li.x')   -> ':1/li/x'      (the --disk directory's file)
 
 The tests keep every mapping of a name through here, so that the host side of a test finds what
 the BBC wrote.
@@ -69,6 +79,55 @@ def host_path(disk, name):
     if dfs is None:
         raise ValueError(f'bbcfs makes no DFS name of {name!r}')
     return os.path.join(disk, host_file(dfs))
+
+
+ADFS_LONGEST = 10       # ADFS's longest name, and the longest extension bbcfs takes
+ADFS_OUT_SIZE = 25      # map()'s buffer with BBCFS 2: ":D.EXT.STEM" and the CR
+
+
+def adfs_name(name):
+    """The ADFS name bbcfs.map() makes of `name` with BBCFS 2, or None if it makes none."""
+    while name.startswith('./'):
+        name = name[2:]
+    drive = ''
+    if len(name) >= 2 and name[0] in '01' and name[1] == '/':
+        drive, name = ':' + name[0] + '.', name[2:]
+    if '/' in name:
+        return None
+    if '.' not in name:
+        out = drive + name
+        return out if len(out) <= ADFS_OUT_SIZE - 1 else None
+    stem, ext = name.rsplit('.', 1)
+    if not stem or not ext or '.' in stem or len(ext) > ADFS_LONGEST:
+        return None
+    return drive + ext + '.' + stem[:ADFS_LONGEST]
+
+
+def adfs_directory(adfs):
+    """The directory a name adfs_name() made is in ('lth', ':1.lo'), or None for a root."""
+    if '.' not in adfs:
+        return None
+    d = adfs.rsplit('.', 1)[0]
+    return None if len(d) == 2 and d[0] == ':' else d
+
+
+def adfs_host_file(adfs):
+    """Where the emulator's --bbc-fs adfs keeps the file of an ADFS name (a path from the root:
+    the names adfs_name makes), relative to --disk: drive 0 is the directory itself, drive 1
+    its subdirectory ':1'; each directory a host directory."""
+    folder = ''
+    if adfs.startswith(':'):
+        folder, adfs = ('' if adfs[1] == '0' else ':1/'), adfs[3:]
+    return folder + adfs.replace('.', '/')
+
+
+def adfs_host_path(disk, name):
+    """The path in --disk of the file the BBC opens as `name` with BBCFS 2 under --bbc-fs adfs.
+    ValueError if bbcfs makes no name of it."""
+    adfs = adfs_name(name)
+    if adfs is None:
+        raise ValueError(f'bbcfs makes no ADFS name of {name!r}')
+    return os.path.join(disk, adfs_host_file(adfs))
 
 
 def find(disk, name):

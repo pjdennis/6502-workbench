@@ -6,6 +6,7 @@
 module bbcfs
 
 pub const MAPS = false
+pub const DIRS = false
 
 pub func map(name: ^byte)
 end

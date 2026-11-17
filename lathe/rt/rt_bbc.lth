@@ -260,6 +260,16 @@ type TableEntry = record
   name: ^byte
 end
 
+; The MOS's table of ROM types (OSBYTE 170 gives its address, $02A1 on MOS 1.20: memory,
+; emulator/NOTES-bbcbplus.md). start() marks the module's slot there as holding no ROM before the
+; developer's form loads a bank: the banks it loads have no header, and LOADMOD entered the slot
+; in the table; the MOS offers every service call to each slot the table marks (an error's, 6,
+; before BRKV; an unknown command's, 4; *HELP's, 9; on a real machine others too, an unknown
+; interrupt's, 5, among them), at $8003 of whatever bank is latched, which would run the
+; program's code as a service entry (lathe/docs/bbc.md, "ADFS", "Faults found"). The banks are
+; not the module's image any more either: LOADMOD must be run again before a * command of it.
+var rom_types: [16]byte at $02A1
+
 ; Set the module's slot (above). Then, in the developer's form, load each bank that has a file,
 ; as the table at `table` says (above), and leave the window as it was found (`now` is the slot
 ; $F4 holds when the program starts); in the ROM form there is nothing to load. It runs before
@@ -277,6 +287,7 @@ pub func start(table: ^byte)
     return
   end
   mslot = SLOT
+  rom_types[SLOT] = 0               ; no ROM in the slot from now on (rom_types, above)
   head = ^TableHead(word(table))
   entry = ^TableEntry(word(table) + sizeof(TableHead))
   found = now

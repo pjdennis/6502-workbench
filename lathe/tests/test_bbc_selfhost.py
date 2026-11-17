@@ -260,9 +260,10 @@ def counting_copies(where, argument):
     return os.path.join(where, 'counting.env')
 
 
-# The developer's form's `code` and `data` entries: in lathec-bbc.env `unless ROMFORM` ones.
-SPLIT_CODE = re.compile(r'(?mi)^((?:unless\s+ROMFORM\s+)?)code\s.*$')
-SPLIT_DATA = re.compile(r'(?mi)^((?:unless\s+ROMFORM\s+)?)data\s+\$(\w+)')
+# The developer's form's `code` and `data` entries at the DFS's PAGE: in lathec-bbc.env
+# `unless ADFS unless ROMFORM` ones, in linker-bbc.env `unless ADFS` ones.
+SPLIT_CODE = re.compile(r'(?mi)^((?:unless\s+ADFS\s+)?(?:unless\s+ROMFORM\s+)?)code\s.*$')
+SPLIT_DATA = re.compile(r'(?mi)^((?:unless\s+ADFS\s+)?(?:unless\s+ROMFORM\s+)?)data\s+\$(\w+)')
 
 
 def moved_split(env, room):

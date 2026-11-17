@@ -49,6 +49,9 @@ pub func main()
   var t: Token
   var i: byte
   var b: byte
+  for b = 0 to 20 do                ; counts has no initial value: memory need not be 0
+    counts[b].count = 0
+  end
   t = T_END
   i = 0
   loop

@@ -202,7 +202,7 @@ do), and the checks with the first few offenders.
 | `--bbc-shadow` | OSBYTE 132 (HIMEM) answers `$8000` instead of `$7C00` (mode 7); the shadow screen RAM itself is not modelled |
 | `--bbc-page HEX` | OSBYTE 131 (OSHWM, PAGE) answers HEX instead of `$1900` |
 | `--bbc-strict` | a write to MOS memory or a ROMSEL unlike `$F4` at a MOS call ends the run (status 1) |
-| `--bbc-fs host\|dfs` | the names the filing system takes: as given (`host`, the default), or only the Acorn DFS's, with its limits (`dfs`, below) |
+| `--bbc-fs host\|dfs\|adfs` | the names the filing system takes: as given (`host`, the default), or only the Acorn DFS's, with its limits (`dfs`, below), or ADFS's, with its directories, limits and the space of an L disc (`adfs`, below) |
 
 ### What is modelled
 
@@ -364,6 +364,52 @@ do), and the checks with the first few offenders.
   exit report adds the most files open at once, and open for output or
   update at once (`dfs: most-open=N  most-writing=N`). The facts and their
   sources: `NOTES-bbcbplus.md`, "The DFS's names and limits".
+- **`--bbc-fs adfs`** makes every name the 6502 code gives obey ADFS
+  (the facts and their sources: `NOTES-bbcbplus.md`, "ADFS on the B+";
+  the code: `bbc_mos.c`, "--bbc-fs adfs"). A name is a path of parts of one
+  to ten characters, `$21`-`$7E` but `# * . : $ & @ ^ "` and, here only,
+  `/` (a host name cannot hold it); `$` or `&` first is the root, `^` the
+  parent, `@` first the current directory (CSD); `:D.` first names drive
+  D's root, D 0 (4, A, E) or 1 (5, B, F), and 2, 3, 6, 7, C, D, G, H are
+  "Bad drive" (205), drives this machine has not got. Otherwise "Bad name"
+  (204), or "Wild cards" (253) for `#` and `*`. A name without `$` or a
+  drive starts at the CSD, which `*DIR [NAME]` sets (`*DIR` alone: the
+  current drive's root). Drive 0 is `--disk DIR`, drive 1 `DIR/:1`; a
+  directory is a host directory, a file a host file with its `.inf`
+  beside it, and parts match host names whatever their case; host names
+  that are no ADFS names are not entries. A path through a directory that
+  is not there is "Not found" (214) when creating, and not there (A=0)
+  when reading. Ten files open at once ("Too many open files", 192;
+  handles `$30`-`$39`); a file open (other than all for input) cannot be
+  opened again, saved over or deleted ("Already open", 194); OSBPUT or
+  OSGBPB to a file open for input is "Not open for update" (193), and
+  OSARGS 1 past the end of one "Outside file" (183). A directory holds 47
+  entries ("Dir full", 179). `*CDIR NAME` makes a directory ("Already
+  exists", 196), `*DELETE NAME` and OSFILE 6 delete a file or an empty
+  directory ("Dir not empty", 180). OSARGS 0 with Y=0 gives 8.
+  **Space**: each drive is an L disc of 2,560 sectors; the map and the
+  root take 7, a directory 5, a file its length in whole sectors. OPENOUT
+  of a new file reserves 256 sectors (64 KB) in one run, or fails ("Disc
+  full", 198, if fewer are free, else "Compaction required", 152) and the
+  file is not made; of a file that is there, the sectors it has. A file
+  that outgrows what it holds takes the sectors after it if they are free,
+  else moves whole to the first run that holds it (both are held while it
+  moves), else "Compaction required" or "Disc full". Closed, it keeps its
+  length in whole sectors. `*SAVE` and OSFILE 0 take the first run that
+  holds the file. The map holds 80 free spaces: what would leave more is
+  "Map full" (153) and is not done. **Looser than ADFS**: which run a file
+  gets (the first; ADFS's choice was not found), how far a growing file
+  takes at a time (the sector it needs), that unused reserved space comes
+  back at the close (inferred, not read), and that every run starts on a
+  compacted disc (the layout is laid out again from the host files, in the
+  order of their names, at the first call that reaches a drive: holes left
+  by deleting do not last from one run to the next). Not emulated:
+  attributes and locked files, the library, `*COMPACT`, `*MAP`, `*FREE`,
+  OSFILE 7, OSARGS 3, `*COPY` and the other commands, discs being changed.
+  The exit report adds `adfs: most-open=N most-writing=N most-entries=N`
+  and, for each drive a call reached, `driveD=END/MOST/OF`: the sectors in
+  use at the end, the most in use at once (reservations of open files
+  included), and the disc's.
 - **Errors** are raised as the MOS raises them: a BRK followed by the
   number and a zero-terminated message. The BRK handler, as MOS 1.20's,
   sets `$FD/$FE` to the error number, `$024A` to the ROM selected, `$F0`

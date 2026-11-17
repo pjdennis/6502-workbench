@@ -27,6 +27,17 @@ static void report(const struct bbc_machine *m, const struct emu_opts *opts) {
     if (m->cfg.dfs)
         fprintf(stderr, "bbcbplus: dfs: most-open=%llu  most-writing=%llu\n", (unsigned long long)m->most_open,
                 (unsigned long long)m->most_writing);
+    if (m->cfg.adfs) {
+        /* each drive reached: sectors in use at the end, the most in use at once, of how many */
+        fprintf(stderr, "bbcbplus: adfs: most-open=%llu  most-writing=%llu  most-entries=%llu",
+                (unsigned long long)m->most_open, (unsigned long long)m->most_writing,
+                (unsigned long long)m->adfs.most_entries);
+        for (int d = 0; d < BBC_ADFS_DRIVES; d++)
+            if (m->adfs.loaded[d])
+                fprintf(stderr, "  drive%d=%u/%u/%u", d, (unsigned)m->adfs.in_use[d], (unsigned)m->adfs.peak[d],
+                        (unsigned)m->adfs.sectors);
+        fputc('\n', stderr);
+    }
     fprintf(stderr, "bbcbplus: checks: mos-memory-writes=%llu  romsel-mismatches=%llu\n",
             (unsigned long long)m->mos_writes, (unsigned long long)m->romsel_mismatches);
     for (uint64_t i = 0; i < m->mos_writes && i < BBC_MAX_REPORTED; i++)
@@ -82,6 +93,7 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
         .shadow = opts->bbc_shadow,
         .strict = opts->bbc_strict,
         .dfs = opts->bbc_dfs,
+        .adfs = opts->bbc_adfs,
         .command = opts->bbc_command,
         .more_commands = opts->bbc_more_commands,
         .more_count = opts->bbc_more_count,

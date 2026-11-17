@@ -404,6 +404,42 @@ vectab:
   .word rts_only          ; IND3V
 vectab_end:
 
+; --bbc-fs adfs: ADFS's own errors (emulator/NOTES-bbcbplus.md, "ADFS on the B+"). After
+; everything else, so that adding them moved nothing of the ROM before them.
+e_not_found:
+  .byte $00, $D6
+  .asciiz "Not found"
+e_already_open:
+  .byte $00, $C2
+  .asciiz "Already open"
+e_already_exists:
+  .byte $00, $C4
+  .asciiz "Already exists"
+e_dir_full:
+  .byte $00, $B3
+  .asciiz "Dir full"
+e_dir_not_empty:
+  .byte $00, $B4
+  .asciiz "Dir not empty"
+e_disc_full:
+  .byte $00, $C6
+  .asciiz "Disc full"
+e_compaction:
+  .byte $00, $98
+  .asciiz "Compaction required"
+e_map_full:
+  .byte $00, $99
+  .asciiz "Map full"
+e_wild_cards:
+  .byte $00, $FD
+  .asciiz "Wild cards"
+e_not_open_for_update:
+  .byte $00, $C1
+  .asciiz "Not open for update"
+e_outside_file:
+  .byte $00, $B7
+  .asciiz "Outside file"
+
 ; ---- the entry points, at the real MOS's addresses ----
 * = $FFB6
   .byte $36               ; length of the default vector table

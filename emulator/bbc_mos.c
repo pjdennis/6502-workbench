@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "cpu_core.h"
 #include "bbc_mos_rom_generated.h"
@@ -152,7 +153,7 @@ static uint16_t read_name(struct bbc_machine *m, uint16_t addr, char *name, size
         name[n++] = (char)c;
     }
     name[n] = 0;
-    if (m->cfg.dfs) return n ? addr : 0;   /* checked as the DFS checks it, by file_path() */
+    if (m->cfg.dfs || m->cfg.adfs) return n ? addr : 0;   /* checked as the DFS or ADFS checks it, by file_path() */
     size_t skip = 0;
     while (name[skip] == '.' && name[skip + 1] == '/') skip += 2;
     if (skip) memmove(name, name + skip, n - skip + 1);
@@ -234,12 +235,471 @@ static uint16_t dfs_parse(const char *s, int *drive, char *dir, const char **bas
     return 0;
 }
 
+/* ---- --bbc-fs adfs ----
+ *
+ * The rules are emulator/NOTES-bbcbplus.md's, "ADFS on the B+". A name is a path: [:D.][$.]PART
+ * {.PART}, a part one to ten characters from $21 to $7E but # * . : $ & @ ^ " and, here only, /
+ * (a host file name cannot hold it); # and * are Wild cards; ^ alone is the parent, @ alone the
+ * CSD, $ (or &) first the root; :D. names a drive's root, D 0 (or 4, A, E) or 1 (5, B, F), and the
+ * other drive numbers ADFS knows (2, 3, 6, 7, C, D, G, H) are Bad drive here. A name without $ or
+ * a drive starts at the CSD (*DIR). Parts match host names without regard to case. Drive 0 is the
+ * --disk directory, drive 1 its subdirectory ":1"; an ADFS directory is a host directory, a file
+ * a host file (and its .inf beside it); host names that are not ADFS names are not entries.
+ *
+ * Space, per drive of adfs_sectors (an L disc, 2,560): the map and the root take sectors 0-6, a
+ * directory 5, a file its length in whole sectors. OPENOUT of a new file reserves 256 sectors in
+ * one run, or fails (Disc full if fewer are free, else Compaction required); of a file that is
+ * there, the sectors it has. A file that outgrows what it has takes the sectors after it if they
+ * are free, else moves whole to the first run that holds its new length (both held while it
+ * moves), else Compaction required (or Disc full). Closed, it keeps its length in whole sectors and
+ * the rest is free again. *SAVE and OSFILE 0 put a file in the first run that holds it. The map
+ * holds 80 free spaces: what would leave more is Map full, and is not done. Looser than ADFS:
+ * which run a file gets (the first; ADFS's choice was not found), how far a file grows at a time
+ * (to the sector it needs), the release at close (inferred), and that each run starts on a
+ * compacted disc (the layout is not kept between runs). */
+
+static int adfs_char(int c) { return c > 0x20 && c < 0x7F && !strchr("#*.:$&@^\"/", c); }
+
+/* A part of a path: 0, or the error */
+static uint16_t adfs_part(const char *s, size_t n) {
+    if (n == 0 || n > 10) return BBC_MOS_E_BAD_NAME;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] == '#' || s[i] == '*') return BBC_MOS_E_WILD_CARDS;
+        if (!adfs_char((unsigned char)s[i])) return BBC_MOS_E_BAD_NAME;
+    }
+    return 0;
+}
+
+static int adfs_entry(const char *s) { return adfs_part(s, strlen(s)) == 0; }
+
+static void adfs_folder(const struct bbc_machine *m, int drive, char *out, size_t size) {
+    if (drive) snprintf(out, size, "%s/:%d", m->cfg.disk_dir, drive);
+    else snprintf(out, size, "%s", m->cfg.disk_dir);
+}
+
+static void adfs_host(const struct bbc_machine *m, int drive, const char *rel, char *out, size_t size) {
+    char folder[1024];
+    adfs_folder(m, drive, folder, sizeof folder);
+    if (rel[0]) snprintf(out, size, "%s/%s", folder, rel);
+    else snprintf(out, size, "%s", folder);
+}
+
+/* The entry of dir called part, whatever its case: its type (1 file, 2 directory) and host
+ * name in found, or 0; *entries the entries dir holds */
+static int adfs_lookup(const char *dir, const char *part, char *found, int *entries) {
+    int type = 0, n = 0;
+    DIR *d = opendir(dir);
+    if (!d) {
+        if (entries) *entries = 0;
+        return 0;
+    }
+    for (struct dirent *de; (de = readdir(d));) {
+        if (!adfs_entry(de->d_name)) continue;
+        char full[1100];
+        snprintf(full, sizeof full, "%s/%.10s", dir, de->d_name);
+        int t = object_type(full, NULL);
+        if (!t) continue;
+        n++;
+        if (!type && strcasecmp(de->d_name, part) == 0) {
+            type = t;
+            if (found) snprintf(found, 16, "%.15s", de->d_name);
+        }
+    }
+    closedir(d);
+    if (entries) *entries = n;
+    return type;
+}
+
+/* ---- the sectors of a drive ---- */
+
+static uint32_t adfs_size(const struct bbc_machine *m) {
+    return m->cfg.adfs_sectors ? m->cfg.adfs_sectors : BBC_ADFS_SECTORS;
+}
+
+static void adfs_mark(struct bbc_adfs *a, int drive, uint32_t start, uint32_t n, uint8_t v) {
+    for (uint32_t i = start; i < start + n && i < a->sectors; i++) {
+        if (a->used[drive][i] == v) continue;
+        a->used[drive][i] = v;
+        if (v) a->in_use[drive]++;
+        else a->in_use[drive]--;
+    }
+    if (a->in_use[drive] > a->peak[drive]) a->peak[drive] = a->in_use[drive];
+}
+
+static int adfs_spaces(const struct bbc_adfs *a, int drive) {
+    int n = 0;
+    for (uint32_t i = 0; i < a->sectors; i++)
+        if (!a->used[drive][i] && (i == 0 || a->used[drive][i - 1])) n++;
+    return n;
+}
+
+int bbc_adfs_free_spaces(const struct bbc_machine *m, int drive) {
+    if (drive < 0 || drive >= BBC_ADFS_DRIVES || !m->adfs.loaded[drive]) return -1;
+    return adfs_spaces(&m->adfs, drive);
+}
+
+/* The first run of n free sectors, or -1 */
+static long adfs_run(const struct bbc_adfs *a, int drive, uint32_t n) {
+    uint32_t len = 0;
+    for (uint32_t i = 0; i < a->sectors; i++) {
+        len = a->used[drive][i] ? 0 : len + 1;
+        if (len == n) return (long)(i + 1 - n);
+    }
+    return -1;
+}
+
+/* n sectors in one run: 0 and *start, or the error */
+static uint16_t adfs_take(struct bbc_machine *m, int drive, uint32_t n, uint32_t *start) {
+    struct bbc_adfs *a = &m->adfs;
+    *start = 0;
+    if (!n) return 0;
+    long at = adfs_run(a, drive, n);
+    if (at < 0) return a->sectors - a->in_use[drive] < n ? BBC_MOS_E_DISC_FULL : BBC_MOS_E_COMPACTION;
+    adfs_mark(a, drive, (uint32_t)at, n, 1);
+    *start = (uint32_t)at;
+    return 0;
+}
+
+/* Give n sectors back: 0, or Map full (and they stay taken) */
+static uint16_t adfs_give(struct bbc_machine *m, int drive, uint32_t start, uint32_t n) {
+    struct bbc_adfs *a = &m->adfs;
+    if (!n) return 0;
+    adfs_mark(a, drive, start, n, 0);
+    if (adfs_spaces(a, drive) > BBC_ADFS_MAP) {
+        adfs_mark(a, drive, start, n, 1);
+        return BBC_MOS_E_MAP_FULL;
+    }
+    return 0;
+}
+
+static int adfs_obj(const struct bbc_adfs *a, const char *path) {
+    for (int i = 0; i < a->nobj; i++)
+        if (a->obj[i].path && strcmp(a->obj[i].path, path) == 0) return i;
+    return -1;
+}
+
+static int adfs_add(struct bbc_adfs *a, const char *path, int drive, uint32_t start, uint32_t len) {
+    if (a->nobj == a->cap) {
+        a->cap = a->cap ? 2 * a->cap : 64;
+        a->obj = realloc(a->obj, (size_t)a->cap * sizeof *a->obj);
+    }
+    a->obj[a->nobj] = (struct bbc_adfs_object){ strdup(path), drive, start, len };
+    return a->nobj++;
+}
+
+static int adfs_by_name(const void *x, const void *y) {
+    return strcasecmp(*(char *const *)x, *(char *const *)y);
+}
+
+/* The layout of a directory and what is in it, as on a compacted disc */
+static void adfs_lay_out(struct bbc_machine *m, int drive, const char *dir) {
+    struct bbc_adfs *a = &m->adfs;
+    DIR *d = opendir(dir);
+    if (!d) return;
+    char *names[BBC_ADFS_ENTRIES * 4];
+    int n = 0;
+    for (struct dirent *de; (de = readdir(d)) && n < (int)(sizeof names / sizeof *names);)
+        if (adfs_entry(de->d_name)) names[n++] = strdup(de->d_name);
+    closedir(d);
+    qsort(names, (size_t)n, sizeof *names, adfs_by_name);
+    uint64_t entries = 0;
+    for (int i = 0; i < n; i++) {
+        char full[1100];
+        uint32_t length = 0, start;
+        snprintf(full, sizeof full, "%s/%s", dir, names[i]);
+        int t = object_type(full, &length);
+        if (t) {
+            uint32_t sectors = t == 2 ? BBC_ADFS_DIR_SECTORS : (length + 255) / 256;
+            entries++;
+            if (adfs_take(m, drive, sectors, &start))      /* more than the disc holds: it is full */
+                adfs_mark(a, drive, 0, a->sectors, 1);
+            adfs_add(a, full, drive, start, sectors);
+            if (t == 2) adfs_lay_out(m, drive, full);
+        }
+        free(names[i]);
+    }
+    if (entries > a->most_entries) a->most_entries = entries;
+}
+
+static void adfs_load(struct bbc_machine *m, int drive) {
+    struct bbc_adfs *a = &m->adfs;
+    if (a->loaded[drive]) return;
+    a->sectors = adfs_size(m);
+    a->used[drive] = calloc(a->sectors, 1);
+    a->loaded[drive] = 1;
+    adfs_mark(a, drive, 0, BBC_ADFS_FIRST_FREE, 1);
+    char folder[1024];
+    adfs_folder(m, drive, folder, sizeof folder);
+    adfs_lay_out(m, drive, folder);
+}
+
+static void adfs_free(struct bbc_adfs *a) {
+    for (int i = 0; i < BBC_ADFS_DRIVES; i++) free(a->used[i]);
+    for (int i = 0; i < a->nobj; i++) free(a->obj[i].path);
+    free(a->obj);
+}
+
+/* ---- names ---- */
+
+struct adfs_where {
+    int drive;
+    int type;               /* 0 none, 1 file, 2 directory */
+    int missing;            /* a directory on the way is not there */
+    int entries;            /* what the directory it is in holds */
+    char dir[1024];         /* the host path of the directory it is in */
+    char path[1100];        /* its host path */
+    char rel[600];          /* its path below the drive's root, host names joined by "/" */
+};
+
+/* 0, 1 for drive 1, -1 a bad name, -2 a drive this machine does not have */
+static int adfs_drive(int c) {
+    c = toupper(c);
+    if (c == '0' || c == '4' || c == 'A' || c == 'E') return 0;
+    if (c == '1' || c == '5' || c == 'B' || c == 'F') return 1;
+    if (strchr("2367CDGH", c) && c) return -2;
+    return -1;
+}
+
+static void rel_up(char *rel) {
+    char *slash = strrchr(rel, '/');
+    if (slash) *slash = 0;
+    else rel[0] = 0;
+}
+
+/* Where the name is. 0, or the error. A directory on the way that is not there is Not found,
+ * unless reading (then w->missing, and type 0) */
+static uint16_t adfs_where(struct bbc_machine *m, const char *name, int reading, struct adfs_where *w) {
+    const char *s = name;
+    memset(w, 0, sizeof *w);
+    w->drive = m->adfs.csd_drive;
+    snprintf(w->rel, sizeof w->rel, "%s", m->adfs.csd);
+    if (s[0] == ':') {
+        int d = adfs_drive((unsigned char)s[1]);
+        if (d == -1 || (s[2] && s[2] != '.')) return BBC_MOS_E_BAD_NAME;
+        if (d == -2) return BBC_MOS_E_BAD_DRIVE;
+        w->drive = d;
+        w->rel[0] = 0;
+        s += 2;
+        if (*s == '.') {
+            s++;
+            if (!*s) return BBC_MOS_E_BAD_NAME;
+        }
+    }
+    if (!m->cfg.disk_dir) return BBC_MOS_E_NO_DISK;
+    for (const char *p = s; *p;) {  /* the parts, before any is looked for */
+        const char *dot = strchr(p, '.');
+        size_t n = dot ? (size_t)(dot - p) : strlen(p);
+        if (n == 1 && (p[0] == '$' || p[0] == '&' || p[0] == '@')) {
+            if (p != s) return BBC_MOS_E_BAD_NAME;
+        } else if (!(n == 1 && p[0] == '^')) {
+            uint16_t e = adfs_part(p, n);
+            if (e) return e;
+        }
+        if (dot && !dot[1]) return BBC_MOS_E_BAD_NAME;
+        p += n + (dot != NULL);
+    }
+    adfs_load(m, w->drive);
+    int first = 1, special = 1;     /* the name so far is a directory: a drive, $, ^ or @ */
+    char leaf[16] = "";
+    while (*s) {
+        const char *dot = strchr(s, '.');
+        size_t n = dot ? (size_t)(dot - s) : strlen(s);
+        if (!special && w->type != 2) {     /* the part before this one must be a directory */
+            if (!reading || w->type == 1) return BBC_MOS_E_NOT_FOUND;
+            w->missing = 1;
+            w->type = 0;
+            snprintf(w->path, sizeof w->path, "%s/%s", w->dir, leaf);  /* not there */
+            return 0;
+        }
+        if (n == 1 && (s[0] == '$' || s[0] == '&')) {
+            w->rel[0] = 0;
+        } else if (n == 1 && s[0] == '^') {
+            if (!special) special = 1;      /* into the directory found, and out again */
+            else rel_up(w->rel);
+        } else if (n == 1 && s[0] == '@') {
+            (void)first;                    /* the CSD: where a name starts anyway */
+        } else {
+            if (!special) {         /* step into the directory found */
+                size_t l = strlen(w->rel);
+                snprintf(w->rel + l, sizeof w->rel - l, "%s%s", l ? "/" : "", leaf);
+            }
+            char part[16];
+            memcpy(part, s, n);
+            part[n] = 0;
+            adfs_host(m, w->drive, w->rel, w->dir, sizeof w->dir);
+            char found[16];
+            w->type = adfs_lookup(w->dir, part, found, &w->entries);
+            snprintf(leaf, sizeof leaf, "%s", w->type ? found : part);
+            special = 0;
+        }
+        first = 0;
+        s += n;
+        if (*s == '.') s++;
+    }
+    if (special) {                  /* the name is a directory of its own: $, a drive, ^, @ */
+        w->type = 2;
+        adfs_host(m, w->drive, w->rel, w->path, sizeof w->path);
+        snprintf(w->dir, sizeof w->dir, "%.1023s", w->path);
+        return 0;
+    }
+    snprintf(w->path, sizeof w->path, "%s/%s", w->dir, leaf);
+    size_t l = strlen(w->rel);
+    snprintf(w->rel + l, sizeof w->rel - l, "%s%s", l ? "/" : "", leaf);
+    return 0;
+}
+
+/* Whether the file at path is open, other than for input with mode for input too */
+static int adfs_open_already(const struct bbc_machine *m, const char *path, uint8_t mode) {
+    int i = adfs_obj(&m->adfs, path);
+    if (i < 0) return 0;
+    for (int k = 0; k < BBC_ADFS_MAX_FILES; k++)
+        if (m->files[k].f && m->files[k].obj == i + 1 && (mode != 0x40 || m->files[k].mode != 0x40)) return 1;
+    return 0;
+}
+
+/* Before an object is created in w's directory: 0, or the error */
+static uint16_t adfs_room(struct bbc_machine *m, struct adfs_where *w) {
+    if (w->entries >= BBC_ADFS_ENTRIES) return BBC_MOS_E_DIR_FULL;
+    if (w->drive) {
+        char folder[1024];
+        adfs_folder(m, w->drive, folder, sizeof folder);
+        mkdir(folder, 0777);
+    }
+    return 0;
+}
+
+static void adfs_created(struct bbc_machine *m, struct adfs_where *w) {
+    if ((uint64_t)w->entries + 1 > m->adfs.most_entries) m->adfs.most_entries = (uint64_t)w->entries + 1;
+}
+
+/* An open file is to hold `bytes`: 0, or the error */
+static uint16_t adfs_grow(struct bbc_machine *m, struct bbc_file *bf, uint32_t bytes) {
+    if (!bf->obj) return 0;
+    struct bbc_adfs *a = &m->adfs;
+    struct bbc_adfs_object *o = &a->obj[bf->obj - 1];
+    uint32_t need = (bytes + 255) / 256;
+    if (need <= o->len) return 0;
+    uint32_t extra = need - o->len, start;
+    if (o->len) {
+        uint32_t i = o->start + o->len;
+        while (i < o->start + need && i < a->sectors && !a->used[o->drive][i]) i++;
+        if (i == o->start + need) {         /* the sectors after it are free */
+            adfs_mark(a, o->drive, o->start + o->len, extra, 1);
+            o->len = need;
+            return 0;
+        }
+    }
+    long at = adfs_run(a, o->drive, need);
+    if (at < 0) return a->sectors - a->in_use[o->drive] < extra ? BBC_MOS_E_DISC_FULL : BBC_MOS_E_COMPACTION;
+    adfs_mark(a, o->drive, (uint32_t)at, need, 1);
+    start = (uint32_t)at;
+    uint16_t e = adfs_give(m, o->drive, o->start, o->len);
+    if (e) {
+        adfs_mark(a, o->drive, start, need, 0);
+        return e;
+    }
+    o->start = start;
+    o->len = need;
+    return 0;
+}
+
+static long file_ext(struct bbc_file *bf);
+
+/* A file is closed: what it reserved beyond its length is free again */
+static void adfs_closed(struct bbc_machine *m, struct bbc_file *bf) {
+    if (!bf->obj || !bf->f) return;
+    struct bbc_adfs_object *o = &m->adfs.obj[bf->obj - 1];
+    uint32_t need = ((uint32_t)file_ext(bf) + 255) / 256;
+    if (need < o->len && adfs_give(m, o->drive, o->start + need, o->len - need) == 0) o->len = need;
+}
+
+/* Delete the object at w: 0, or the error */
+static uint16_t adfs_delete(struct bbc_machine *m, struct adfs_where *w) {
+    if (adfs_open_already(m, w->path, 0x80)) return BBC_MOS_E_ALREADY_OPEN;
+    if (w->type == 2) {
+        int entries;
+        adfs_lookup(w->path, "", NULL, &entries);
+        if (entries) return BBC_MOS_E_DIR_NOT_EMPTY;
+        if (!w->rel[0]) return BBC_MOS_E_BAD_NAME;      /* a root */
+    }
+    int i = adfs_obj(&m->adfs, w->path);
+    if (i >= 0) {
+        uint16_t e = adfs_give(m, w->drive, m->adfs.obj[i].start, m->adfs.obj[i].len);
+        if (e) return e;
+        free(m->adfs.obj[i].path);
+        m->adfs.obj[i].path = NULL;
+    }
+    if (w->type == 2) rmdir(w->path);
+    else {
+        char inf[1200];
+        snprintf(inf, sizeof inf, "%s.inf", w->path);
+        remove(w->path);
+        remove(inf);
+    }
+    return 0;
+}
+
+/* *CDIR name */
+static void adfs_cdir(struct bbc_machine *m, const char *name) {
+    struct adfs_where w;
+    uint16_t e = adfs_where(m, name, 0, &w);
+    if (!e && w.type) e = BBC_MOS_E_ALREADY_EXISTS;
+    if (!e) e = adfs_room(m, &w);
+    uint32_t start;
+    if (!e) e = adfs_take(m, w.drive, BBC_ADFS_DIR_SECTORS, &start);
+    if (!e && mkdir(w.path, 0777) != 0) {
+        adfs_mark(&m->adfs, w.drive, start, BBC_ADFS_DIR_SECTORS, 0);
+        e = BBC_MOS_E_DISC_FAULT;
+    }
+    if (e) {
+        raise(e);
+        return;
+    }
+    adfs_add(&m->adfs, w.path, w.drive, start, BBC_ADFS_DIR_SECTORS);
+    adfs_created(m, &w);
+}
+
+/* *DIR [name] */
+static void adfs_dir(struct bbc_machine *m, const char *name) {
+    if (!name[0]) {
+        m->adfs.csd[0] = 0;
+        return;
+    }
+    struct adfs_where w;
+    uint16_t e = adfs_where(m, name, 0, &w);
+    if (!e && w.type != 2) e = BBC_MOS_E_NOT_FOUND;
+    if (e) {
+        raise(e);
+        return;
+    }
+    m->adfs.csd_drive = w.drive;
+    snprintf(m->adfs.csd, sizeof m->adfs.csd, "%.511s", w.rel);
+}
+
+/* *DELETE name */
+static void adfs_delete_command(struct bbc_machine *m, const char *name) {
+    struct adfs_where w;
+    uint16_t e = adfs_where(m, name, 0, &w);
+    if (!e && !w.type) e = BBC_MOS_E_NOT_FOUND;
+    if (!e) e = adfs_delete(m, &w);
+    if (e) raise(e);
+}
+
 /* The host path of a name the 6502 code gave, and the name its .inf file records. With
  * `creating` (a file about to be written), a DFS file that is not there must have room in
  * its drive's catalogue. Returns 0, or the error to raise. */
 static uint16_t file_path(struct bbc_machine *m, const char *name, int creating, char *path, size_t size,
                           char *inf_name, size_t inf_size) {
     if (!m->cfg.disk_dir) return BBC_MOS_E_NO_DISK;
+    if (m->cfg.adfs) {
+        struct adfs_where w;
+        uint16_t e = adfs_where(m, name, !creating, &w);
+        if (!e && creating && !w.type) e = adfs_room(m, &w);
+        if (e) return e;
+        snprintf(path, size, "%s", w.path);
+        snprintf(inf_name, inf_size, "%s", name);
+        return 0;
+    }
     if (!m->cfg.dfs) {
         snprintf(path, size, "%s/%s", m->cfg.disk_dir, name);
         snprintf(inf_name, inf_size, "%s", name);
@@ -287,6 +747,34 @@ static int host_path(struct bbc_machine *m, const char *name, int creating, char
     return !e;
 }
 
+/* --bbc-fs adfs: the space for a file saved whole (*SAVE, OSFILE 0) of `bytes` at path, the
+ * name's: the sectors of the file of that name before are given back and the first run that
+ * holds it taken. Returns the file's object, or -1 if it raised an error. */
+static int adfs_save_space(struct bbc_machine *m, const char *name, const char *path, uint32_t bytes,
+                           uint32_t *start) {
+    struct adfs_where w;
+    uint16_t e = adfs_where(m, name, 0, &w);
+    if (!e && w.type == 2) e = BBC_MOS_E_ALREADY_EXISTS;
+    if (!e && adfs_open_already(m, path, 0x80)) e = BBC_MOS_E_ALREADY_OPEN;
+    int i = e ? -1 : adfs_obj(&m->adfs, path);
+    if (!e && i >= 0) adfs_mark(&m->adfs, w.drive, m->adfs.obj[i].start, m->adfs.obj[i].len, 0);
+    if (!e) {
+        e = adfs_take(m, w.drive, (bytes + 255) / 256, start);
+        if (e && i >= 0) adfs_mark(&m->adfs, w.drive, m->adfs.obj[i].start, m->adfs.obj[i].len, 1);
+    }
+    if (e) {
+        raise(e);
+        return -1;
+    }
+    if (i < 0) {
+        adfs_created(m, &w);
+        i = adfs_add(&m->adfs, path, w.drive, 0, 0);
+    }
+    m->adfs.obj[i].start = *start;
+    m->adfs.obj[i].len = (bytes + 255) / 256;
+    return i;
+}
+
 /* Load a file at its own load address (or at addr if use_addr). Raises
  * the error and returns -1 when it can't. */
 static int load_file(struct bbc_machine *m, const char *name, int use_addr, uint32_t addr,
@@ -294,7 +782,7 @@ static int load_file(struct bbc_machine *m, const char *name, int use_addr, uint
     char path[1024], inf_name[256];
     if (!host_path(m, name, 0, path, sizeof path, inf_name, sizeof inf_name)) return -1;
     if (object_type(path, NULL) != 1) {
-        raise(BBC_MOS_E_FILE_NOT_FOUND);
+        raise(m->cfg.adfs ? BBC_MOS_E_NOT_FOUND : BBC_MOS_E_FILE_NOT_FOUND);
         return -1;
     }
     read_inf(path, load, exec);
@@ -319,6 +807,8 @@ static int save_file(struct bbc_machine *m, const char *name, uint32_t load, uin
         raise(BBC_MOS_E_BAD_ADDRESS);
         return -1;
     }
+    uint32_t place;
+    if (m->cfg.adfs && adfs_save_space(m, name, path, end - start, &place) < 0) return -1;
     FILE *f = fopen(path, "wb");
     if (!f) {
         raise(BBC_MOS_E_DISC_FAULT);
@@ -332,9 +822,13 @@ static int save_file(struct bbc_machine *m, const char *name, uint32_t load, uin
     return 0;
 }
 
+static int first_handle(const struct bbc_machine *m) {
+    return m->cfg.adfs ? BBC_ADFS_FIRST_HANDLE : BBC_FIRST_HANDLE;
+}
+
 static struct bbc_file *handle_file(struct bbc_machine *m, uint8_t h) {
-    if (h < BBC_FIRST_HANDLE || h >= BBC_FIRST_HANDLE + BBC_MAX_FILES) return NULL;
-    struct bbc_file *bf = &m->files[h - BBC_FIRST_HANDLE];
+    if (h < first_handle(m) || h >= first_handle(m) + BBC_MAX_FILES) return NULL;
+    struct bbc_file *bf = &m->files[h - first_handle(m)];
     return bf->f ? bf : NULL;
 }
 
@@ -364,20 +858,28 @@ static void close_file(struct bbc_file *bf) {
     memset(bf, 0, sizeof *bf);
 }
 
-void bbc_machine_close(struct bbc_machine *m) {
-    for (int i = 0; i < BBC_MAX_FILES; i++) close_file(&m->files[i]);
+static void close_all(struct bbc_machine *m) {
+    for (int i = 0; i < BBC_MAX_FILES; i++) {
+        adfs_closed(m, &m->files[i]);
+        close_file(&m->files[i]);
+    }
 }
+
+void bbc_machine_close(struct bbc_machine *m) { close_all(m); }
 
 /* OSFIND: A = 0 close Y (0: all); $40 input, $80 output, $C0 update, XY the name */
 static void os_find(struct bbc_machine *m) {
     if (a == 0) {
         if (y == 0) {
-            bbc_machine_close(m);
+            close_all(m);
             return;
         }
         struct bbc_file *bf = handle_file(m, y);
         if (!bf) raise(BBC_MOS_E_CHANNEL);
-        else close_file(bf);
+        else {
+            adfs_closed(m, bf);
+            close_file(bf);
+        }
         return;
     }
     char name[256], path[1024], inf_name[256];
@@ -387,20 +889,40 @@ static void os_find(struct bbc_machine *m) {
     }
     uint8_t mode = a & 0xC0;
     if (!host_path(m, name, mode == 0x80, path, sizeof path, inf_name, sizeof inf_name)) return;
-    int most = m->cfg.dfs ? BBC_DFS_MAX_FILES : BBC_MAX_FILES, slot = 0;
+    int most = m->cfg.adfs ? BBC_ADFS_MAX_FILES : m->cfg.dfs ? BBC_DFS_MAX_FILES : BBC_MAX_FILES, slot = 0;
     while (slot < most && m->files[slot].f) slot++;
     if (slot == most) {
         raise(m->cfg.dfs ? BBC_MOS_E_DFS_TOO_MANY_OPEN : BBC_MOS_E_TOO_MANY_OPEN);
         return;
     }
+    int obj = 0, type = object_type(path, NULL);
+    if (m->cfg.adfs && type != 2) {     /* the file's space: a new one reserves 256 sectors */
+        if (adfs_open_already(m, path, mode)) {
+            raise(BBC_MOS_E_ALREADY_OPEN);
+            return;
+        }
+        obj = adfs_obj(&m->adfs, path) + 1;
+        if (!obj && mode == 0x80) {
+            struct adfs_where w;
+            uint32_t start;
+            uint16_t e = adfs_where(m, name, 0, &w);
+            if (!e) e = adfs_take(m, w.drive, BBC_ADFS_RESERVE, &start);
+            if (e) {
+                raise(e);
+                return;
+            }
+            adfs_created(m, &w);
+            obj = adfs_add(&m->adfs, path, w.drive, start, BBC_ADFS_RESERVE) + 1;
+        }
+    }
     FILE *f = NULL;
-    if (object_type(path, NULL) != 2)
+    if (type != 2)
         f = fopen(path, mode == 0x40 ? "rb" : mode == 0x80 ? "w+b" : "r+b");
     if (!f) {
         a = 0;   /* not found: A = 0, no error */
         return;
     }
-    m->files[slot] = (struct bbc_file){ f, mode, 0, 0 };
+    m->files[slot] = (struct bbc_file){ f, mode, 0, 0, obj };
     m->files_opened++;
     uint64_t open = 0, writing = 0;
     for (int i = 0; i < BBC_MAX_FILES; i++) {
@@ -409,7 +931,7 @@ static void os_find(struct bbc_machine *m) {
     }
     if (open > m->most_open) m->most_open = open;
     if (writing > m->most_writing) m->most_writing = writing;
-    a = (uint8_t)(BBC_FIRST_HANDLE + slot);
+    a = (uint8_t)(first_handle(m) + slot);
 }
 
 /* OSBGET: Y the handle; A the byte, C set at the end of the file (A = $FE),
@@ -445,7 +967,12 @@ static void os_bput(struct bbc_machine *m) {
         return;
     }
     if (bf->mode == 0x40) {
-        raise(BBC_MOS_E_READ_ONLY);
+        raise(m->cfg.adfs ? BBC_MOS_E_NOT_OPEN_FOR_UPDATE : BBC_MOS_E_READ_ONLY);
+        return;
+    }
+    uint16_t e = adfs_grow(m, bf, (uint32_t)ftell(bf->f) + 1);
+    if (e) {
+        raise(e);
         return;
     }
     turn(bf, 2);
@@ -460,7 +987,7 @@ static void os_bput(struct bbc_machine *m) {
 static void os_args(struct bbc_machine *m) {
     uint16_t zp = x;
     if (y == 0) {
-        if (a == 0) a = 4;
+        if (a == 0) a = m->cfg.adfs ? 8 : 4;
         else if (a == 1) poke32(m, zp, m->tail);
         else if (a == 0xFF) for (int i = 0; i < BBC_MAX_FILES; i++) if (m->files[i].f) fflush(m->files[i].f);
         return;
@@ -472,7 +999,20 @@ static void os_args(struct bbc_machine *m) {
     }
     switch (a) {
     case 0: poke32(m, zp, (uint32_t)ftell(bf->f)); break;
-    case 1: file_seek(bf, peek32(m, zp)); break;
+    case 1: {
+        uint32_t ptr = peek32(m, zp);
+        if (m->cfg.adfs && bf->mode == 0x40 && ptr > (uint32_t)file_ext(bf)) {
+            raise(BBC_MOS_E_OUTSIDE_FILE);
+            return;
+        }
+        uint16_t e = bf->mode == 0x40 ? 0 : adfs_grow(m, bf, ptr);
+        if (e) {
+            raise(e);
+            return;
+        }
+        file_seek(bf, ptr);
+        break;
+    }
     case 2: poke32(m, zp, (uint32_t)file_ext(bf)); break;
     case 0xFF: fflush(bf->f); break;
     default: break;
@@ -493,11 +1033,18 @@ static void os_gbpb(struct bbc_machine *m) {
     }
     int writing = a <= 2;
     if (writing && bf->mode == 0x40) {
-        raise(BBC_MOS_E_READ_ONLY);
+        raise(m->cfg.adfs ? BBC_MOS_E_NOT_OPEN_FOR_UPDATE : BBC_MOS_E_READ_ONLY);
         return;
     }
     if (a == 1 || a == 3) file_seek(bf, peek32(m, (uint16_t)(blk + 9)));
     uint32_t addr = peek32(m, (uint16_t)(blk + 1)), count = peek32(m, (uint16_t)(blk + 5));
+    if (writing) {
+        uint16_t e = adfs_grow(m, bf, (uint32_t)ftell(bf->f) + count);
+        if (e) {
+            raise(e);
+            return;
+        }
+    }
     turn(bf, writing ? 2 : 1);
     while (count) {
         if (writing) {
@@ -553,7 +1100,15 @@ static void os_file(struct bbc_machine *m) {
                 return;
             }
         }
-        if (a == 6 && type == 1) {
+        if (a == 6 && type && m->cfg.adfs) {
+            struct adfs_where w;
+            uint16_t e = adfs_where(m, name, 1, &w);
+            if (!e) e = adfs_delete(m, &w);
+            if (e) {
+                raise(e);
+                return;
+            }
+        } else if (a == 6 && type == 1) {
             char inf[1100];
             snprintf(inf, sizeof inf, "%s.inf", path);
             remove(path);
@@ -674,6 +1229,20 @@ static void os_cli(struct bbc_machine *m) {
         if (!read_hex(m, &q, &exec)) exec = start;
         if (!read_hex(m, &q, &reload)) reload = start;
         save_file(m, name, reload, exec, start, end);
+    } else if (m->cfg.adfs && (command_is(m, p, "CDIR", &after) || command_is(m, p, "DIR", &after)
+                               || command_is(m, p, "DELETE", &after))) {
+        /* ADFS's own commands that the recipe needs (lathe/docs/boards.md) */
+        int c0 = toupper(bus_rd(m, p)), c1 = toupper(bus_rd(m, (uint16_t)(p + 1)));
+        name[0] = 0;
+        if (bus_rd(m, skip_spaces(m, after)) != 0x0D && !read_name(m, after, name, sizeof name)) {
+            raise(BBC_MOS_E_BAD_NAME);
+            return;
+        }
+        if (!m->cfg.disk_dir) raise(BBC_MOS_E_NO_DISK);
+        else if (c0 == 'D' && c1 == 'I') adfs_dir(m, name);
+        else if (!name[0]) raise(BBC_MOS_E_BAD_NAME);
+        else if (c0 == 'C') adfs_cdir(m, name);
+        else adfs_delete_command(m, name);
     } else {
         y = (uint8_t)(p - line);   /* service call 4, Y the offset from ($F2) */
         pc = BBC_MOS_CLI_SVC;
@@ -960,6 +1529,7 @@ static void fault(struct bbc_machine *m, enum bbc_end end, const char *fmt, unsi
 
 void bbc_machine_init(struct bbc_machine *m, const struct bbc_config *cfg,
                       struct bbc_memory_state *mem, struct bbc_module_state *module) {
+    adfs_free(&m->adfs);   /* m is static: zero, or a machine this made before */
     memset(m, 0, sizeof *m);
     m->cfg = *cfg;
     if (!m->cfg.out) m->cfg.out = stdout;

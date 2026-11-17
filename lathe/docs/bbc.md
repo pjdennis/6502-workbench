@@ -1,6 +1,6 @@
 # Lathe on a BBC Model B+128
 
-Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"), and step 4: the compiler compiles itself on the B+128 at its full capacities, from the ROM and from the RAM module ("Step 4, as built"), and step 5: the linker in the same image, started by `*LLINK`, so that a program is compiled, linked and run on the B+128 with every file the host's tools write ("Step 5, as built"), and file names for the DFS: with `define BBCFS 1` the BBC's build maps every name the tools give to an Acorn DFS name, and the chain and the self-compile run so under the emulator's DFS rules ("File names on the BBC", 2026-11-16); and the module's eight-bank form for one 128 KB EPROM, with the gate that says by how many bytes the two tools do not fit it yet ("The 128 KB module", 2026-11-17). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
+Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"), and step 4: the compiler compiles itself on the B+128 at its full capacities, from the ROM and from the RAM module ("Step 4, as built"), and step 5: the linker in the same image, started by `*LLINK`, so that a program is compiled, linked and run on the B+128 with every file the host's tools write ("Step 5, as built"), and file names for the DFS: with `define BBCFS 1` the BBC's build maps every name the tools give to an Acorn DFS name, and the chain and the self-compile run so under the emulator's DFS rules ("File names on the BBC", 2026-11-16); and ADFS as a second filing system: with `define BBCFS 2` ADFS's names and with `define ADFS 1` the tools at ADFS's PAGE, `$1F00`, so that the compiler is rebuilt on two ADFS discs with readable sources and every file the host's ("ADFS", 2026-11-17); and the module's eight-bank form for one 128 KB EPROM, with the gate that says by how many bytes the two tools do not fit it yet ("The 128 KB module", 2026-11-17). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
 
 ## The idea
 
@@ -573,7 +573,7 @@ The extensions are compared without regard to case. The letters follow Acorn's o
 
 **Where it lives.** `bbcfs` is a module of its own so that the tools can place it in a bank: `place bbcfs WIN 5` in `lathec-bbc.env` and `place bbcfs WIN 1` in `linker-bbc.env`, which change nothing with `BBCFS 0`. `bbc.open_mode` calls it only under `#if bbcfs.MAPS`, so with `BBCFS 0` the code is what it was: the compiler, the linker and every BBC program built with `BBCFS 0` are byte for byte what they were before `bbcfs` (images, bank files and maps compared), and so are the `PORTS` 0 and 1 builds. `lathe/rt/bbcfs.lth` exists because `build.py` compiles every module an `import` line names, so the other machines compile `bbc.lth` and need a `bbcfs` with the same names; it is never linked there. `build.py` finds `lathe/rt/bbc/bbcfs.lth` first for the BBC.
 
-**The choice, in the environment file.** `define BBCFS 0` (every BBC environment now says it): names as given, the emulator's directory as before. `define BBCFS 1`: the DFS's names; `lathe/env/bbc-dfs.env` is `bbc.env` so. `BBCFS 2`, ADFS, is a table entry that stops the compiler with `#error` (below).
+**The choice, in the environment file.** `define BBCFS 0` (every BBC environment now says it): names as given, the emulator's directory as before. `define BBCFS 1`: the DFS's names; `lathe/env/bbc-dfs.env` is `bbc.env` so. `define BBCFS 2`: ADFS's names ("ADFS", below).
 
 ### Drives
 
@@ -609,9 +609,9 @@ Measured from the maps (2026-11-16), the ROM forms of the module image:
 - (Superseded on 2026-11-16, "The linker links the compiler": the linker's split is `$4000`, which suits `BBCFS 0` and `BBCFS 1` in both forms, and the DFS build no longer moves it. Main RAM free in the ROM form: about 4,160 bytes with `BBCFS 0`, about 4,130 with `BBCFS 1`; fixed code left below the split in the developer's form: 902 and 881 bytes.) The linker does not fit its developer form, whose split (`$3A20`) sets the ROM form's: 22 bytes of fixed code where 6 were free. Its DFS build moves the split up 16 bytes, to `$3A30` (`test_bbc_dfs.LINKER_ROOM`): the developer form then has 0 bytes left below it and the ROM form 365 of main RAM. `linker-bbc.env` is left at `$3A20`, so that `BBCFS 0` builds what it built; the redesign of the linker's work area will free main RAM, and the split should then move for both.
 - Zero page: none more (`bbcfs`'s locals share the frames' zero page, which is full in both tools as before).
 
-### ADFS: what it would take
+### ADFS
 
-A table entry, not built: `BBCFS 2` stops the compiler with `#error`. ADFS takes ten characters and `.` separates directories of any depth, so `expr.lth` would be `lth.expr` (a directory named by the extension), `asmblock.lth` `lth.asmblock` with ten characters kept, `2/x.lo` `:2.lo.x`; a name with no `.` as it is. In `map` that is the extension copied where the letter is now and the limit 10, about 40 bytes. What makes it more than a table entry: a directory must exist before a file is created in it (`*CDIR lth`; memory, not checked), ADFS holds 47 entries a directory, and the emulator would need an ADFS mode of its own (directories as host subdirectories, ten characters). None of it is needed for the DFS.
+Built on 2026-11-17: "ADFS", below. (Until then `BBCFS 2` stopped the compiler with `#error`.)
 
 ### The `*` commands
 
@@ -686,6 +686,145 @@ From the emulator's cycles in the ROM form (2026-11-16). The time of the disc is
 | the compiler linked | 3,404 million | 28.4 minutes |
 | the whole loop: compiled, linked, two modules compiled again | 4,471 million | 37.3 minutes |
 
+## ADFS (2026-11-17)
+
+The rebuild's files are 1.2 MB, which no arrangement fits on two double-sided DFS discs with readable sources ([`spikes.md`](spikes.md), "Disc space for the rebuild on two DFS discs, measured"). The owner's decision: assume the compiler's developer has dual ADFS drives, which the B+ supports. So the BBC port has a second filing system beside the DFS, which stays. Nothing outside the BBC port changes: sources, module names and command lines are the same on every machine.
+
+Built: `define BBCFS 2` in `lathe/rt/bbc/bbcfs.lth` and its twin `lathe/host/driver/bbcfs.py` (`adfs_name`); the directory rule in `lathe/rt/bbc.lth`'s `open_mode`; `define ADFS` in `lathec-bbc.env`, `linker-bbc.env`, `lathe/env/bbc.env` and `bbc-bank.env`, which moves main RAM to ADFS's PAGE; `bbcrom.loader(OUT, page)`, LOADMOD for another page; the emulator's `--bbc-fs adfs` (`emulator/README.md`, "bbcbplus"); the tests `lathe/tests/test_bbc_adfs.py`. The recipe is in [`boards.md`](boards.md), "On two ADFS discs".
+
+### The facts
+
+From Acorn's *Advanced Disc Filing System User Guide* and a few third parties, each marked with how sure it is in `emulator/NOTES-bbcbplus.md`, "ADFS on the B+". What the design rests on:
+
+- ADFS runs on a B or a B+ with a 1770 controller (the guide); 1.30 is the last version for the BBC (a ROM archive's list); it can be fitted beside a DFS, and entered with CTRL A BREAK or `*ADFS` (the guide).
+- **PAGE is `&1D00` with ADFS** (the guide, four times) and **`&1F00` with ADFS and a DFS both** (two third parties, one for the Electron, one for a Model B; not checked for the B+). The tools are built for `$1F00`, which serves both.
+- Names of ten characters, any but `# * . : $ & @` and space; `.` separates directories; `$` the root, `^` the parent, `@` the current directory; `:D.` a drive's root. Drives 0 and 1, one number a disc ("ADFS does not assign a separate drive number to each side"). Case not significant: memory, not checked.
+- A directory holds 47 entries and takes 5 sectors; the map takes sectors 0 and 1, the root 2 to 6; an L disc is 2,560 sectors of 256 bytes, 640 KB.
+- Ten files open. OPENOUT of a new file reserves 256 sectors (64 KB), or the space of the file it replaces, and fails if they are not there; a file that outgrows its space is moved whole to a free space that holds it, else "Compaction required". There is no "Can't extend" in ADFS. That reserved space not used is given back at the close is inferred, not read.
+- Zero page: the filing systems' `$A0-$A7` and `$B0-$CF` for ADFS as for the DFS, from a memory map of disc systems in general; the tools use `$00-$8F` only, so it does not matter to them.
+
+### The mapping, as built
+
+With `define BBCFS 2`, `bbc.open` and `bbc.open_out` give each name to `bbcfs.map`, which makes ADFS's:
+
+| The tools' name | ADFS name | Why |
+|---|---|---|
+| `expr.lth` | `lth.expr` | a source: in the directory named by its extension |
+| `./expr.lo`, `expr.lo` | `lo.expr` | an object; every leading `./` is dropped |
+| `./expr.li` | `li.expr` | an interface |
+| `OUTTEST.map`, `outtest.env` | `map.OUTTEST`, `env.outtest` | the linker's map, an environment |
+| `LATHE1.BIN` | `BIN.LATHE1` | a bank file |
+| `gen.txt`, `a.abcdefghij` | `txt.gen`, `abcdefghij.a` | any other extension, as it is, up to ten characters |
+| `abcdefghijk.lth` | `lth.abcdefghij` | a stem's first ten characters |
+| `HELLO`, `LOADMOD` | as given | no `.`: as it is, so that an image keeps the name `*RUN` uses |
+| `1/expr.lo`, `./1/x.li`, `0/a.lth`, `1/IMAGE` | `:1.lo.expr`, `:1.li.x`, `:0.lth.a`, `:1.IMAGE` | a first directory `0` or `1` is the drive: its root |
+| `2/x.lo`, `lib/k.li`, `a.b.lth`, `.lth`, `a.`, `a.abcdefghijk`, a result over 24 characters | none | the empty name, which ADFS refuses (Bad name), so `open` gives 0 |
+
+Case is kept: ADFS keeps it and matches without it.
+
+**A directory for each kind of file, named by its extension**, as Acorn's own C compilers on ADFS kept `c.name`, `h.name` and `o.name`. Chosen over the DFS's letters (`L.EXPR`) because it needs no table (the extension is copied as it is, so any extension works, and the twin is three lines), because a catalogue reads plainly (`lth`, `lo`, `li`, `map`, `bin`), and because a source and its object then never share a directory: each kind has its own 47 entries, and the compiler's 25 modules fit one directory of each.
+
+**Long stems.** Every module of the compiler and the linker fits ten characters (`test_bbc_adfs.Names` checks the modules the two tools link), and so does every `.lth` of `lathe/src`, `lathe/rt` and `lathe/rt/bbc`: the longest test programs, `inlinetest` and `kerneltest`, are ten. Of the 578 sources of `lathe/tests/cases` many are longer (`args_and_call`, `address_of_function`; among the programs the chain runs about two dozen, `bigarray_pages`, `inline_mix_plain`, `string_library` and others); they are cut to ten, the DFS's rule with ten for seven: two stems that agree in their first ten characters name the same file, and the files' own module names catch it as for the DFS ("When two names meet": errors 49 and 51, link error 17). No program the chain runs has two modules that meet so.
+
+**Drives.** `0/` and `1/` at the front, as the DFS's `0/` to `3/`: `:D.` and the path from that drive's root. ADFS has two floppy drives and gives a disc one number, so `2/` and `3/` are no name. A name without a drive is in the current directory (`*DIR`), as a name without a directory is on the host.
+
+**Directories must exist before a file is created in them, and the port makes them.** Before it creates a file, `open_mode` asks `bbcfs.cdir`: if the name is in a directory (not a root), `cdir` writes `*CDIR` of it in `name_buf`, looks for it with OSFILE 5 (which gives 0, and no error, for an object that is not there), and if it is there gives the name back and false; if not, true, and `open_mode` runs the command through OSCLI, an error caught as OSFIND's are (BRKV for the call), and has the name back (`bbcfs.again`). So a blank disc needs nothing done to it: the compiler makes `lo` and `li` as it writes its first object and interface, the linker `map` and `bin`. If the directory cannot be made (the parent's 47 entries, a full disc), the OSFIND that follows fails, `open_out` gives 0 and the tool says what it says of any file it cannot create: the compiler's error 63 (`test_a_directory_that_cannot_be_made`). Chosen over a clear error because the error a tool can give names the host's file (`./hello.lo`), not the directory, and because it saves the user a `*CDIR` for each kind on each drive. The directory is looked for first, not left to OSFIND's "Not found", for the fault below. Reading is as before: a file that is not there, for any reason, is 0.
+
+### What it costs
+
+Measured from the maps (2026-11-17), the ROM forms, against `BBCFS 1`:
+
+| | `BBCFS 1` | `BBCFS 2` |
+|---|---|---|
+| Fixed code: `bbc.open_mode` | 67 (the compiler), 76 (the linker) | 94, 96 |
+| Fixed code: `bbc.find` | 59 | 67 (its mode 0 is OSCLI) |
+| Fixed code: stubs of `bbcfs` | 6 (`map`) | 18 (`map`, `cdir`, `again`) |
+| Main RAM: `bbcfs.out` | 13 | 25 |
+| In a bank (the compiler's 5, the linker's 1) | 416: `made` 346, `map` 40, the table 30 | 527: `made` 282, `cdir` 185, `again` 32, `map` 23, "CDIR " 5 |
+
+So 60 bytes of main RAM more than the DFS's in the compiler and 57 in the linker, and 111 more of the bank. In the developer's forms `bbcfs` is fixed, as for the DFS.
+
+### PAGE, and what each tool has free
+
+`define ADFS 1` moves the tools' and the programs' main RAM to `$1F00`: `when ADFS` entries give the code and data ranges, `unless ADFS` the ones of before, which every `BBCFS 0` and `BBCFS 1` build still reads. Its images, bank files and maps are byte for byte what they were: compared on 2026-11-17 for both tools in both forms with `BBCFS 0` and `1`, the module images, and hello on `bbc`, `bbc-dfs`, `host`, `wendy2`, `wendy2disk` and `michael`; only `bbcfs.li` differs, by the new constant `DIRS`. The emulator runs ADFS builds with `--bbc-page 1F00`, so that `--bbc-strict` makes any write below PAGE a fault.
+
+Measured (2026-11-17) on the tree this work started from (5de87c8), with `BBCFS 2`; free is `$1F00-$7BFF` and `$0401-$06FF` (24,575 bytes) less the code, constants, stubs and variables the map places in main RAM:
+
+| | Split | Code ends | Variables | Free |
+|---|---|---|---|---|
+| the compiler, ROM form | `$5600` | `$55E5` | `$5600-$7BFF` and `$0401-$06B1` | **104** |
+| the compiler, developer's form | `$5880` | `$5828` | `$5880-$7278` | 3,293 |
+| the linker, ROM form | `$4600` | `$427A` | `$4600-$7922` | 2,401 |
+| the linker, developer's form | `$4600` | `$44BD` | `$4600-$7540` | 2,816 |
+| the compiler, eight-bank ROM form | | | | 134 |
+| the linker, eight-bank ROM form | | | | 1,646 |
+
+(After the merge of the 128 KB module and the fix of the fault below, 5 bytes of `rt_bbc` more; the eight-bank figures are `test_bbc_rom128.AdfsMainRam`'s, by a link that lets a bank be over as judged, since neither tool fits eight banks yet: the linker's three banks are 1,197, 199 and 416 bytes over with `BBCFS 2`, whose `bbcfs` is in its bank 1.)
+
+Against `$1900` with `BBCFS 1` the compiler's ROM form had 1,700 free and the linker's 3,994: the 1,536 bytes of PAGE are nearly all of it, ADFS's names the 60 and 57 above. **Everything fits, the compiler's ROM form by 104 bytes**: 26 below its split and 78 of `$0401-$06FF`. That is too close (a change to the code generator due next adds about 110 bytes to `rt_frame`): "Room for the compiler at ADFS's PAGE", below, has the options. Nothing had to move to a sideways slot and no capacity was cut. The other agents' work on the code generator will move these figures: if the compiler's resident part grows by more than 26 bytes its ROM split moves up, and its variables have the 78 bytes of `more data` to take what they lose. With ADFS alone (PAGE `$1D00`) each has 512 bytes more, but the environments are built for `$1F00`. `BBCFS 2` with `ADFS 0` does not fit the compiler's developer's form (132 bytes over its `$51A0` split); it is a case no machine has.
+
+A program of the corpus at `$1F00` (`bbc.env` with `ADFS 1`: code `$1F00-$6BFF`, the same 4 KB data range): every one but `for_ranges` fits, whose code ends at `$68E7` from `$1900` and so 743 bytes past `$6BFF` from `$1F00`. No split fits both: `for_ranges` needs the code range to `$6EE7` at least (more with `BBCFS 2`), and `bigarray_pages` needs 3,700 bytes of variables from the split to `$7BFF` (its big array cannot go in `$0401-$06FF`), so a split at `$6D8C` or below: 348 bytes apart. The data range stays as it was, and `for_ranges` is the one program of the chain that does not fit at ADFS's PAGE.
+
+### Room for the compiler at ADFS's PAGE
+
+Options, measured or counted on 2026-11-17 (none built but the fault's fix, which cost 5 bytes):
+
+| Option | Bytes of main RAM | What it costs |
+|---|---|---|
+| **The shadow screen** (`*SHADOW`, or a mode with bit 7 set: the B+'s screen in its own 20 KB, HIMEM `$8000`) | **1,024** (`$7C00-$7FFF`) | the environments' data ranges to `$7FFF` under a define, and a check at the start (OSBYTE 132, HIMEM, about 15 bytes of fixed code) so that a tool run in a screen mode without shadow stops with an error instead of writing over the screen; the user selects the shadow screen first. The B+'s shadow RAM is checked (MAME); that HIMEM is then `$8000` is memory, and the emulator models only OSBYTE 132's answer (`--bbc-shadow`). The cheapest and largest |
+| `kernel.text` (2,048 bytes, the largest table in main RAM) in a region, slot 1 (10,656 free) or slot 12 (7,136 free) | about 1,850 (2,048 less accessors in fixed code, estimated 150 to 200) | a change to the compiler's `kernel` and its twin: it is read through pointers in many places (step 3's table of what can leave main RAM) |
+| `reg`'s slot columns (`slot_size`, `slot_name`, `slot_weight`, `slot_kind`, `slot_class`, `slot_busy`: 1,536 bytes) in a region | about 1,300 (estimated) | `reg` and its twin; `reg` is in a bank and reads them in its hottest loops, so each read would be a block or an accessor: cycles as well as bytes |
+| `bbc.arg_text` (256): split the tail in place where it lies, at `$0700` or OSARGS's address, instead of copying it | about 230 | `bbc.lth` (every BBC program); the tail is read again at each `argc` and `argv`, so it would be split once and marked |
+| A build for `$1D00`: ADFS without the DFS | 512 | a second set of `when` entries. But the B+'s DFS is fitted on the board as standard (a third party's page, bbcelite.com, seen only as a search engine's summary: "The B+ comes with the DFS disc filing system fitted as standard"), so ADFS is added beside it: `&1F00` is the case a B+ owner has, and `$1D00` only with the DFS ROM taken out |
+| The eight-bank layout's choice of what is resident | 30 (the compiler's resident part is 14,024 bytes there against 14,054) | nothing: it is what the layout gives today; the compiler's kept functions (kernel 4,220, fbuf 3,188, lex 1,023...) are fixed because they have `with` blocks or run in one, and cannot be banked without restructuring |
+
+The shadow screen is the option worth building: 1 KB for an environment entry and a check, no change to the compiler.
+
+LOADMOD is assembled at PAGE, its buffer for a bank from PAGE + `$0700`: `bbcrom.loader(OUT, 0x1F00)` makes it for `$1F00` (buffer `$2600-$65FF`); with the default page it is the same 459 bytes as before. That is the only change in `bbcrom.py`.
+
+### The emulator
+
+`--bbc-fs adfs` (`emulator/README.md`; the code is `bbc_mos.c`, "--bbc-fs adfs", with six C tests in `emulator/tests/test_bbc_mos.c`): paths of ten-character parts, directories as host directories (drive 1 is `--disk`'s `:1`), the CSD and `*DIR`, `*CDIR`, `*DELETE`, ten files open, a file open for output not opened again, 47 entries a directory, and each drive an L disc of 2,560 sectors whose sectors are counted: the map and the root, 5 for each directory, each file's length in whole sectors, and 256 reserved by each new file open for output until it is closed. A file that outgrows its space takes the sectors after it or moves, or the call is "Compaction required" or "Disc full"; "Map full" past 80 free spaces. Errors are ADFS's numbers and texts, raised through BRKV; OSARGS gives 8 for the filing system, and the handles are `$30-$39`. The exit report gives, for each drive, the sectors in use at the end and at most, and the most entries in a directory. The new errors are at the end of the MOS ROM, so nothing in it moved, and `--bbc-fs dfs` and the default are as they were (`make bbcbplus-goldens`, every C test).
+
+**Where it is looser than a real ADFS**: which free space a file is given (the first; ADFS's rule was not found), how far a growing file reaches at a time (the sector it needs), that reserved space comes back at the close (inferred), and that each run of the emulator starts on a compacted disc (the layout is made again from the host files, in the order of their names; holes do not last from one run to the next). None of the gates deletes anything, and each loop is one run, so the last does not touch them. Not modelled: attributes, the library, `*COMPACT`, `*MAP`, `*FREE`, changing discs.
+
+### The gates
+
+`lathe/tests/test_bbc_adfs.py`, every run `--bbc-strict` on memory that is not 0, with `--bbc-fs adfs --bbc-page 1F00`, the tools built with `BBCFS 2` and `ADFS 1`:
+
+- by default (13 s): the names and the twin; `map`, `cdir` and `again` on the BBC giving the twin's names for 29 names; both tools' ROM forms linked from `$1F00`, with what is free; hello compiled, linked and run on a disc that holds only its sources and environment, the directories made by the tools, every file the host's and the emulator's count of sectors the disc's; the directory that cannot be made (error 63); LOADMOD for `$1F00` loading the short image from drive 1, and the tools then compiling, linking and running hello;
+- `LATHE_BBC_ADFS=1`: every program of the chain but `for_ranges`, 68 of the 69, every file the host's, at most 2 files open and 1 written (a disc of 12 to 24 files and 180 to 299 sectors; the banked ones' objects and interfaces on drive 1, 16 to 24 files and 78 to 95 sectors); outtest's link (22 files, 572 sectors); both developer's forms, and the fault below;
+- `LATHE_BBC_SELFHOST=1`: the compiler compiles each of its 18 modules in the ROM form, every file the host's: 943.0 million cycles, 7.9 minutes at 2 MHz, at most 2 files open and 1 written; the largest disc a compile needs is `gen`'s, 16 files, 610 sectors;
+- `LATHE_BBC_ADFS_LOOP=1`: the rebuild on two discs (below);
+- `LATHE_BBC_ADFS_REPORT=1` prints each run's files, sectors and entries.
+
+### The rebuild on two ADFS discs
+
+`test_bbc_adfs.Loop` (2026-11-17): the loop of "The linker links the compiler", with both tools and the compiler they make built with `BBCFS 2` and `ADFS 1`, in one run of the emulator under `--bbc-fs adfs`: `*LATHE` compiles the compiler's 25 modules from their sources on drive 0 to drive 1 (`*LATHE ... 0/err.lth 1`), `*LLINK @LINKARG` links them into `1/LATHEC`, `*DIR :1`, `*LOAD` and `*SAVE` give the image its addresses, and the new compiler, `*RUN LATHEC`, compiles `err` and `kernel` again. Every file is the host tools' under its ADFS name. **4,510 million cycles, 37.6 minutes at 2 MHz** (after the merge of the 128 KB module; 4,508 before); at most 2 files open and 1 written; at most 25 entries in a directory.
+
+| Drive | What | Files | Bytes | Sectors of 2,560 | Free |
+|---|---|---|---|---|---|
+| 0 | the 25 sources (`lth`), the environment (`env`), `LINKARG` | 27 | 584,430 | 2,313 | 247 sectors, 63,232 bytes |
+| 1 | the 25 objects (`lo`) and interfaces (`li`), the image `LATHEC`, its six bank files (`BIN`), the map (`map`) | 58 | 626,379 | 2,500 | 60 sectors, 15,360 bytes |
+
+The emulator's count of each drive at the end is the disc's as ADFS counts it, and the most in use at once was the same: the 256 sectors each new file reserves were always there, the map's last (it is 491 sectors, and 551 were free when it was made). **A user's two discs hold the whole rebuild, readable sources and the full map, with 307 sectors (77 KB) to spare.** Drive 0 cannot take objects beside the sources: after the first, less than 256 sectors would be free for the next new file. The module image is not on them ("Not built", below).
+
+A second rebuild on the same discs writes every file over its old one in its own space, which holds unless a file grows past the file after it and no free space holds it: drive 1's 60 free sectors are less than a new file needs, so a file that is not there yet (a new module) needs room made first (`*DELETE` the map, which is written last and made again).
+
+### Faults found
+
+- **A service call in a developer's form after LOADMOD ran the program's bank as a ROM. Fixed.** LOADMOD enters the module's type in the MOS's ROM table; the developer's forms (`*RUN LATHEC`, `*RUN LLINK`, a user's banked program) then load their own banks, which have no header, over the module's. The MOS offers every service call to each slot the table marks, so an error the filing system raised while such a program ran (service call 6, made before BRKV) called `$8003` of whatever bank was latched: its code, at random. It was never seen before because the DFS's tools raise no error in normal use (a missing file is 0); ADFS raises "Not found" for a file in a directory that is not there, which is why `open_out` looks for the directory with OSFILE 5 first. **The fix**: `rt_bbc.start`, in the developer's form, sets the slot's entry in the ROM table to 0 before it loads a bank (`rom_types[SLOT] = 0`, the table at `$02A1`; 5 bytes of fixed code), and leaves it so: the module no longer holds the image (its banks are the program's), so it must not be called as a ROM again until LOADMOD loads the image and enters it once more, as the tools already needed. Chosen over putting it back at the end, which would mark a module whose banks have no header (a `*HELP` after the program would run its code), and over the ROM form's header in every bank of the developer's form, which costs every bank 80 bytes of its window (the compiler's bank 1 has 219 bytes free as the linker judges it) and still needs bank 0's service code loaded. `$02A1` is the table OSBYTE 170 gives on MOS 1.20 (memory, `emulator/NOTES-bbcbplus.md`; LOADMOD asks OSBYTE 170). Tests: `test_bbc_adfs.AfterLoadmod` (by default) runs a user's banked program after LOADMOD under the host's names, the DFS's and ADFS's, in the sixteen- and the eight-bank module: it opens a bad name from code in its bank (an error, caught) and makes service calls 9 and 4 through OSBYTE 143, and ends with its output; with the fix taken out every run fails (a strict fault at `$8008`, or the cycle cap). `test_bbc_adfs.DeveloperForms`: the compiler's developer's form given a bad source name says error 62 with the RAM empty and with the image in it (until the fix the second run did not end well).
+  Which service calls reach the ROMs while a program runs: the emulator makes 6 (an error), 4 (a command the MOS does not know, which on a real MOS includes `*CDIR`, offered to the ROMs before the filing system: the emulator gives its ADFS commands to the filing system first) and 9 (`*HELP`), and 7 and 8 (an OSBYTE or OSWORD it does not know). A real MOS makes those too (6 and 4 checked against the MOS 1.20 reassembly, 7 and 8 against BeebWiki; 9 for `*HELP` is memory), and also 5 for an interrupt no handler takes, which the emulator has no interrupts to make, and filing systems make calls of their own (10, claiming the static workspace, when another filing system is selected; 18, selecting a filing system): memory, not checked, and not made while a tool runs unless it changes filing system. All of them go only to slots the table marks, so the fix covers every one.
+- **`enum_table` read `counts` before setting it** (a case of the corpus, `lathe/tests/cases/e2e/enum_table.lth`): it relied on 0 in memory, and on what the tools leave below `$7C00` at ADFS's PAGE two entries were `$FF`. It now sets the counts first; the output is the same.
+- **`dfs_has_five_files_open_at_most`'s code buffer was 61 bytes for 67** (`emulator/tests/test_bbc_mos.c`): six OSFIND calls of 11 bytes and an RTS written past the end of a stack array; the ADFS test of ten files, with the same pattern, failed with the stack's guard. Both are sized for 11 bytes a call now.
+
+### Not built
+
+- **The module image on the two discs.** The short image is 768 sectors and LOADMOD 2: with them the loop needs more than two discs hold. The loop's module RAM holds the image from power on, standing for LOADMOD run from a disc of its own before the work (which `test_loadmod_at_adfs_page` does run, from drive 1): a disc change before the loop, not in it. A real ROM module needs no file.
+- **`*COMPACT`, `*MAP`, `*FREE`, a disc used for months.** The emulator lays each run out as if the disc had just been compacted.
+- **A shorter BBC command line** (`*LATHE EXPR`), as for the DFS: the tests replay the host's command lines.
+- **A build for `$1D00`** (ADFS without the DFS): a second set of `when` entries would give 512 bytes; one build serves both.
+
 ## Open, for the owner
 
 - ~~**File names.** The compiler joins a directory and a name with `/`, which the emulator now accepts only as a leading `./` (step 4); a real filing system needs its own scheme. DFS allows seven characters and uses `.` to separate the directory, so `asmblock.lth` cannot exist there. ADFS allows ten. The first version uses names as the emulator's directory takes them. A scheme is needed for real discs, for example `L.EXPR` for source, `O.EXPR` for the object file and `I.EXPR` for the interface, with module names kept to seven characters.~~ Closed (2026-11-16): the BBC's build maps the names, and module names are not limited ("File names on the BBC"). What a real disc still asks for is listed there: the linker's map against "Can't extend" (five files open and the image larger than a side were dealt with on 2026-11-16).
@@ -694,14 +833,16 @@ From the emulator's cycles in the ROM form (2026-11-16). The time of the disc is
 - **The image's addresses.** The linker writes an image's bytes and not its catalogue entry; on the BBC `*SAVE` gives it its load and execution addresses (step 5). The linker could set them with OSFILE when its environment says `output raw` on the BBC, at the cost of a call the host linker does not have.
 - **The 128 KB module's hardware**: `direct8`, a board of our own (an EPROM, a three-bit latch, a comparator), or the Computer Concepts carrier `cc128`, which exists, at 352 bytes less room and a second read a switch ("The 128 KB module", "What `cc128` would take").
 - **Sideways RAM** slots a program's regions name are taken without asking: whatever the owner had loaded in them (a ROM image in sideways RAM) is overwritten at the command.
-- **Other filing systems and screen modes** move PAGE and HIMEM; the layout is fixed at link time. One build per case, or one build for the smallest case.
+- **Other filing systems and screen modes** move PAGE and HIMEM; the layout is fixed at link time. One build per case, or one build for the smallest case. For ADFS answered so (2026-11-17, "ADFS"): `define ADFS 1` builds for `$1F00`, ADFS's PAGE with the DFS beside it, which serves ADFS alone (`$1D00`) too; everything of the tools fits, the compiler's ROM form with 104 bytes to spare. A shadow screen mode (HIMEM `$8000`) would give 1 KB more and is not used ("Room for the compiler at ADFS's PAGE").
+- ~~**A MOS error in a developer's form after LOADMOD** goes to the module's bank (service call 6) before BRKV.~~ Fixed (2026-11-17, "ADFS", "Faults found"): the developer's form unmarks the slot in the ROM table.
 
 ## What the emulator cannot show
 
 - That the header and service code live with the real MOS: its scan of the ROMs at reset (with its duplicate check, which compares ROMs, and the service calls 1 and 2 it makes, which the code returns unclaimed), service calls made during interrupts while the tool runs in another bank (the emulator has no interrupts; the test makes such calls with OSBYTE 143 from a program), `*HELP`'s own lines and its argument as the real MOS passes it, and OSBYTE 252's and 170's answers, which are from memory (`emulator/NOTES-bbcbplus.md`).
 - That OSBYTE 142 from inside a service call leaves the real MOS in order (it resets the stack, which the emulator models, and prints the language's title, which it does not), and that BASIC entered so starts cleanly.
 - The dummy reads of a real NMOS 6502. The module's code, the copier and the loader are written to keep them out of `$BFF0-$BFFF` (no instruction ends near it, indexed accesses there stay in their page, `$BFE0-$BFFF` are never read or written by a copy), but the emulator's core makes none, so that is by inspection only.
-- A real DFS: LOADMOD's OSGBPB of 16 KB at a time, and how the DFS lays files out on the disc, so "Can't extend" and a full disc. The names, five files open and 31 a drive are shown with `--bbc-fs dfs` ("File names on the BBC"), against rules read in third parties' documents, not Acorn's (`emulator/NOTES-bbcbplus.md`).
+- A real DFS: LOADMOD's OSGBPB of 16 KB at a time, and how the DFS lays files out on the disc, so "Can't extend" and a full disc.
+- A real ADFS: which free space it gives a file, how a growing file is moved, whether reserved space comes back at the close, `*COMPACT`, and a disc used for months; the emulator's model of them (`--bbc-fs adfs`) is from Acorn's user guide where the guide speaks and its own choice where it does not ("ADFS", "The emulator"). PAGE with ADFS and the DFS both on a B+ (`&1F00`) is from third parties, and ADFS's zero page from a memory map of disc systems in general. The names, five files open and 31 a drive are shown with `--bbc-fs dfs` ("File names on the BBC"), against rules read in third parties' documents, not Acorn's (`emulator/NOTES-bbcbplus.md`).
 - Timing against real discs. The compiler compiling itself is 933 million cycles on the BBC ("Step 4, as built"), 7.8 minutes at 2 MHz, before the cost of reading 654,341 bytes and writing 398,290 through a real filing system, which the emulator's MOS does not charge.
 - The `direct8` board: it is this project's design, and nothing has been built; the mirror of `$BFF8-$BFFF` is what the simplest decode would give, not a measured fact. The `cc128` carrier exists, but Lathe is not built for it.
 - The real module's electrical behaviour. MAME models the SpellMaster carrier, so the eight-bank form (the compiler alone) could be tried there against the real MOS by someone who has the ROMs.

@@ -460,6 +460,80 @@ class Rom128(unittest.TestCase):
                 self.assertTrue(written[f] == files[f], f + ' differs')
 
 
+MAINRAM = os.path.join(HERE, 'lk_mainram.py')
+ADFS_PAGE = 0x1F00
+ADFS_ROOM = (0x7C00 - ADFS_PAGE) + (0x0700 - 0x0401)    # $1F00-$7BFF and $0401-$06FF: 24,575
+MEASURE_DATA = 0xC000                                   # the measuring link's range for variables
+
+
+def adfs_main_ram(out_dir, tools=None):
+    """What each tool needs of main RAM in the eight-bank ROM form at ADFS's PAGE with BBCFS 2
+    (test_bbc_adfs.adfs_env, then bbcrom.rom_env with eight banks): linked by lk_mainram.py, which
+    lets a bank be over as judged, with the code from $1F00 to $7BFF and the variables in
+    $C000-$FFFF (and `more data`), so that the map shows all of it wherever it would not fit.
+    [(command, fixed code, constants and stubs, variables, free of the 24,575 bytes or, when
+    negative, how far over, banks over as judged)]. The free figure is of the bytes, not of the
+    split: a split is still to be chosen, and a large table cannot be broken across ranges."""
+    import build
+    import test_bbc_adfs as adfs
+    import test_bbc_selfhost as selfhost
+    found = []
+    for command, source, env, first in tools or TOOLS:
+        d = os.path.join(out_dir, 'adfs-' + command.lower())
+        os.makedirs(d)
+        dev = adfs.adfs_env(os.path.join(support.SRC, env), os.path.join(d, 'dev.env'))
+        rom = os.path.join(d, env)
+        bbcrom.rom_env(dev, rom, first, BANKS)
+        with open(rom) as f:
+            lines = [l for l in f if not re.match(r'(?i)^((when|unless)\s+\w+\s+)*(code|data)\s', l)]
+        lines.insert(0, 'code      $%04X $7BFF\ndata      $%04X $FFFF\n' % (ADFS_PAGE, MEASURE_DATA))
+        with open(rom, 'w') as f:
+            f.write(''.join(lines))
+        notes = os.path.join(d, 'over')
+        open(notes, 'w').close()
+        saved, os.environ['LK_MAINRAM_OUT'] = build.LINKER, notes
+        build.LINKER = MAINRAM
+        try:
+            build.build(os.path.join(support.SRC, source), os.path.join(d, command), env=rom,
+                        keep=os.path.join(d, 'work'))
+        finally:
+            build.LINKER = saved
+            del os.environ['LK_MAINRAM_OUT']
+        items = [i for i in selfhost.read_map(os.path.join(d, 'work', os.path.splitext(source)[0] + '.map'))
+                 if i[4] is None]
+        code = max(i[1] + i[2] for i in items if i[0] in 'FTD' and ADFS_PAGE <= i[1] < 0x8000) - ADFS_PAGE
+        data = [i[1] + i[2] for i in items if i[0] in 'VS' and i[1] >= MEASURE_DATA]
+        more = [i[1] + i[2] for i in items if i[0] in 'VS' and 0x0401 <= i[1] < 0x0800]
+        variables = (max(data) - MEASURE_DATA if data else 0) + (max(more) - 0x0401 if more else 0)
+        with open(notes) as f:
+            over = [int(l.split()[2]) for l in f if l.startswith('bank over')]
+        found.append((command, code, variables, ADFS_ROOM - code - variables, over))
+    return found
+
+
+def adfs_text(rows):
+    lines = ['Main RAM at ADFS\'s PAGE ($1F00), the eight-bank ROM form, BBCFS 2 (of 24,575 bytes):']
+    for command, code, variables, free, over in rows:
+        lines.append('  %s: code, constants and stubs %d, variables %d: %s%s' % (
+            command, code, variables, ('%d free' % free) if free >= 0 else ('%d bytes over' % -free),
+            ('; banks over as judged: ' + ', '.join(str(o) for o in over)) if over else ''))
+    return '\n'.join(lines) + '\n'
+
+
+@unittest.skipUnless(HAVE_TOOLS and REPORT, 'LATHE_BBC_ROM128_REPORT=1 gives the ADFS account')
+class AdfsMainRam(unittest.TestCase):
+    """The build the owner will use, a 128 KB EPROM and ADFS discs: each tool's main RAM in the
+    eight-bank ROM form at ADFS's PAGE, with BBCFS 2. A report: neither tool fits the eight banks
+    yet (Rom128), so this says what main RAM they would need when they do."""
+
+    def test_main_ram_at_adfs_page(self):
+        d = tempfile.mkdtemp(prefix='lathe-bbc-rom128-adfs-')
+        self.addCleanup(shutil.rmtree, d, True)
+        rows = adfs_main_ram(d)
+        self.assertEqual([r[0] for r in rows], ['LATHE', 'LLINK'])
+        print('\n' + adfs_text(rows))
+
+
 def selfhost_modules():
     import test_src_selfhost
     return test_src_selfhost.MODULES

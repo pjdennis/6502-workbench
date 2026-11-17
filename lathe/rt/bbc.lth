@@ -57,9 +57,10 @@
 ; each other: the DFS's are $11-$15).
 ;
 ; File names. With `define BBCFS 1` in the environment, open and open_out give the name to
-; bbcfs.map (lathe/rt/bbc/bbcfs.lth), which makes `expr.lth` the DFS's `L.EXPR`; with BBCFS 0 the
-; name goes to OSFIND as it is, and the code is what it was before bbcfs (lathe/docs/bbc.md,
-; "File names on the BBC").
+; bbcfs.map (lathe/rt/bbc/bbcfs.lth), which makes `expr.lth` the DFS's `L.EXPR`; with BBCFS 2
+; ADFS's `lth.expr`, and open_out makes the directory it creates a file in (`*CDIR lo`) if
+; OSFILE 5 does not find it; with BBCFS 0 the name goes to OSFIND as it is, and the
+; code is what it was before bbcfs (lathe/docs/bbc.md, "File names on the BBC").
 module bbc
 
 import bbcfs
@@ -122,6 +123,41 @@ asm func caught()
   RTS
 end
 
+#if bbcfs.DIRS
+; OSFIND with A = mode on the name in name_buf: the handle, or 0 if the file was not opened or
+; the filing system raised an error. With mode 0, OSCLI on the command in name_buf, an error it
+; raises caught the same way (bbcfs.DIRS: open_mode's *CDIR).
+asm func find(mode: byte in a): byte in a
+  STA find_mode
+  TSX
+  STX saved_s
+  LDA $F4
+  STA saved_rom
+  LDA $0202                         ; BRKV
+  STA old_brkv
+  LDA $0203
+  STA old_brkv+1
+  LDA #<caught
+  STA $0202
+  LDA #>caught
+  STA $0203
+  LDX #<name_buf
+  LDY #>name_buf
+  LDA find_mode
+  BNE .open
+  JSR $FFF7                         ; OSCLI
+  JMP .back
+.open
+  JSR $FFCE                         ; OSFIND
+.back
+  TAY
+  LDA old_brkv
+  STA $0202
+  LDA old_brkv+1
+  STA $0203
+  TYA
+end
+#else
 ; OSFIND with A = mode on the name in name_buf: the handle, or 0 if the file was not opened or
 ; the filing system raised an error.
 asm func find(mode: byte in a): byte in a
@@ -149,6 +185,7 @@ asm func find(mode: byte in a): byte in a
   STA $0203
   TYA
 end
+#end
 
 ; Open the file named at p (zero-terminated) with `mode`. Returns a handle, or 0.
 func open_mode(name: ^byte, mode: byte): byte
@@ -167,6 +204,14 @@ func open_mode(name: ^byte, mode: byte): byte
   bbcfs.map(@name_buf)              ; no name is the empty name: Bad name, caught, 0
 #else
   name_buf[i] = CR
+#end
+#if bbcfs.DIRS
+  if mode == FOR_OUTPUT then
+    if bbcfs.cdir(@name_buf) then   ; the directory is not there: *CDIR, an error caught
+      find(0)
+      bbcfs.again(@name_buf)
+    end
+  end
 #end
   h = find(mode)
   ended[h & (HANDLES - 1)] = false  ; ended[0] is never read

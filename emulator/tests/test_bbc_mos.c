@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "greatest.h"
@@ -991,7 +992,7 @@ TEST dfs_has_five_files_open_at_most(void) {
     fresh();
     const char *names[] = { "A", "B", "C", "D", "E", "F" };
     for (int i = 0; i < 6; i++) put_text((uint16_t)(0x0400 + 8 * i), names[i]);
-    uint8_t code[6 * 10 + 1];
+    uint8_t code[6 * 11 + 1];
     size_t n = 0;
     for (int i = 0; i < 6; i++) {
         uint8_t one[] = { LDA_IMM(0x80), LDX_IMM(8 * i), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x60 + i) };
@@ -1030,6 +1031,310 @@ TEST dfs_catalogue_holds_31_files_a_drive(void) {
     ASSERT_EQ(0, dfs_osfile(6, "$.F00", NULL));   /* deleting makes room */
     ASSERT_EQ(0, dfs_find(0x80, "NEW"));
     ASSERT_EQ(0x11, mem.ram[0x6E]);
+    remove_disk();
+    PASS();
+}
+
+/* ---- --bbc-fs adfs: the names, directories, limits and space of ADFS ---- */
+
+static struct bbc_config adfs_cfg = { .adfs = 1 };
+
+static int adfs_find(uint8_t mode, const char *name) {
+    fresh();
+    put_text(0x0400, name);
+    mem.ram[0x6F] = mode;
+    return run(find_code, sizeof find_code, NULL, NULL, &adfs_cfg);
+}
+
+static int adfs_osfile(uint8_t call, const char *name, const char *data) {
+    fresh();
+    put_text(0x0400, name);
+    uint32_t s = 0x5000, e = 0x5000 + (data ? (uint32_t)strlen(data) : 0);
+    if (data) memcpy(mem.ram + 0x5000, data, strlen(data));
+    osfile_block(call, 0x0400, 0x1900, 0x1900, s, e);
+    return run(osfile_code, sizeof osfile_code, NULL, NULL, &adfs_cfg);
+}
+
+/* The commands in turn, as typed one after another */
+static int adfs_commands(const char *const *lines, int n, struct bbc_config *cfg) {
+    fresh();
+    struct bbc_config c = cfg ? *cfg : adfs_cfg;
+    c.more_commands = lines + 1;
+    c.more_count = n - 1;
+    return run(NULL, 0, NULL, lines[0], &c);
+}
+
+static int host_is_dir(const char *name) {
+    char path[256];
+    snprintf(path, sizeof path, "%s/%s", disk, name);
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static void host_mkdir(const char *name) {
+    char path[256];
+    snprintf(path, sizeof path, "%s/%s", disk, name);
+    mkdir(path, 0777);
+}
+
+TEST adfs_names_are_checked_as_adfs_checks_them(void) {
+    make_disk();
+    const char *good[] = { "A", "ABCDEFGHIJ", "lth", "$.A", "&.A", ":0.A", ":1.A", ":4.A", ":E.A", ":b.A",
+                           ":0.$.A", "@.A", "^.A", "!~}|_-+", "Y9" };
+    for (int i = 0; i < 15; i++) {
+        ASSERT_EQ_FMT(0, adfs_osfile(5, good[i], NULL), "%d");
+        ASSERT_EQ(0, mem.ram[0x6E]);          /* not there: A = 0, no error */
+    }
+    const char *bad[] = { "ABCDEFGHIJK", "A..B", ".A", "A.", "$$", "A$B", "FILE:ONE", "A@B", "A^B", "\"A",
+                          ":1A", "$A", "A&",
+                          "a/b" };   /* ADFS takes "a/b"; the host directory cannot hold it */
+    for (int i = 0; i < 14; i++) {
+        ASSERT_EQ_FMT(1, adfs_osfile(5, bad[i], NULL), "%d");
+        ASSERT_STR_EQ("Bad name\n", err_text);
+    }
+    ASSERT_EQ(1, adfs_osfile(5, "A#", NULL));
+    ASSERT_STR_EQ("Wild cards\n", err_text);
+    ASSERT_EQ(1, adfs_osfile(0, "L*", "x"));
+    ASSERT_STR_EQ("Wild cards\n", err_text);
+    const char *drive[] = { ":2.A", ":3.A", ":C.A", ":7.A" };
+    for (int i = 0; i < 4; i++) {
+        ASSERT_EQ(1, adfs_osfile(5, drive[i], NULL));
+        ASSERT_STR_EQ("Bad drive\n", err_text);
+    }
+    ASSERT_EQ(1, adfs_find(0x80, "ABCDEFGHIJK"));    /* OSFIND too */
+    ASSERT_STR_EQ("Bad name\n", err_text);
+    remove_disk();
+    PASS();
+}
+
+TEST adfs_directories_are_host_directories_and_names_match_in_any_case(void) {
+    make_disk();
+    const char *mk[] = { "CDIR lth", "CDIR :1.lo", "CDIR lth.sub" };
+    ASSERT_EQ(0, adfs_commands(mk, 3, NULL));
+    ASSERT(host_is_dir("lth"));
+    ASSERT(host_is_dir(":1/lo"));                       /* drive 1: the subdirectory :1 */
+    ASSERT(host_is_dir("lth/sub"));
+    ASSERT_EQ(0, adfs_osfile(0, "lth.expr", "abc"));
+    char buf[64];
+    ASSERT_EQ(3, read_host("lth/expr", buf, sizeof buf));
+    read_host("lth/expr.inf", buf, sizeof buf);
+    ASSERT_STR_EQ("lth.expr 00001900 00001900 00000003\n", buf);
+    ASSERT_EQ(0, adfs_osfile(5, "LTH.EXPR", NULL));      /* found whatever the case */
+    ASSERT_EQ(1, mem.ram[0x6E]);
+    ASSERT_EQ(3u, block32(10));
+    ASSERT_EQ(0, adfs_osfile(5, "$.Lth", NULL));          /* a directory */
+    ASSERT_EQ(2, mem.ram[0x6E]);
+    ASSERT_EQ(0, adfs_osfile(0, "LTH.EXPR", "wxyz"));    /* saving again keeps the one file */
+    ASSERT_EQ(4, read_host("lth/expr", buf, sizeof buf));
+    ASSERT_EQ(0, adfs_find(0x80, ":1.lo.x"));
+    ASSERT_EQ(0x30, mem.ram[0x6E]);                       /* ADFS's first handle */
+    ASSERT_EQ(0, read_host(":1/lo/x", buf, sizeof buf));
+    ASSERT_EQ(0, adfs_find(0x40, "lo.x"));                /* not on drive 0 */
+    ASSERT_EQ(0, mem.ram[0x6E]);
+    ASSERT_EQ(0, adfs_find(0x40, "nodir.x"));             /* reading through a missing directory: not there */
+    ASSERT_EQ(0, mem.ram[0x6E]);
+    ASSERT_EQ(1, adfs_find(0x80, "nodir.x"));             /* creating there: Not found */
+    ASSERT_STR_EQ("Not found\n", err_text);
+    ASSERT_EQ(1, adfs_osfile(0, "lth.expr.x", "x"));      /* a file is not a directory */
+    ASSERT_STR_EQ("Not found\n", err_text);
+    const char *again[] = { "CDIR LTH" };
+    ASSERT_EQ(1, adfs_commands(again, 1, NULL));
+    ASSERT_STR_EQ("Already exists\n", err_text);
+    const char *deep[] = { "CDIR no.such" };
+    ASSERT_EQ(1, adfs_commands(deep, 1, NULL));
+    ASSERT_STR_EQ("Not found\n", err_text);
+    /* *DIR: the CSD, which names without $ or a drive start from; ^ its parent */
+    const char *dir[] = { "DIR lth", "SAVE inlth 5000 +1", "DIR sub", "SAVE ^.up 5000 +1", "DIR :1",
+                          "SAVE one 5000 +1", "DIR", "SAVE root1 5000 +1" };
+    ASSERT_EQ_FMT(0, adfs_commands(dir, 8, NULL), "%d");
+    ASSERT_EQ(1, read_host("lth/inlth", buf, sizeof buf));
+    ASSERT_EQ(1, read_host("lth/up", buf, sizeof buf));
+    ASSERT_EQ(1, read_host(":1/one", buf, sizeof buf));
+    ASSERT_EQ(1, read_host(":1/root1", buf, sizeof buf));   /* *DIR alone: the root of the current drive */
+    const char *nodir[] = { "DIR nosuch" };
+    ASSERT_EQ(1, adfs_commands(nodir, 1, NULL));
+    ASSERT_STR_EQ("Not found\n", err_text);
+    /* *DELETE, and a directory only once it is empty */
+    const char *del[] = { "DELETE lth.sub" };
+    ASSERT_EQ(0, adfs_commands(del, 1, NULL));
+    ASSERT(!host_is_dir("lth/sub"));
+    const char *full[] = { "DELETE lth" };
+    ASSERT_EQ(1, adfs_commands(full, 1, NULL));
+    ASSERT_STR_EQ("Dir not empty\n", err_text);
+    const char *gone[] = { "DELETE lth.nothing" };
+    ASSERT_EQ(1, adfs_commands(gone, 1, NULL));
+    ASSERT_STR_EQ("Not found\n", err_text);
+    ASSERT_EQ(0, adfs_osfile(6, "lth.expr", NULL));        /* OSFILE 6 deletes, the .inf too */
+    ASSERT_EQ(1, mem.ram[0x6E]);
+    ASSERT_EQ(-1, read_host("lth/expr", buf, sizeof buf));
+    ASSERT_EQ(-1, read_host("lth/expr.inf", buf, sizeof buf));
+    fresh();                                               /* OSARGS: the filing system is 8 */
+    uint8_t fs[] = { LDA_IMM(0), LDY_IMM(0), LDX_IMM(0x70), JSR(OSARGS), STA_ZP(0x6E), RTS };
+    ASSERT_EQ(0, run(fs, sizeof fs, NULL, NULL, &adfs_cfg));
+    ASSERT_EQ(8, mem.ram[0x6E]);
+    remove_disk();
+    PASS();
+}
+
+TEST adfs_has_ten_files_open_and_one_writer_a_file(void) {
+    make_disk();
+    fresh();
+    for (int i = 0; i < 11; i++) {
+        char n[4] = { (char)('A' + i), 0 };
+        put_text((uint16_t)(0x0400 + 8 * i), n);
+    }
+    uint8_t code[11 * 11 + 1];
+    size_t n = 0;
+    for (int i = 0; i < 11; i++) {
+        uint8_t one[] = { LDA_IMM(0x80), LDX_IMM(8 * i), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x60 + i) };
+        memcpy(code + n, one, sizeof one);
+        n += sizeof one;
+    }
+    code[n++] = RTS;
+    struct bbc_config big = adfs_cfg;
+    big.adfs_sectors = 7 + 11 * 256;
+    ASSERT_EQ(1, run(code, n, NULL, NULL, &big));
+    ASSERT_STR_EQ("Too many open files\n", err_text);
+    ASSERT_EQ(0x30, mem.ram[0x60]);
+    ASSERT_EQ(0x39, mem.ram[0x69]);
+    ASSERT_EQ(10u, (unsigned)m.most_open);
+    ASSERT_EQ(10u, (unsigned)m.most_writing);
+    /* A file open for output cannot be opened again; one open for input can, for input */
+    fresh();
+    write_host("A", "a", 1);
+    put_text(0x0400, "A");
+    uint8_t twice[] = { LDA_IMM(0x40), LDX_IMM(0), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x60),
+                        LDA_IMM(0x40), LDX_IMM(0), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x61),
+                        LDA_IMM(0xC0), LDX_IMM(0), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x62), RTS };
+    ASSERT_EQ(1, run(twice, sizeof twice, NULL, NULL, &adfs_cfg));
+    ASSERT_STR_EQ("Already open\n", err_text);
+    ASSERT_EQ(0x30, mem.ram[0x60]);
+    ASSERT_EQ(0x31, mem.ram[0x61]);
+    fresh();
+    put_text(0x0400, "A");
+    uint8_t out_then_in[] = { LDA_IMM(0x80), LDX_IMM(0), LDY_IMM(0x04), JSR(OSFIND),
+                              LDA_IMM(0x40), LDX_IMM(0), LDY_IMM(0x04), JSR(OSFIND), RTS };
+    ASSERT_EQ(1, run(out_then_in, sizeof out_then_in, NULL, NULL, &adfs_cfg));
+    ASSERT_STR_EQ("Already open\n", err_text);
+    /* OSBPUT to a file open for input */
+    fresh();
+    put_text(0x0400, "A");
+    uint8_t bput[] = { LDA_IMM(0x40), LDX_IMM(0), LDY_IMM(0x04), JSR(OSFIND), 0xA8 /* TAY */,
+                       LDA_IMM('x'), JSR(OSBPUT), RTS };
+    ASSERT_EQ(1, run(bput, sizeof bput, NULL, NULL, &adfs_cfg));
+    ASSERT_STR_EQ("Not open for update\n", err_text);
+    remove_disk();
+    PASS();
+}
+
+TEST adfs_directory_holds_47_entries(void) {
+    make_disk();
+    char name[16];
+    host_mkdir("d");
+    for (int i = 0; i < 47; i++) {
+        snprintf(name, sizeof name, "d/F%02d", i);
+        write_host(name, "x", 1);
+        snprintf(name, sizeof name, "d/F%02d.inf", i);
+        write_host(name, "x 0 0\n", 6);           /* .inf files are not entries */
+    }
+    ASSERT_EQ(1, adfs_find(0x80, "d.NEW"));
+    ASSERT_STR_EQ("Dir full\n", err_text);
+    ASSERT_EQ(1, adfs_osfile(0, "d.NEW", "abc"));
+    ASSERT_STR_EQ("Dir full\n", err_text);
+    const char *cdir[] = { "CDIR d.sub" };
+    ASSERT_EQ(1, adfs_commands(cdir, 1, NULL));
+    ASSERT_STR_EQ("Dir full\n", err_text);
+    ASSERT_EQ(0, adfs_find(0x80, "d.F25"));        /* a file that is there can be written */
+    ASSERT_EQ(0, adfs_osfile(6, "d.F00", NULL));   /* deleting makes room */
+    ASSERT_EQ(0, adfs_find(0x80, "d.NEW"));
+    ASSERT_EQ(47u, (unsigned)m.adfs.most_entries);
+    remove_disk();
+    PASS();
+}
+
+/* On a disc without A and B, a program that opens A and B for output and writes `count` bytes
+ * to A with OSGBPB from $0000: the block at $70 */
+static int adfs_grow(uint32_t sectors, uint32_t count) {
+    const char *gone[] = { "A", "A.inf", "B", "B.inf" };
+    for (int i = 0; i < 4; i++) {
+        char path[256];
+        snprintf(path, sizeof path, "%s/%s", disk, gone[i]);
+        remove(path);
+    }
+    fresh();
+    put_text(0x0400, "A");
+    put_text(0x0408, "B");
+    uint8_t code[] = { LDA_IMM(0x80), LDX_IMM(0), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x70),
+                       LDA_IMM(0x80), LDX_IMM(8), LDY_IMM(0x04), JSR(OSFIND),
+                       LDA_IMM(2), LDX_IMM(0x70), LDY_IMM(0), JSR(OSGBPB), RTS };
+    for (int i = 1; i < 13; i++) mem.ram[0x70 + i] = 0;
+    mem.ram[0x75] = (uint8_t)count;
+    mem.ram[0x76] = (uint8_t)(count >> 8);
+    mem.ram[0x77] = (uint8_t)(count >> 16);
+    struct bbc_config c = adfs_cfg;
+    c.adfs_sectors = sectors;
+    return run(code, sizeof code, NULL, NULL, &c);
+}
+
+TEST adfs_openout_reserves_64k_and_a_file_that_outgrows_it_moves(void) {
+    make_disk();
+    /* Two new files at once: 7 + 256 + 256 sectors */
+    ASSERT_EQ(0, adfs_grow(7 + 512, 10));
+    ASSERT_EQ(1, adfs_grow(7 + 511, 10));
+    ASSERT_STR_EQ("Disc full\n", err_text);
+    char buf[16];
+    ASSERT_EQ(-1, read_host("B", buf, sizeof buf));   /* the file is not created */
+    /* Closed, a file keeps its length in whole sectors: A (10 bytes) 1, B (0) none */
+    ASSERT_EQ(0, adfs_grow(7 + 512, 10));
+    ASSERT_EQ(0, adfs_osfile(5, "A", NULL));
+    ASSERT_EQ(1u, m.adfs.in_use[0] - BBC_ADFS_FIRST_FREE);
+    /* A grows to 257 sectors: B's reservation follows it, so A moves after B */
+    ASSERT_EQ(0, adfs_grow(7 + 512 + 257, 65537));
+    ASSERT_EQ(7u + 256 + 256 + 257, (unsigned)m.adfs.peak[0]);   /* both copies while it moves */
+    ASSERT_EQ(1, adfs_grow(7 + 512 + 256, 65537));    /* 256 free, but not 257 in one run */
+    ASSERT_STR_EQ("Compaction required\n", err_text);
+    ASSERT_EQ(1, adfs_grow(7 + 512, 65537));          /* none free */
+    ASSERT_EQ_FMT(0, strcmp("Disc full\n", err_text), "%d");
+    /* An existing file opened for output keeps the space it has (here 2 sectors, then grows in place) */
+    write_host("C", "0123456789", 10);
+    fresh();
+    struct bbc_config c = adfs_cfg;
+    c.adfs_sectors = 7 + 3;                           /* C (1) and two more */
+    put_text(0x0400, "C");
+    uint8_t code[] = { LDA_IMM(0x80), LDX_IMM(0), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x70),
+                       LDA_IMM(2), LDX_IMM(0x70), LDY_IMM(0), JSR(OSGBPB), RTS };
+    for (int i = 1; i < 13; i++) mem.ram[0x70 + i] = 0;
+    mem.ram[0x76] = 3;                                /* 768 bytes: 3 sectors */
+    ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &c));
+    ASSERT_EQ(10u, m.adfs.in_use[0]);
+    remove_disk();
+    PASS();
+}
+
+TEST adfs_map_holds_80_free_spaces(void) {
+    make_disk();
+    char name[16];
+    static char lines[90][24];
+    static const char *cmds[90];
+    for (int d = 0; d < 4; d++) {
+        snprintf(name, sizeof name, "D%d", d);
+        host_mkdir(name);
+        for (int i = 0; i < 45; i++) {
+            snprintf(name, sizeof name, "D%d/F%02d", d, i);
+            write_host(name, "x", 1);
+        }
+    }
+    /* Every other file deleted: each leaves a free space of its own (one sector). */
+    int n = 0;
+    for (int d = 0; d < 4 && n < 90; d++)
+        for (int i = 0; i < 44 && n < 90; i += 2) {
+            snprintf(lines[n], sizeof lines[n], "DELETE D%d.F%02d", d, i);
+            cmds[n] = lines[n];
+            n++;
+        }
+    ASSERT_EQ(1, adfs_commands(cmds, n, NULL));
+    ASSERT_STR_EQ("Map full\n", err_text);
+    ASSERT_EQ(BBC_ADFS_MAP, bbc_adfs_free_spaces(&m, 0));
     remove_disk();
     PASS();
 }
@@ -1190,6 +1495,12 @@ SUITE(bbc_mos_suite) {
     RUN_TEST(dfs_files_are_kept_as_dir_dot_name_and_found_in_any_case);
     RUN_TEST(dfs_has_five_files_open_at_most);
     RUN_TEST(dfs_catalogue_holds_31_files_a_drive);
+    RUN_TEST(adfs_names_are_checked_as_adfs_checks_them);
+    RUN_TEST(adfs_directories_are_host_directories_and_names_match_in_any_case);
+    RUN_TEST(adfs_has_ten_files_open_and_one_writer_a_file);
+    RUN_TEST(adfs_directory_holds_47_entries);
+    RUN_TEST(adfs_openout_reserves_64k_and_a_file_that_outgrows_it_moves);
+    RUN_TEST(adfs_map_holds_80_free_spaces);
     RUN_TEST(without_dfs_names_and_limits_are_as_before);
     RUN_TEST(jumping_straight_to_a_trap_is_a_fault);
     RUN_TEST(a_jam_opcode_is_a_fault);

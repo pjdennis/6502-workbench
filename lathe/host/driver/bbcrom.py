@@ -469,17 +469,29 @@ def describe(out, programs, lay):
 
 # ---- The developer's loader -----------------------------------------------------------------
 
-def loader(out):
+def loader(out, load=LOADER_LOAD):
     """Writes LOADMOD (lathe/rt/bbc/loadmod.asm) to `out`, and its .inf file beside it (load and
     execution address $1900), as *RUN reads them: `*RUN LOADMOD IMAGE [SLOT]` fills the module's
-    developer form (RAM) from an image this tool wrote. Returns its length."""
+    developer form (RAM) from an image this tool wrote. Returns its length.
+
+    With `load`, a page other than $1900 (ADFS's PAGE, $1F00: lathe/docs/bbc.md, "ADFS"), it is
+    assembled to be loaded and entered there, and its buffer for a bank is the 16 KB from
+    load + $0700 ($2000 for $1900, as the source says)."""
     with open(LOADER_ASM) as fh:
-        code, labels = assemble(fh.read(), 'lathe/rt/bbc/loadmod.asm')
+        text = fh.read()
+    if load != LOADER_LOAD:
+        if load & 0xFF or not 0x0E00 <= load <= 0x3F00:
+            raise ImageError(f'LOADMOD is loaded at a page from $0E00 to $3F00, not ${load:04X}')
+        for old, new in ((f'* = ${LOADER_LOAD:04X}\n', f'* = ${load:04X}\n'),
+                         ('buffer: = $2000\n', f'buffer: = ${load + 0x0700:04X}\n')):
+            assert text.count(old) == 1, old
+            text = text.replace(old, new)
+    code, labels = assemble(text, 'lathe/rt/bbc/loadmod.asm')
     with open(out, 'wb') as fh:
         fh.write(code)
     name = os.path.basename(out)
     with open(out + '.inf', 'w') as fh:
-        fh.write(f'{name} {LOADER_LOAD:08X} {LOADER_LOAD:08X} {len(code):08X}\n')
+        fh.write(f'{name} {load:08X} {load:08X} {len(code):08X}\n')
     return len(code)
 
 

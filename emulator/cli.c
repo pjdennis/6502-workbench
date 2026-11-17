@@ -62,6 +62,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->bbc_more_count = 0;
     opts->bbc_strict = 0;
     opts->bbc_dfs = 0;
+    opts->bbc_adfs = 0;
     opts->bbc_options = 0;
     opts->cycle_cap = 200000000ULL;
     opts->cycle_cap_set = 0;
@@ -162,9 +163,12 @@ void emu_opts_usage(FILE *fp) {
 "  --bbc-page HEX         OSBYTE 131 (PAGE) answers HEX (default 1900)\n"
 "  --bbc-strict           a write to MOS memory or a ROMSEL unlike $F4 at a MOS\n"
 "                         call ends the run (status 1)\n"
-"  --bbc-fs host|dfs      the names the filing system takes: as given (host, the\n"
+"  --bbc-fs host|dfs|adfs the names the filing system takes: as given (host, the\n"
 "                         default) or the Acorn DFS's ([:D.][X.]NAME, 5 files open,\n"
-"                         31 a drive; drive N is the subdirectory :N of --disk)\n"
+"                         31 a drive; drive N is the subdirectory :N of --disk), or\n"
+"                         ADFS's (paths of ten-character parts, directories as host\n"
+"                         directories, 10 files open, 47 entries a directory, an\n"
+"                         L disc of 2,560 sectors a drive; drive 1 is :1 of --disk)\n"
 "  --kbd-scancodes <list> michael: comma-separated hex bytes the PS/2 keyboard sends\n"
 "                         once the program has set it up (e.g. 1c,f0,1c types 'a')\n"
 "  --keys <path>          michael: type these keys once the program has set up the\n"
@@ -356,10 +360,11 @@ static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
         }
     } else if (strcmp(arg, "--bbc-fs") == 0) {
         if (take_str_value(argc, argv, i, arg, &value)) return 1;
-        if (strcmp(value, "host") == 0) opts->bbc_dfs = 0;
-        else if (strcmp(value, "dfs") == 0) opts->bbc_dfs = 1;
+        if (strcmp(value, "host") == 0) opts->bbc_dfs = opts->bbc_adfs = 0;
+        else if (strcmp(value, "dfs") == 0) opts->bbc_dfs = 1, opts->bbc_adfs = 0;
+        else if (strcmp(value, "adfs") == 0) opts->bbc_dfs = 0, opts->bbc_adfs = 1;
         else {
-            fprintf(stderr, "error: --bbc-fs must be 'host' or 'dfs'\n");
+            fprintf(stderr, "error: --bbc-fs must be 'host', 'dfs' or 'adfs'\n");
             return 1;
         }
     } else if (strcmp(arg, "--bbc-page") == 0) {

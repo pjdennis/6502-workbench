@@ -648,6 +648,7 @@ TEST cli_bbcbplus_defaults(void) {
     ASSERT_EQ(0, opts.bbc_shadow);
     ASSERT_EQ(0, opts.bbc_strict);
     ASSERT_EQ(0, opts.bbc_dfs);
+    ASSERT_EQ(0, opts.bbc_adfs);
     ASSERT_EQ(0, opts.bbc_module_ram);
     ASSERT_EQ(CPU_NMOS_VARIANT_FOR_TEST, opts.cpu_variant_opt);
     PASS();
@@ -676,8 +677,13 @@ TEST cli_bbcbplus_options_parsed(void) {
     ASSERT_EQ(0x0E00L, opts.bbc_page);
     ASSERT_EQ(1, opts.bbc_strict);
     ASSERT_EQ(1, opts.bbc_dfs);
+    ASSERT_EQ(0, opts.bbc_adfs);
     ASSERT_STR_EQ("d", opts.disk_dir);
     ASSERT_EQ(1, opts.exit_report);
+    char *adfs[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-fs", "dfs", "--bbc-fs", "adfs", NULL};
+    ASSERT_EQ_FMT(0, parse(adfs, &opts), "%d");
+    ASSERT_EQ(0, opts.bbc_dfs);                  /* the last one counts */
+    ASSERT_EQ(1, opts.bbc_adfs);
     char *eight[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m.bin",
                      "--bbc-module-scheme", "direct8", "--bbc-module-bank", "7", NULL};
     ASSERT_EQ_FMT(0, parse(eight, &opts), "%d");
@@ -701,8 +707,8 @@ TEST cli_bbcbplus_errors(void) {
     ASSERT(bbc_error(other, "--bbc-* options require --machine bbcbplus"));
     char *nofile[] = {"emulator", "--machine", "wendy2c", NULL};
     ASSERT(bbc_error(nofile, "a code file is needed"));
-    char *fs[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-fs", "adfs", NULL};
-    ASSERT(bbc_error(fs, "--bbc-fs must be 'host' or 'dfs'"));
+    char *fs[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-fs", "nfs", NULL};
+    ASSERT(bbc_error(fs, "--bbc-fs must be 'host', 'dfs' or 'adfs'"));
     char *badrom[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-rom", "16=a", NULL};
     ASSERT(bbc_error(badrom, "--bbc-rom must be N=FILE"));
     char *badrom2[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-rom", "3", NULL};

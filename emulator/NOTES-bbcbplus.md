@@ -156,3 +156,92 @@ manual and a table that does not say which filing system each message is from.
 What the emulator does with them, and what it adds of its own: `emulator/README.md`, "bbcbplus",
 `--bbc-fs dfs`. Its own: `/` is refused as `Bad name` (a real DFS takes it; the host directory
 cannot hold it), and drive N is the subdirectory `:N` of `--disk`.
+
+## ADFS on the B+ (`--bbc-fs adfs`)
+
+Read on 2026-11-17. The main source is Acorn's own **Advanced Disc Filing System User Guide**
+(the PDF at chrisacorns.computinghistory.org.uk, `docs/Acorn/Manuals/Acorn_ADFSUG.pdf`, 54
+pages with a text layer, read with `pdftotext`; it gives no ROM version and no date): "the
+guide" below, with its page numbers. Also: the ROM archive's list at rk.nvg.ntnu.no
+(`bbc/rom/Acorn/fs/ADFS.txt`), mdfs.net's table of file handles (`Docs/Comp/BBC/Filing/Handles`),
+8BS's memory map (`mag/32/bbcmemmap1.txt`), hint 140 and a review of the Electron DFS ROM
+(`elecgame/electron_e00_dfs.htm`), and Wikipedia, "Advanced Disc Filing System". Not readable
+from this session: StarDot's forum (refused, 403), a RetroClinic listing on eBay (refused; only
+a search engine's summary of it was seen). No ADFS ROM was run and no disassembly was read.
+
+**The machine**
+
+| Fact | | Source |
+|---|---|---|
+| ADFS runs on "a BBC Model B or Model B+ Microcomputer fitted with a 1770 disc interface"; the guide's appendix fits the ROM in either | checked | the guide, p. 1 and Appendix A |
+| The B+ has the 1770 built in | partly | Wikipedia (Master series and B+); the emulator has no disc controller |
+| ADFS 1.00 and 1.30 are the BBC's, 1.30 the last BBC release; 1.40 and 1.50 the Master's | checked | rk.nvg.ntnu.no's list; which version the guide describes is not said |
+| ADFS and a DFS can both be fitted: if ADFS is not in the rightmost socket, CTRL A BREAK enters it, and `*ADFS` from another filing system | checked | the guide, pp. 29, 35 |
+| **PAGE is `&1D00` with ADFS** ("the default value of PAGE (&1D00 for ADFS)", and three more places) | checked | the guide, pp. 28, 66, 106 |
+| **PAGE is `&1F00` with ADFS and a DFS both fitted** | partly | 8BS's review of the Electron's DFS ROM ("&1D00 with just ADFS, &1900 with DFS and &1F00 with both"); a RetroClinic listing, as a search engine summarised it, says the same for a Model B with ADFS and an 8271 or 1770 DFS. Not checked for a B+, whose DFS PAGE of `&1900` is itself **memory** (above) |
+| ADFS keeps the free space map in RAM at `&0E00-&0FFF` and the current directory at `&1200-&16FF` while it is selected | checked | the guide, pp. 116-118 |
+| Zero page: `&A0-&A7` the current NMI owner's, `&B0-&BF` filing system scratch, `&C0-&CF` the filing system's private space, `&0D00-&0D9E` the NMI routines: the same for ADFS as for the DFS | partly | 8BS's memory map, for "disk systems" in general (it does not name ADFS); that ADFS uses no more zero page than the DFS is **memory**. The tools use `$00-$8F` only, so the difference would not matter to them |
+| `*COMPACT` with no arguments uses screen memory, and not at all on a B+ with shadow screen selected | checked | the guide, p. 43 |
+
+**Names**
+
+| Fact | | Source |
+|---|---|---|
+| A file or directory name is up to ten characters, any but `# * . : $ & @` and space; `.` separates the parts of a path, up to 127 levels | checked | the guide, pp. 20-21 |
+| `$` (or `&`) is the root, `^` the parent of the current directory (the CSD), `@` the CSD; a name without `$` or a drive starts at the CSD | checked | the guide, pp. 22-24 |
+| `:D.` names drive D, and the path after it starts at that drive's root (`LOAD ":1.MYPROG"` loads MYPROG from the root of drive 1) | checked | the guide, p. 30 |
+| Floppy drives are 0 (or 4, A, E), the single drive or a dual drive's top one, and 1 (or 5, B, F), the bottom one; "ADFS does not assign a separate drive number to each side of a disc" | checked | the guide, p. 29 |
+| Bad name: `$` or `:` outside a root specification, an empty part, a special character in the wrong place (`$$`, `FILE:ONE`, `DIR..XDIR1`, `A@B`, `A^B`) | checked | the guide, p. 110 |
+| The attributes are kept in bit 7 of a name's first four characters, so names are 7-bit | checked | the guide, p. 117 |
+| Case is kept and does not matter in a match | memory | the guide's examples mix cases but never say |
+| A path through a directory that is not there is `Not found` (a DFS name `VIEW2.1` on ADFS is file `1` of directory `VIEW2`) | checked | the guide, p. 24; 8BS hint 140 |
+
+**Directories, discs and space**
+
+| Fact | | Source |
+|---|---|---|
+| A directory is five contiguous sectors and holds at most 47 entries, files or directories (26 bytes each); `Dir full` otherwise | checked | the guide, pp. 21, 75, 112, 117 |
+| Sectors 0 and 1 are the free space map, 2 to 6 the root directory | checked | the guide, p. 115 |
+| The map has room for 82 free spaces; "the ADFS can handle up to 80 entries in the *MAP list", and `Map full` means *COMPACT | checked | the guide, pp. 67, 113, 115 |
+| 16 sectors of 256 bytes a track; an 80-track double-sided disc is 160 x 16 x 256 = 655,360 bytes (2,560 sectors) | checked | the guide, p. 16 |
+| AFORM formats 40 track single-sided, 80 single-sided, or 80 double-sided (`L`) | checked | the guide, p. 100 |
+| S is 160 KB and M 320 KB | partly | Wikipedia; the letters S and M are not in the guide |
+| `*CDIR` creates an empty directory in the CSD or the path given; `Already exists` if there is one of that name | checked | the guide, pp. 40, 109 |
+| `*DIR` makes a directory the CSD; `*DIR :1` the root of drive 1, which also changes the current drive | checked | the guide, p. 51 |
+| `*COPY` copies only into a directory that exists | checked | the guide, p. 46 |
+
+**Open files and how a file takes space**
+
+| Fact | | Source |
+|---|---|---|
+| Ten files open at once; an eleventh is `Too many open files` | checked | the guide, pp. 85, 113 |
+| Handles `&30-&39` | partly | mdfs.net's table (a third party) |
+| A file open (other than all for input) cannot be opened again (`Already open`), deleted or saved over | checked | the guide, p. 109 |
+| OPENOUT of a new file reserves 256 sectors (64 KB) for it, or the length of the file of that name before; "if 256 sectors are not available, the file is not created and an error message is displayed" | checked | the guide, pp. 81, 87 (which error is not said; `Disc full` is described as including "opening new files or extending existing files", p. 112) |
+| Files opened one after another reserve sectors one after another | checked | the guide, p. 84 |
+| A file that grows past what it has reserved is moved, whole, to a free space that holds the new length; if no free space does, `Compaction required` | checked | the guide, p. 84 ("there may be a delay while new disc space is allocated", p. 87) |
+| What is reserved but unused is given back when the file is closed | inferred | not said; implied by p. 72 (`*REMOVE` before OPENOUT "to ensure that the default number of sectors is assigned", which would be pointless if every file kept 64 KB) |
+| Which free space a new file or a moved one gets (the first that holds it, the smallest, the last) | not checked | |
+| `Can't extend` is **not** an ADFS error: it is not in the guide's full list | checked | the guide, chapter 10 |
+| OSFILE 7 creates a file of a given length without writing it; OSARGS 3 writes a file's length; OSARGS with Y=0, A=0 gives 8 for ADFS | checked | the guide, pp. 89-91 |
+| OSFIND $40 and $C0 need the file to exist; $80 creates it | checked | the guide, p. 87 |
+
+**Errors** (the guide's chapter 10: "Error codes are not displayed"; the full list is there):
+Not found `&D6`, Bad name `&CC`, Too many open files `&C0`, Already open `&C2`, Already exists
+`&C4`, Dir full `&B3`, Dir not empty `&B4`, Disc full `&C6`, Compaction required `&98`, Map full
+`&99`, Locked `&C3`, Access violation `&BD`, Not open for update `&C1` (text "Not open for update
+on channel nn"), Channel `&DE` ("Channel on channel nn"), EOF `&DF` ("EOF on channel nn"),
+Outside file `&B7`, Wild cards `&FD`, Bad command `&FE`, Won't `&93`, Bad parms `&94`, Can't
+delete CSD `&96`, Can't delete library `&97`, Broken directory `&A8`, Bad FS map `&A9`, Bad
+checksum `&AA`, Bad rename `&B0`, Disc error `&C7`, Data lost `&CA`, Bad opt `&CB`, Aborted
+`&92`. checked. The texts with " on channel nn" are given so in the guide, which does not say
+whether "nn" is printed for OSBGET's EOF as for BASIC's; the emulator prints the short texts
+(`EOF`, `Channel`), as for the DFS. **Not checked**: what ADFS says for a drive that is not
+fitted (the guide lists a controller's "Disc error 65 ... Bad drive" among the disc errors).
+
+What the emulator does with them, and where it is looser: `emulator/README.md`, "bbcbplus",
+`--bbc-fs adfs`. Its own choices where the facts stop: drives 2, 3, 6, 7 (C, D, G, H) are `Bad
+drive`, the DFS's error, for want of ADFS's; `/` and `"` are `Bad name`; `^` at the root stays
+at the root; reading a name through a missing directory is "not there" (A=0), creating one is
+`Not found`; OPENOUT with fewer than 256 sectors free in one run is `Disc full` if fewer are free
+in all, else `Compaction required`.

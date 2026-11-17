@@ -25,6 +25,15 @@
 #define BBC_MAX_FILES 15
 #define BBC_DFS_MAX_FILES 5     /* --bbc-fs dfs */
 #define BBC_DFS_CATALOGUE 31    /* entries in a DFS catalogue: one a drive */
+#define BBC_ADFS_MAX_FILES 10   /* --bbc-fs adfs (emulator/NOTES-bbcbplus.md, "ADFS on the B+") */
+#define BBC_ADFS_FIRST_HANDLE 0x30
+#define BBC_ADFS_DRIVES 2       /* floppy drives 0 and 1 */
+#define BBC_ADFS_SECTORS 2560   /* an L-format disc: 80 tracks, two sides, 16 sectors of 256 */
+#define BBC_ADFS_ENTRIES 47     /* in a directory */
+#define BBC_ADFS_DIR_SECTORS 5  /* a directory's own sectors; the root's are 2-6 */
+#define BBC_ADFS_FIRST_FREE 7   /* sectors 0 and 1 the free space map, 2-6 the root */
+#define BBC_ADFS_RESERVE 256    /* sectors OPENOUT gives a new file (64 KB) */
+#define BBC_ADFS_MAP 80         /* free spaces the map holds */
 #define BBC_FIRST_HANDLE 0x11
 #define BBC_COMMAND_BUFFER 0x0700   /* where --bbc-command's text is put */
 #define BBC_MAX_REPORTED 8
@@ -44,6 +53,8 @@ struct bbc_config {
     int shadow;             /* --bbc-shadow: OSBYTE 132 answers $8000 (else $7C00) */
     int strict;             /* --bbc-strict: a failed check ends the run */
     int dfs;                /* --bbc-fs dfs: names and limits of the Acorn DFS (bbc_mos.c) */
+    int adfs;               /* --bbc-fs adfs: names, directories, limits and space of ADFS */
+    uint32_t adfs_sectors;  /* sectors of each ADFS drive (0: BBC_ADFS_SECTORS; tests set less) */
     const char *command;    /* --bbc-command: passed to OSCLI after reset, or NULL */
     const char *const *more_commands;   /* further --bbc-command lines, each passed to OSCLI from
                                          * $0700 when the one before it returns */
@@ -57,6 +68,30 @@ struct bbc_file {
     uint8_t mode;           /* $40 input, $80 output, $C0 update */
     uint8_t eof_hit;        /* OSBGET has reported EOF once */
     int8_t last_op;         /* 1 read, 2 write: stdio needs a seek between them */
+    int obj;                /* --bbc-fs adfs: its object in bbc_adfs.obj (index + 1; 0 none) */
+};
+
+/* --bbc-fs adfs: where each object of a drive lies, in sectors. A drive's layout is made at the
+ * first call that reaches it in a run, as if the disc had just been compacted: the map and the
+ * root in sectors 0-6, then each directory (5 sectors) and file (its length in whole sectors)
+ * of the drive's host directory, depth first, in the order of their names. Within the run,
+ * space is taken and given back as bbc_mos.c ("ADFS") says. */
+struct bbc_adfs_object {
+    char *path;             /* the host path; NULL once deleted */
+    int drive;
+    uint32_t start, len;    /* sectors; while a file is open, len is what it has reserved */
+};
+
+struct bbc_adfs {
+    int loaded[BBC_ADFS_DRIVES];
+    uint8_t *used[BBC_ADFS_DRIVES];    /* a byte a sector: 1 taken */
+    uint32_t sectors;
+    uint32_t in_use[BBC_ADFS_DRIVES], peak[BBC_ADFS_DRIVES];
+    struct bbc_adfs_object *obj;
+    int nobj, cap;
+    int csd_drive;
+    char csd[512];                     /* the CSD below its drive's root, host names joined by /; "" is $ */
+    uint64_t most_entries;             /* the most entries a directory held */
 };
 
 struct bbc_violation {
@@ -91,6 +126,7 @@ struct bbc_machine {
     uint64_t most_open, most_writing;  /* the most files open at once, and open for output or
                                         * update at once */
     int next_command;                  /* the next of cfg.more_commands to run */
+    struct bbc_adfs adfs;              /* --bbc-fs adfs */
 };
 
 /* Wire the machine: mem and module (NULL for none) are the caller's,
@@ -103,8 +139,12 @@ void bbc_machine_init(struct bbc_machine *m, const struct bbc_config *cfg,
  * Returns the exit status (see enum bbc_end). */
 int bbc_machine_run(struct bbc_machine *m, uint64_t cap);
 
-/* Close the files the program left open. */
+/* Close the files the program left open (and free what --bbc-fs adfs holds). */
 void bbc_machine_close(struct bbc_machine *m);
+
+/* --bbc-fs adfs: the free spaces in a drive's map (-1 if no call has reached the drive in this
+ * run). */
+int bbc_adfs_free_spaces(const struct bbc_machine *m, int drive);
 
 /* The MOS's own memory accesses, through the bus as the CPU's are (a
  * read of the module's zone switches its bank), but not checked. */

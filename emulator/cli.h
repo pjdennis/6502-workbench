@@ -139,6 +139,7 @@ struct emu_opts {
     int bbc_more_count;
     int bbc_strict;                     /* --bbc-strict: a failed check ends the run */
     int bbc_dfs;                        /* --bbc-fs dfs: the filing system takes the DFS's names */
+    int bbc_adfs;                       /* --bbc-fs adfs: ADFS's names, directories and space */
     int bbc_options;                    /* set when any --bbc-* option was given */
     const char *disk_dir;               /* --disk DIR (wendy2c only): host directory backing the
                                          * $F800+ file-I/O OS calls (the simulated SPI "disk").

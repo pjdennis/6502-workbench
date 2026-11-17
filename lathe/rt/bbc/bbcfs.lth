@@ -12,7 +12,18 @@
 ;   | 1     | Acorn DFS     | STEM.EXT is X.STEM, the directory X chosen by the extension   |
 ;   |       |               | (TABLE), STEM in capitals and cut to its first seven          |
 ;   |       |               | characters; a name with no "." is as given                    |
-;   | 2     | ADFS          | not built: #error below                                       |
+;   | 2     | ADFS          | STEM.EXT is EXT.STEM, the directory named by the extension,   |
+;   |       |               | STEM as given and cut to its first ten characters; a name     |
+;   |       |               | with no "." is as given                                       |
+;
+; With BBCFS 2 (the second half of this file): every leading "./" is dropped; a leading "0/" or
+; "1/" is the drive, ":D." in front (ADFS has two floppy drives, each disc both sides); any other
+; "/" left, a "." in the stem, an empty stem or extension, an extension longer than ten
+; characters, or a result longer than OUT_SIZE is no name. A directory must exist before a file
+; is created in it: before it creates a file, bbc.lth's open_out asks cdir(), which looks for
+; the directory with OSFILE 5 and gives `*CDIR` of it if it is not there; open_out runs that and
+; has the name back (again()), so that a blank disc needs no setting up (lathe/docs/bbc.md,
+; "ADFS").
 ;
 ; With BBCFS 1: every leading "./" is dropped; a leading "D/" with D a digit 0 to 3 is the drive,
 ; ":D." in front (DFS); any other "/" left, a "." in the stem, an empty stem, or a result longer
@@ -29,14 +40,13 @@
 ; to find the files the BBC wrote.
 module bbcfs
 
-#if BBCFS == 2
-#error "BBCFS 2 (ADFS) is not built: lathe/docs/bbc.md, File names on the BBC"
-#end
 #if BBCFS > 2
-#error "BBCFS is 0 (no mapping) or 1 (the DFS)"
+#error "BBCFS is 0 (no mapping), 1 (the DFS) or 2 (ADFS)"
 #end
+#if BBCFS != 2
 
 pub const MAPS = BBCFS == 1         ; bbc.lth calls map() only if true
+pub const DIRS = false              ; bbc.lth calls cdir() and again() only if true
 
 const CR: byte = 13
 const LONGEST = 7                   ; the DFS's longest name
@@ -152,3 +162,157 @@ pub func map(name: ^byte)
     name[i] = out[i]
   end
 end
+
+#else
+; ---- BBCFS 2: ADFS -----------------------------------------------------------------------------
+
+pub const MAPS = true
+pub const DIRS = true               ; open_out makes a directory that is not there
+
+const CR: byte = 13
+const LONGEST = 10                  ; ADFS's longest name, and the longest extension taken
+const OUT_SIZE = 25                 ; ":D.EXT.STEM" and the CR: 3 + 10 + 1 + 10 + 1
+const NONE: byte = 255              ; no "." in the name
+
+var out: [OUT_SIZE]byte
+
+; ADFS's name of the name at `name` (zero-terminated) in out: its length, or 0 if there is none.
+func made(name: ^byte): byte
+  var i: byte
+  var n: byte                       ; the length in out
+  var stem: byte                    ; where the stem starts
+  var dot: byte                     ; the last "."
+  var c: byte
+  stem = 0
+  while name[stem] == '.' and name[stem + 1] == '/' do
+    stem += 2
+  end
+  n = 0
+  c = name[stem]
+  if name[stem + 1] == '/' and c >= '0' and c <= '1' then
+    out[0] = ':'
+    out[1] = c
+    out[2] = '.'
+    n = 3
+    stem += 2
+  end
+  dot = NONE
+  i = stem
+  loop
+    c = name[i]
+    if c == 0 then
+      break
+    end
+    if c == '/' then
+      return 0
+    end
+    if c == '.' then
+      dot = i
+    end
+    i += 1
+  end
+  if dot == NONE then               ; as it is
+    while name[stem] != 0 do
+      if n == OUT_SIZE - 1 then
+        return 0
+      end
+      out[n] = name[stem]
+      n += 1
+      stem += 1
+    end
+    return n
+  end
+  if dot == stem or name[dot + 1] == 0 then
+    return 0
+  end
+  i = dot + 1                       ; the directory: the extension
+  while name[i] != 0 do
+    if i - dot > LONGEST then
+      return 0
+    end
+    out[n] = name[i]
+    n += 1
+    i += 1
+  end
+  out[n] = '.'
+  n += 1
+  i = n + LONGEST                   ; the stem, its first ten characters
+  while stem < dot do
+    c = name[stem]
+    if c == '.' then
+      return 0
+    end
+    if n < i then
+      out[n] = c
+      n += 1
+    end
+    stem += 1
+  end
+  return n
+end
+
+; The name made last (in out, ended by CR) written back at `name`.
+pub func again(name: ^byte)
+  var i: byte
+  i = 0
+  loop
+    name[i] = out[i]
+    if out[i] == CR then
+      return
+    end
+    i += 1
+  end
+end
+
+; The name at `name` (zero-terminated) as ADFS takes it, written back at `name` and ended by CR:
+; empty (the CR alone) if it is no name ADFS can take.
+pub func map(name: ^byte)
+  out[made(name)] = CR
+  again(name)
+end
+
+const COMMAND: [5]byte = ['C', 'D', 'I', 'R', ' ']
+const BLOCK = 40                    ; OSFILE's block in the caller's buffer, after "CDIR DIR"
+extern func osfile(code: byte in a, block: ^byte in xy): byte in a      at $FFDD
+
+; If the name made last is in a directory (not a root) that OSFILE 5 does not find: `*CDIR` of
+; that directory at `name`, ended by CR, and true. Otherwise false, and the name at `name` as
+; map() left it. `name` must hold 58 bytes: the command, at most 30, then OSFILE's block.
+;
+; The directory is looked for, and not left to OSFIND's error (Not found): the MOS offers every
+; error to the ROMs (service call 6) before BRKV, and a developer's form loaded into the module's
+; RAM after LOADMOD has no ROM header in its banks while the MOS's table says that the slot holds
+; a ROM (lathe/docs/bbc.md, "ADFS", "Faults found"; rt_bbc.start now unmarks it, and this keeps
+; the error out of normal use all the same).
+pub func cdir(name: ^byte): bool
+  var i: byte
+  var last: byte                    ; the last "." of the name
+  var a: word
+  last = 0
+  i = 0
+  while out[i] != CR do
+    if out[i] == '.' then
+      last = i
+    end
+    i += 1
+  end
+  if last == 0 or (last == 2 and out[0] == ':') then
+    return false
+  end
+  for i = 0 until 5 do
+    name[i] = COMMAND[i]
+  end
+  for i = 0 until last do
+    name[i + 5] = out[i]
+  end
+  name[last + 5] = CR
+  a = word(name) + 5                ; OSFILE 5 on the directory: 0, and no error, if not there
+  name[BLOCK] = byte(a & $FF)
+  name[BLOCK + 1] = byte(a >> 8)
+  if osfile(5, name + BLOCK) != 0 then
+    again(name)
+    return false
+  end
+  return true
+end
+#end

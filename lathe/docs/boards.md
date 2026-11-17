@@ -332,6 +332,39 @@ emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict --bbc-fs dfs \
 
 - **Limits a real disc adds**, which the emulator does not show: the linker keeps its map open while it writes the image, so a map over 16 KB stops the link with "Can't extend" (outtest's is 23 KB: make room first with `*SAVE M.OUTTEST 0 +6000`); the module image (256 KB) is larger than a side; a self-compile's files fill 4.5 sides (bbc.md, "Measured for a real disc").
 
+#### On two ADFS discs
+
+The compiler rebuilt from its sources on a B+128 with ADFS ([`bbc.md`](bbc.md), "ADFS"; `../tests/test_bbc_adfs.py`, `Loop`, does exactly this on the emulator). What is needed: the B+128 with ADFS 1.30 beside its DFS (PAGE `&1F00`), two 80-track double-sided drives (ADFS's drives 0 and 1, an L disc of 640 KB each), and the module's RAM form, the developer's module, in a socket (slot 4 here). Three discs: two blank ones, A and B, and C for the module image.
+
+**On the host**, build both tools with ADFS's names and PAGE: in copies of `lathec-bbc.env` and `linker-bbc.env`, `define BBCFS 2` and `define ADFS 1` (`test_bbc_adfs.adfs_env` makes them); then the ROM environments, the image as in "The tool chain on the BBC", and LOADMOD for `$1F00`:
+
+```bash
+python3 -c "import sys; sys.path.insert(0, 'lathe/host/driver'); sys.path.insert(0, 'lathe/tests'); \
+    import bbcrom, test_bbc_adfs as a; \
+    a.adfs_env(a.COMPILER_ENV, 'rom/lathec-dev.env'); a.adfs_env(a.LINKER_ENV, 'rom/linker-dev.env'); \
+    n = bbcrom.rom_env('rom/lathec-dev.env', 'rom/lathec.env', 1); \
+    bbcrom.rom_env('rom/linker-dev.env', 'rom/linker.env', n)"
+python3 lathe/host/driver/build.py lathe/src/lathec.lth -o rom/LATHE --env rom/lathec.env --keep rom/lathe
+python3 lathe/host/driver/build.py lathe/src/link.lth -o rom/LLINK --env rom/linker.env --keep rom/llink
+python3 lathe/host/driver/bbcrom.py -o MODULE --short MODULE.disc --listing MODULE.txt \
+    LATHE=rom/LATHE,rom/lathec.env,rom/lathe/lathec.map LLINK=rom/LLINK,rom/linker.env,rom/llink/link.map
+python3 -c "import sys; sys.path.insert(0, 'lathe/host/driver'); import bbcrom; bbcrom.loader('LOADMOD', 0x1F00)"
+```
+
+**The discs.** Format A and B as L discs (`*AFORM 0 L`, `*AFORM 1 L`, from ADFS's utilities disc). On A, in drive 0: `*CDIR lth` and the compiler's 25 sources as `lth.err`, `lth.kernel` and so on (from `lathe/src`, and `lathe/rt/bbc/bbcfs.lth`, `lathe/rt/bbc.lth`, `lathe/rt/disk.lth`, `lathe/rt/bbc/host.lth`, `lathe/rt/rt_math.lth`, `lathe/rt/rt_bbc.lth`, `lathe/rt/rt_frame.lth`); `*CDIR env` and the compiler's environment (`lathec-dev.env` above) as `env.lathec`; and the link's command file `LINKARG`, a word a line: `lathec.env lathec 1/LATHEC 1/LATHEC.map`, then each object as `1/NAME.lo` in the order of the compiles below. B stays blank: the tools make `lo`, `li`, `bin` and `map` on it as they write. On C: `LOADMOD` (load and execution address `1F00`) and the short image `MODULE.disc` as `MODULE`, 770 sectors.
+
+**The session.** Every command line is the host's (`0/` and `1/` name the drives):
+
+1. C in drive 1: `*RUN :1.LOADMOD :1.MODULE` fills the module's RAM and enters it in the MOS's table; then `*DISMOUNT 1`, B in drive 1, `*MOUNT 1`. C is not needed again while the machine is on.
+2. Compile each module in `build.py`'s order (`bbcfs`, `bbc`, `disk`, `host`, `sys`, `err`, `kernel`, `fbuf`, `src`, `lex`, `out`, `typetab`, `reg`, `asmblock`, `fold`, `cond`, `gen`, `inlines`, `parts`, `expr`, `decl`, `lathec`, `rt_math`, `rt_bbc`, `rt_frame`), its source from drive 0, its object and interface to drive 1, the interfaces of its imports found there: `*LATHE -c6502 -dROMFORM=0 -dADFS=1 -dBOARD=3 -dPORTS=2 -dBBCFS=2 -dMODULE_SLOT=4 -dSMALL=0 0/err.lth 1`.
+3. Link: `*LLINK @LINKARG` writes `:1.LATHEC`, its six bank files `:1.BIN.LATHE1` ... `:1.BIN.LATHE33` and then the map `:1.map.LATHEC`.
+4. Give the image its addresses, on the drive its banks are on: `*DIR :1`, `*LOAD LATHEC 1F00`, `*SAVE LATHEC 1F00 +LENGTH 1F00` (the length from `*INFO LATHEC`).
+5. Run the new compiler: `*RUN LATHEC -c6502 -dROMFORM=0 -dADFS=1 -dBOARD=3 -dPORTS=2 -dBBCFS=2 -dMODULE_SLOT=4 -dSMALL=0 0/err.lth 1` (its start-up loads its banks from `bin` of the current directory into the module's RAM, over the tools'). It writes `:1.lo.err` and `:1.li.err` over the ones `*LATHE` made, the same bytes. The developer's form marks the module's slot as no ROM in the MOS's table when it loads its banks ([`bbc.md`](bbc.md), "ADFS", "Faults found"), so `*LATHE` and `*LLINK` need `*RUN :1.LOADMOD :1.MODULE` again after it.
+
+What the discs hold at the end, measured by the emulator (where the test stands in for step 1 with the module's RAM filled at power on, and runs every other step as written): disc A (drive 0) 27 files, 584,430 bytes, 2,313 of its 2,560 sectors, 247 free (62 KB); disc B (drive 1) 58 files, 626,379 bytes, 2,500 sectors, 60 free (15 KB); at most 25 entries in a directory. So the 64 KB a new file is given at OPENOUT are there for every file the loop creates (the map last, on drive 1, with 551 sectors free when it is created); after the loop drive 1 has less than 64 KB free, so a second rebuild should `*DELETE` the old map (or the objects) before it starts: a file that is there is written over in its own space, but a new file needs 256 free sectors in one run. One file is written at a time and two are open at most.
+
+For a program of your own, build it with `bbc.env` (or `bbc-bank.env`) with `define BBCFS 2` and `define ADFS 1`: it loads at `$1F00`, its sources go in `lth`, and the tools' command lines are as on the host.
+
 ## The VIA timer
 
 Both boards have a 6522 VIA. Its base is `$6000` on Michael and `$F000` on Wendy 2.
