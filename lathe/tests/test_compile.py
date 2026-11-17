@@ -620,10 +620,10 @@ class FunctionTypesTest(CompileTest):
     def test_a_module_that_imports_rt_frame_itself_uses_its_symbols(self):
         self.compile(os.path.join(support.LATHE, 'rt', 'rt_frame.lth'))
         self.compile(self.source('t.lth', 'module t\nimport rt_frame\nrecursive func f(n: byte)\n'
-                                 '  rt_frame.push(n)\n  f(n)\nend\n'))
+                                 '  rt_frame.pop()\n  rt_frame.push()\n  f(n)\nend\n'))
         syms = [body for kind, body in self.records('t') if kind == SYM]
         self.assertEqual(syms.count(b'\x01' + string(b'rt_frame.push')), 1)
-        self.assertEqual(syms.count(b'\x01' + string(b'rt_frame.pop_y')), 1)
+        self.assertEqual(syms.count(b'\x01' + string(b'rt_frame.pop')), 1)
         self.assertEqual([body for kind, body in self.records('t') if kind == IMP], [string(b'rt_frame')])
 
     def test_operators_write_the_imp_record_and_symbols_of_rt_math_once(self):

@@ -1,22 +1,18 @@
-"""What saving calls (calls between `recursive` functions) cost in the compiler as built for the
-BBC, and what other forms of the frame push and pop would cost.
+"""What saving calls (calls between `recursive` functions) cost in the tools as built for the
+BBC.
 
     python3 lathe/tests/frame_report.py OUT_DIR
 
-OUT_DIR as for lathe/tests/construct_report.py. A saving call's push is a run of
-`LDA slot / JSR rt_frame.push` and its pop a run of `JSR rt_frame.pop_y / STY slot`. For each
-function with saving calls this finds the runs, the bytes they take, how many distinct sets of
-slots they push, and the size of three other forms:
+OUT_DIR as for lathe/tests/construct_report.py. A saving call pushes the caller's frame with
+`JSR rt_frame.push` and the list after it (`LDA #n`, then an `ORA slot-i,Y` for each word and an
+`LDA slot-i,Y` for each odd last byte of a slot) and pops it with `JSR rt_frame.pop` and a `JSR`
+to the list (lathe/docs/code-model.md, "Recursion"). For each tool this counts the saving calls
+that save something, their lists, entries and frame bytes, the bytes at the calls and in the
+lists, as placed; what lists shared by the calls of one function that save the same slots would
+save; and the functions with the most bytes of it.
 
-- shared: one push routine and one pop routine of the function's own for each distinct set,
-  `JSR` to them at each call (3 + 3 bytes a call, plus each routine once, with its RTS);
-- whole frame: one push and one pop routine of the function's own that save every slot the
-  function's calls save (the union), entered by every call;
-- list: `LDA #<list / LDX #>list / JSR rt_frame.push_list` and `JSR rt_frame.pop_list` at each
-  call (10 bytes) with the list of slot addresses as constant data (2 bytes a slot byte, 1 for
-  its length), shared by the calls that push the same set; plus the two routines once.
-
-A measuring tool (lathe/docs/spikes.md, "Size for a 128 KB ROM: the generated code, measured")."""
+A measuring tool (lathe/docs/spikes.md, "Size for a 128 KB ROM: the generated code, measured",
+and "Built: saving calls through a list")."""
 import collections
 import os
 import sys
@@ -26,37 +22,37 @@ sys.path.insert(0, HERE)
 
 import construct_report     # noqa: E402
 
-LIST_ROUTINES = 70      # estimated: push_list and pop_list, a pointer in zero page, NMOS
+OP_LIST_BYTE = 0xB9         # LDA abs,Y: an entry of one byte
+OP_LIST_WORD = 0x19         # ORA abs,Y: an entry of two bytes
 
 
-def runs(f):
-    """[(kind, [slot keys], bytes)] of the pushes and pops in f."""
+def is_call(i, name):
+    return i.mnemonic == 'JSR' and i.target is not None and i.target[1] == name
+
+
+def lists(f):
+    """[(entries as (slot target, bytes), bytes of the list)] of the lists after f's JSRs to
+    rt_frame.push, and the number of JSRs to rt_frame.pop (each followed by a JSR to a list)."""
     il = f.instructions
-    out = []
-    k = 0
-    while k < len(il):
-        i = il[k]
-        if i.mnemonic == 'LDA' and k + 1 < len(il) and il[k + 1].mnemonic == 'JSR' \
-                and il[k + 1].target and il[k + 1].target[1] == 'rt_frame.push':
-            slots, size = [], 0
-            while k + 1 < len(il) and il[k].mnemonic == 'LDA' and il[k + 1].mnemonic == 'JSR' \
-                    and il[k + 1].target and il[k + 1].target[1] == 'rt_frame.push':
-                slots.append((il[k].target, il[k].placed))
-                size += il[k].placed + il[k + 1].placed
-                k += 2
-            out.append(('push', slots, size))
+    found = []
+    pops = 0
+    for k, i in enumerate(il):
+        if is_call(i, 'rt_frame.pop'):
+            pops += 1
+        if not is_call(i, 'rt_frame.push') or k + 1 >= len(il) or il[k + 1].mnemonic != 'LDA' \
+                or il[k + 1].target is not None:
             continue
-        if i.mnemonic == 'JSR' and i.target and i.target[1] == 'rt_frame.pop_y':
-            slots, size = [], 0
-            while k + 1 < len(il) and il[k].mnemonic == 'JSR' and il[k].target \
-                    and il[k].target[1] == 'rt_frame.pop_y' and il[k + 1].mnemonic == 'STY':
-                slots.append((il[k + 1].target, il[k + 1].placed))
-                size += il[k].placed + il[k + 1].placed
-                k += 2
-            out.append(('pop', slots, size))
-            continue
-        k += 1
-    return out
+        entries, size = [], il[k + 1].placed
+        j = k + 2
+        while j < len(il) and il[j].opcode in (OP_LIST_BYTE, OP_LIST_WORD) and il[j].target:
+            kind, name, slot, addend = il[j].target
+            entries.append(((name, slot), 1 if il[j].opcode == OP_LIST_BYTE else 2))
+            size += il[j].placed
+            j += 1
+        if not entries:
+            raise SystemExit(f'{f.name}: a JSR rt_frame.push without a list after it')
+        found.append((entries, size))
+    return found, pops
 
 
 def main(argv):
@@ -65,52 +61,39 @@ def main(argv):
         construct_report.build(out_dir)
     for tool, main_name, env in construct_report.TOOLS:
         prog = construct_report.analyse(out_dir, tool, main_name)
-        now = shared = whole = listed = 0
-        calls = 0
-        functions = 0
+        calls = entries = frame = at_calls = in_lists = shared = functions = 0
         hist = collections.Counter()
         biggest = []
         for f in prog.functions:
-            r = runs(f)
-            pushes = [x for x in r if x[0] == 'push']
-            pops = [x for x in r if x[0] == 'pop']
-            if not pushes:
+            found, pops = lists(f)
+            if not found:
                 continue
             functions += 1
-            calls += len(pushes)
-            cost = sum(x[2] for x in r)
-            now += cost
-            sets = collections.Counter(tuple(t for t, b in x[1]) for x in pushes)
-            # shared: routine per distinct set: push routine = its run + RTS, pop routine = run + RTS
-            routine = {}
-            for x in pushes:
-                routine[tuple(t for t, b in x[1])] = x[2] + 1
-            for x in pops:
-                key = tuple(reversed([t for t, b in x[1]]))
-                routine[('pop',) + key] = x[2] + 1
-            s = 6 * len(pushes) + sum(routine.values())
-            shared += min(s, cost)
-            union = {}
-            for x in pushes:
-                for t, b in x[1]:
-                    union[t] = b
-            w = 6 * len(pushes) + 2 * sum(b + 3 for b in union.values()) + 2
-            whole += min(w, cost)
-            lst = 10 * len(pushes) + sum(1 + 2 * len(k) for k in sets)
-            listed += lst
-            for x in pushes:
-                hist[len(x[1])] += 1
-            biggest.append((cost, f.name, len(pushes), len(sets), len(union)))
-        print(f'== {tool}: {functions} functions with {calls} saving calls; push and pop {now} bytes')
+            calls += pops
+            cost = 9 * pops + sum(size for _, size in found)
+            at_calls += 9 * pops
+            in_lists += sum(size for _, size in found)
+            seen = set()
+            for e, size in found:
+                entries += len(e)
+                frame += sum(b for _, b in e)
+                hist[sum(b for _, b in e)] += 1
+                key = tuple(t for t, _ in e)
+                if key in seen:
+                    shared += size
+                seen.add(key)
+            biggest.append((cost, f.name, pops, len(found), len(seen)))
+        print(f'== {tool}: {functions} functions with {calls} saving calls that save something')
         if not calls:
             continue
-        print(f'   shared routines per set: {shared} ({now - shared} saved)')
-        print(f'   one routine pair for the whole frame: {whole} ({now - whole} saved)')
-        print(f'   lists in constant data: {listed} + routines {LIST_ROUTINES} '
-              f'({now - listed - LIST_ROUTINES} saved)')
-        print('   bytes saved a call: ' + ', '.join(f'{k}: {v}' for k, v in sorted(hist.items())))
-        for cost, name, n, sets, u in sorted(biggest, reverse=True)[:12]:
-            print(f'   {cost:5d} {name}: {n} calls, {sets} sets, {u} bytes in all')
+        print(f'   {sum(hist.values())} lists, {entries} entries, '
+              f'{frame} bytes of frame; {at_calls} bytes of JSRs to push, pop and the lists, '
+              f'{in_lists} bytes of lists: {at_calls + in_lists} in all (in line, 12 a byte: '
+              f'{12 * frame})')
+        print(f'   lists that repeat another of their function: {shared} bytes')
+        print('   frame bytes a list: ' + ', '.join(f'{k}: {v}' for k, v in sorted(hist.items())))
+        for cost, name, n, lst, sets in sorted(biggest, reverse=True)[:12]:
+            print(f'   {cost:5d} {name}: {n} calls, {lst} lists, {sets} sets')
 
 
 if __name__ == '__main__':

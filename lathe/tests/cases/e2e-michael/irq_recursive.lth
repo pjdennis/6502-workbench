@@ -1,0 +1,77 @@
+; Saving calls in two contexts: `walk` is recursive, and both the main program and an interrupt
+; handler call it, so the linker links it twice, each copy with a frame of its own; both copies'
+; saving calls push onto the one frame stack (lathe/docs/code-model.md, "Recursion"). The
+; timer interrupts every STEP cycles, in the middle of whatever main is doing, often in the
+; middle of a push or a pop. Each copy's lists must name that copy's own slots, and a push or a
+; pop of main's that an interrupt comes into must not lose a byte to the handler's.
+;
+; walk(n, w) checks, after each recursive call, that its parameters and its local came back as
+; they were, and counts what did not. The first row says PASS if no result of main's or of the
+; handler's was wrong, nothing came back changed, and main did at least MIN_ROUNDS rounds; the
+; second, how many interrupts there were. The same source serves both boards
+; (cases/e2e-wendy2/irq_recursive.lth is a link to this file).
+module irq_recursive
+
+import lcd
+import timer
+
+const IRQS = 200
+const MIN_ROUNDS = 20
+const STEP = 8000
+
+var main_lost: word = 0         ; values main's walk found changed after a call
+var irq_lost: word = 0          ; and the handler's
+var irq_bad: word = 0           ; results of the handler's that were wrong
+var in_irq: bool = false
+
+; The sum of w, w + 1, ... w + n - 1, by recursion.
+recursive func walk(n: byte, w: word): word
+  var keep: word = w + n
+  var r: word
+  if n == 0 then
+    return 0
+  end
+  r = walk(n - 1, w + 1)
+  if keep != w + n then
+    if in_irq then
+      irq_lost += 1
+    else
+      main_lost += 1
+    end
+  end
+  return r + w
+end
+
+interrupt func handler()
+  timer.acknowledge()
+  in_irq = true
+  if walk(6, 1000) != 6015 then
+    irq_bad += 1
+  end
+  in_irq = false
+  if timer.count == IRQS then
+    timer.stop()
+  end
+end
+
+pub func main()
+  var rounds: word = 0
+  var bad: word = 0
+  lcd.init()
+  timer.start_with(STEP, @handler)
+  while timer.ticks() < IRQS do
+    if walk(20, 300) != 6190 then
+      bad += 1
+    end
+    rounds += 1
+  end
+  lcd.print("RECURSIVE ")
+  if bad == 0 and main_lost == 0 and irq_lost == 0 and irq_bad == 0 and rounds >= MIN_ROUNDS then
+    lcd.print("PASS")
+  else
+    lcd.print("FAIL")
+  end
+  lcd.goto(1, 0)
+  lcd.print("IRQS ")
+  lcd.print_dec(timer.ticks())
+end

@@ -64,8 +64,15 @@ MAX_STUBS = 16          # pointers called through in one function
 MAX_ARGUMENTS = 32      # arguments of saving calls waiting in temporaries
 MAX_HELD = 16           # arguments waiting as operands for registers, with more to follow
 FRAME_MODULE = b"rt_frame"      # the run-time module that keeps the frames of recursive functions
-PUSH_NAME = b"push"             # push(v: byte in a)
-POP_NAME = b"pop_y"             # pop_y(): byte in y, which leaves A, X and the carry flag alone
+PUSH_NAME = b"push"             # push(), the list after its JSR (docs/code-model.md, "Recursion")
+POP_NAME = b"pop"               # pop(), a JSR to the list after its JSR; leaves A, X and C alone
+# A saving call's list: `LDA #bytes` and then an entry for each byte or word of the frame, an
+# instruction no one runs that holds the address in its operand, less the list's index of its
+# high byte (rt_frame reads the bytes through `(slot),Y` with Y that index).
+OP_LIST_HEAD = 0xA9             # LDA #: the bytes the list pushes
+OP_LIST_BYTE = 0xB9             # LDA abs,Y: one byte
+OP_LIST_WORD = 0x19             # ORA abs,Y: two bytes
+LIST_ENTRIES = 84               # entries of one list: every index stays below 256
 MATH_MODULE = b"rt_math"        # the run-time module of `*`, `/`, `mod` and word shifts by a variable
 # Its functions that operators call, each name ended by a space, and for each the types of its
 # two parameters and its result (docs/code-model.md, "Run-time arithmetic").
@@ -110,7 +117,9 @@ held_operand = bytearray(MAX_HELD)  # the operands of those arguments, oldest fi
 held_count = 0
 saved_slot = bytearray(reg.SLOTS)       # the slots a saving call pushes, in order
 saved_count = 0
-frame_push = kernel.NO_OBJ          # the symbols of rt_frame.push and rt_frame.pop_y, once used
+list_count = 0                          # the lists a saving call pushed: one for 84 entries
+list_label = 0                          # the label of the first, the others' numbers after it
+frame_push = kernel.NO_OBJ          # the symbols of rt_frame.push and pop, once used
 frame_pop = kernel.NO_OBJ
 math_obj = [0] * MATH_COUNT         # the object-file symbols of rt_math's functions, once used
 math_member = [0] * MATH_COUNT      # and their parameters and result as members
@@ -1538,7 +1547,7 @@ def saving(f):
 
 
 def frame_routines():
-    """The symbols of rt_frame.push and rt_frame.pop_y, and the IMP record of rt_frame, which
+    """The symbols of rt_frame.push and rt_frame.pop, and the IMP record of rt_frame, which
     the first saving call of the module writes: the build finds the module from it. A module
     that imports rt_frame itself has the symbols already."""
     global frame_push, frame_pop
@@ -1583,28 +1592,60 @@ def is_argument(n, first):
     return False
 
 
+def frame_list(first, emit):
+    """The entries `first` to `first` + LIST_ENTRIES - 1 of the frame save_frame() pushes, a
+    word or the last byte of a slot each: written as a list if `emit`. Returns their bytes."""
+    e = 0
+    total = 0
+    for i in range(0, saved_count):
+        n = saved_slot[i]
+        k = 0
+        while k < reg.slot_size[n]:
+            if e >= first and e < first + LIST_ENTRIES:
+                opcode = OP_LIST_WORD
+                if k + 1 == reg.slot_size[n]:
+                    opcode = OP_LIST_BYTE
+                    total -= 1
+                total += 2
+                if emit:
+                    fbuf.op_fix(opcode, fbuf.FIX_ADDRESS, reg.own, n, (k - 5 - 3 * (e - first)) & 0xFFFF)
+            e += 1
+            k += 2
+    return total
+
+
 def save_frame(f, first):
     """A saving call of `f` is next; its arguments wait in temporaries. Push every byte of the
     frame that can be live: the parameters and locals, and the temporaries in use but for
     those arguments and the copy of the pointer called through, if there is one. Then move
     the arguments to `f`'s parameters, which can be the caller's own."""
-    global saved_count, argument_count
+    global saved_count, argument_count, list_count, list_label
     frame_routines()
     skip = fbuf.NO_SLOT
     if through(f) and reg.op_flags[first - 1] & reg.F_TEMP != 0:
         skip = reg.op_slot[first - 1]
     base = argument_count - kernel.byte_of(f, kernel.C_PARAMS)
     saved_count = 0
+    entries = 0
     for n in range(0, fbuf.FIRST_TEMP + reg.temp_count):
         if n < reg.local_count or (n >= fbuf.FIRST_TEMP and reg.slot_busy[n] and n != skip
                                    and not is_argument(n, base)):
             saved_slot[saved_count] = n
             saved_count += 1
-            for k in range(0, reg.slot_size[n]):
-                slot_byte(OP_LDA, reg.own, n, k)
-                fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_push, fbuf.NO_SLOT, 0)
-    if saved_count > 0:
+            entries += (reg.slot_size[n] + 1) >> 1
+    list_count = 0
+    while entries > list_count * LIST_ENTRIES:
+        fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_push, fbuf.NO_SLOT, 0)
+        label = fbuf.new_label()
+        if list_count == 0:
+            list_label = label
+        reg.loop_label(label)
+        fbuf.op_byte(OP_LIST_HEAD, frame_list(list_count * LIST_ENTRIES, False))
+        frame_list(list_count * LIST_ENTRIES, True)
+        list_count += 1
+    if list_count > 0:
         out.call(frame_push, 0, outer)
+        reg.forget()
     count = register_count(f)
     for p in range(count, kernel.byte_of(f, kernel.C_PARAMS)):
         n = argument_slot[base + p]
@@ -1622,14 +1663,15 @@ def save_frame(f, first):
 
 
 def restore_frame():
-    """After a saving call: pop what save_frame() pushed, last byte first, through Y."""
-    if saved_count > 0:
+    """After a saving call: pop what save_frame() pushed, the last list first, each with
+    `JSR rt_frame.pop` and a JSR to the list, which pop reads and skips: the last instruction
+    of all, which must not become a JMP."""
+    if list_count > 0:
         out.call(frame_pop, 0, outer)
-        for i in range(saved_count - 1, -1, -1):
-            n = saved_slot[i]
-            for k in range(reg.slot_size[n] - 1, -1, -1):
-                fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_pop, fbuf.NO_SLOT, 0)
-                slot_byte(OP_STY, reg.own, n, k)
+        for i in range(list_count - 1, -1, -1):
+            fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_pop, fbuf.NO_SLOT, 0)
+            fbuf.call_label(list_label + i)
+        fbuf.keep_as_written()
 
 
 def call(f, first, wanted):

@@ -54,8 +54,9 @@ module gen
 import cond (carry, compare, invert, jump_false, left, push, right, value, wanted_in_carry)
 import err (E_ARRAY_VALUE, E_BYTE_INDEX, E_CALLS_FULL, E_ELEMENT_SIZE, E_INITS_FULL, E_NO_ADDRESS,
             E_NOT_INDEXED, E_NOT_RECORD, E_OPERANDS_FULL, E_RANGE, E_TWO_INDEXES, E_TYPE, fatal)
-import fbuf (begin, call_label, finish, FIRST_TEMP, FIX_ADDRESS, FIX_LOW, new_label, NO_SLOT, op,
-             op_fix, OP_JMP_INDIRECT, OP_JSR, op_word, runs_on, tail_call, used)
+import fbuf (begin, call_label, finish, FIRST_TEMP, FIX_ADDRESS, FIX_LOW, keep_as_written,
+             new_label, NO_SLOT, op, op_byte, op_fix, OP_JMP_INDIRECT, OP_JSR, op_word, runs_on,
+             tail_call, used)
 import fold (ADD, BAND, BOR, BXOR, DIV, exact, GE, LT, MUL, NE, REM, SHL, SHR, SUB, typed)
 import kernel (byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_OBJ, C_PARAMS, C_RESULTS, C_TYPE, C_VALUE,
                K_FUNC, K_TYPE, member_add, member_count, member_type_of, member_value_of,
@@ -110,7 +111,6 @@ const OP_TAX = $AA
 const OP_RTS = $60
 const OP_LDA = $AD
 const OP_STA = $8D
-const OP_STY = $8C
 const C_SPACE = $20
 const C_DOLLAR = $24
 const C_ZERO = $30
@@ -121,8 +121,15 @@ const MAX_STUBS = 16            ; pointers called through in one function
 const MAX_ARGUMENTS = 32        ; arguments of saving calls waiting in temporaries
 const MAX_HELD = 16             ; arguments waiting as operands for registers, with more to follow
 const FRAME_MODULE = "rt_frame" ; the run-time module that keeps the frames of recursive functions
-const PUSH_NAME = "push"        ; push(v: byte in a)
-const POP_NAME = "pop_y"        ; pop_y(): byte in y, which leaves A, X and the carry flag alone
+const PUSH_NAME = "push"        ; push(), the list after its JSR (docs/code-model.md, "Recursion")
+const POP_NAME = "pop"          ; pop(), a JSR to the list after its JSR; leaves A, X and C alone
+; A saving call's list: `LDA #bytes` and then an entry for each byte or word of the frame, an
+; instruction no one runs that holds the address in its operand, less the list's index of its
+; high byte (rt_frame reads the bytes through `(slot),Y` with Y that index).
+const OP_LIST_HEAD = $A9        ; LDA #: the bytes the list pushes
+const OP_LIST_BYTE = $B9        ; LDA abs,Y: one byte
+const OP_LIST_WORD = $19        ; ORA abs,Y: two bytes
+const LIST_ENTRIES = 84         ; entries of one list: every index stays below 256
 const MATH_MODULE = "rt_math"   ; the run-time module of `*`, `/`, `mod` and word shifts by a variable
 ; Its functions that operators call, each name ended by a space, and for each the types of its
 ; two parameters and its result (docs/code-model.md, "Run-time arithmetic").
@@ -167,7 +174,9 @@ var held_operand: [MAX_HELD]byte        ; the operands of those arguments, oldes
 var held_count: byte = 0
 var saved_slot: [reg.SLOTS]byte         ; the slots a saving call pushes, in order
 var saved_count: byte = 0
-var frame_push: word = kernel.NO_OBJ    ; the symbols of rt_frame.push and rt_frame.pop_y, once used
+var list_count: byte                    ; the lists a saving call pushed: one for 84 entries
+var list_label: byte                    ; the label of the first, the others' numbers after it
+var frame_push: word = kernel.NO_OBJ    ; the symbols of rt_frame.push and pop, once used
 var frame_pop: word = kernel.NO_OBJ
 var math_obj: [MATH_COUNT]word          ; the object-file symbols of rt_math's functions, once used
 var math_member: [MATH_COUNT]word       ; and their parameters and result as members
@@ -1962,7 +1971,7 @@ pub func saving(f: word): bool
   return kernel.byte_of(f, kernel.C_FLAGS) & kernel.SF_RECURSIVE != 0
 end
 
-; The symbols of rt_frame.push and rt_frame.pop_y, and the IMP record of rt_frame, which
+; The symbols of rt_frame.push and rt_frame.pop, and the IMP record of rt_frame, which
 ; the first saving call of the module writes: the build finds the module from it. A module
 ; that imports rt_frame itself has the symbols already.
 func frame_routines()
@@ -2023,6 +2032,39 @@ func is_argument(n: byte, first: byte): bool
   return false
 end
 
+; The entries `first` to `first` + LIST_ENTRIES - 1 of the frame save_frame() pushes, a word
+; or the last byte of a slot each: written as a list if `emit`. Returns their bytes.
+func frame_list(first: word, emit: bool): byte
+  var e: word
+  var total: byte
+  var i: byte
+  var n: byte
+  var k: word
+  var opcode: byte
+  e = 0
+  total = 0
+  for i = 0 until saved_count do
+    n = saved_slot[i]
+    k = 0
+    while k < reg.slot_size[n] do
+      if e >= first and e - first < LIST_ENTRIES then
+        opcode = OP_LIST_WORD
+        if k + 1 == reg.slot_size[n] then
+          opcode = OP_LIST_BYTE
+          total -= 1
+        end
+        total += 2
+        if emit then
+          fbuf.op_fix(opcode, fbuf.FIX_ADDRESS, reg.own, n, k - word(5 + 3 * (e - first)))
+        end
+      end
+      e += 1
+      k += 2
+    end
+  end
+  return total
+end
+
 ; A saving call of `f` is next; its arguments wait in temporaries. Push every byte of the
 ; frame that can be live: the parameters and locals, and the temporaries in use but for
 ; those arguments and the copy of the pointer called through, if there is one. Then move
@@ -2035,6 +2077,8 @@ func save_frame(f: word, first: byte)
   var count: byte
   var p: byte
   var r: byte
+  var entries: word
+  var label: byte
   frame_routines()
   skip = fbuf.NO_SLOT
   if through(f) and reg.op_flags[first - 1] & reg.F_TEMP != 0 then
@@ -2042,19 +2086,30 @@ func save_frame(f: word, first: byte)
   end
   base = argument_count - kernel.byte_of(f, kernel.C_PARAMS)
   saved_count = 0
+  entries = 0
   for n = 0 until fbuf.FIRST_TEMP + reg.temp_count do
     if n < reg.local_count or (n >= fbuf.FIRST_TEMP and reg.slot_busy[n] and n != skip and
         not is_argument(n, base)) then
       saved_slot[saved_count] = n
       saved_count += 1
-      for k = 0 until reg.slot_size[n] do
-        slot_byte(OP_LDA, reg.own, n, k)
-        fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_push, fbuf.NO_SLOT, 0)
-      end
+      entries += (reg.slot_size[n] + 1) >> 1
     end
   end
-  if saved_count > 0 then
+  list_count = 0
+  while entries > word(list_count) * LIST_ENTRIES do
+    fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_push, fbuf.NO_SLOT, 0)
+    label = fbuf.new_label()
+    if list_count == 0 then
+      list_label = label
+    end
+    reg.loop_label(label)
+    fbuf.op_byte(OP_LIST_HEAD, frame_list(word(list_count) * LIST_ENTRIES, false))
+    frame_list(word(list_count) * LIST_ENTRIES, true)
+    list_count += 1
+  end
+  if list_count > 0 then
     out.call(frame_push, 0, outer)
+    reg.forget()
   end
   count = register_count(f)
   for p = count until kernel.byte_of(f, kernel.C_PARAMS) do
@@ -2078,20 +2133,18 @@ func save_frame(f: word, first: byte)
   argument_count = base
 end
 
-; After a saving call: pop what save_frame() pushed, last byte first, through Y.
+; After a saving call: pop what save_frame() pushed, the last list first, each with
+; `JSR rt_frame.pop` and a JSR to the list, which pop reads and skips: the last instruction of
+; all, which must not become a JMP.
 func restore_frame()
   var i: byte
-  var n: byte
-  var k: word
-  if saved_count > 0 then
+  if list_count > 0 then
     out.call(frame_pop, 0, outer)
-    for i = saved_count - 1 downto 0 do
-      n = saved_slot[i]
-      for k = reg.slot_size[n] - 1 downto 0 do
-        fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_pop, fbuf.NO_SLOT, 0)
-        slot_byte(OP_STY, reg.own, n, k)
-      end
+    for i = list_count - 1 downto 0 do
+      fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_pop, fbuf.NO_SLOT, 0)
+      fbuf.call_label(list_label + i)
     end
+    fbuf.keep_as_written()
   end
 end
 

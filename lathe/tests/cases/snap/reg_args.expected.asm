@@ -472,14 +472,14 @@ reg_args__through
     JMP (reg_args__h)
 
 ; function reg_args.walk: recursive
-;   slot 0 n: size 1, class 1 (either), param, weight 7
-;   slot 1 x: size 2, class 1 (either), param, weight 18
+;   slot 0 n: size 1, class 1 (either), param, weight 3
+;   slot 1 x: size 2, class 1 (either), param, weight 10
 ;   slot 2 $t1: size 1, class 1 (either), temp, weight 4
-;   slot 3 $t2: size 2, class 1 (either), temp, weight 12
+;   slot 3 $t2: size 2, class 1 (either), temp, weight 8
 ;   slot 4 $t3: size 2, class 1 (either), temp, weight 4
 ;   calls rt_frame.push
 ;   calls reg_args.walk (saves frame)
-;   calls rt_frame.pop_y
+;   calls rt_frame.pop
 reg_args__walk
 .L0000
     STA reg_args__walk__n
@@ -499,24 +499,19 @@ reg_args__walk
     LDA reg_args__walk__x+$01
     ADC #$00
     STA reg_args__walk__St2+$01
-    LDA reg_args__walk__n
     JSR rt_frame__push
-    LDA reg_args__walk__x
-    JSR rt_frame__push
-    LDA reg_args__walk__x+$01
-    JSR rt_frame__push
+.L0029
+    LDA #$03
+    LDA reg_args__walk__n-$05,Y
+    ORA reg_args__walk__x-$08,Y
     LDA reg_args__walk__St2
     STA reg_args__walk__x
     LDA reg_args__walk__St2+$01
     STA reg_args__walk__x+$01
     LDA reg_args__walk__St1
     JSR .L0000
-    JSR rt_frame__pop_y
-    STY reg_args__walk__x+$01
-    JSR rt_frame__pop_y
-    STY reg_args__walk__x
-    JSR rt_frame__pop_y
-    STY reg_args__walk__n
+    JSR rt_frame__pop
+    JSR .L0029
     STA reg_args__walk__St2
     STX reg_args__walk__St2+$01
     SEC
@@ -527,32 +522,20 @@ reg_args__walk
     STA reg_args__walk__St3
     LDX reg_args__walk__x+$01
     STX reg_args__walk__St3+$01
-    LDA reg_args__walk__n
     JSR rt_frame__push
-    LDA reg_args__walk__x
-    JSR rt_frame__push
-    LDA reg_args__walk__x+$01
-    JSR rt_frame__push
-    LDA reg_args__walk__St2
-    JSR rt_frame__push
-    LDA reg_args__walk__St2+$01
-    JSR rt_frame__push
+.L0067
+    LDA #$05
+    LDA reg_args__walk__n-$05,Y
+    ORA reg_args__walk__x-$08,Y
+    ORA reg_args__walk__St2-$0B,Y
     LDA reg_args__walk__St3
     STA reg_args__walk__x
     LDA reg_args__walk__St3+$01
     STA reg_args__walk__x+$01
     LDA reg_args__walk__St1
     JSR .L0000
-    JSR rt_frame__pop_y
-    STY reg_args__walk__St2+$01
-    JSR rt_frame__pop_y
-    STY reg_args__walk__St2
-    JSR rt_frame__pop_y
-    STY reg_args__walk__x+$01
-    JSR rt_frame__pop_y
-    STY reg_args__walk__x
-    JSR rt_frame__pop_y
-    STY reg_args__walk__n
+    JSR rt_frame__pop
+    JSR .L0067
     CLC
     ADC reg_args__walk__St2
     TAY
@@ -567,14 +550,14 @@ reg_args__walk
 ; reg_args.walk_through is a member of class reg_args.stepper
 
 ; function reg_args.walk_through: recursive
-;   slot 0 n: size 1, class 1 (either), param, weight 4
-;   slot 1 x: size 2, class 1 (either), param, weight 8
-;   slot 2 g: size 2, class 1 (either), local, weight 7
+;   slot 0 n: size 1, class 1 (either), param, weight 2
+;   slot 1 x: size 2, class 1 (either), param, weight 4
+;   slot 2 g: size 2, class 1 (either), local, weight 3
 ;   slot 3 $t1: size 1, class 1 (either), temp, weight 2
 ;   slot 4 $t2: size 2, class 1 (either), temp, weight 4
 ;   calls rt_frame.push
 ;   calls reg_args.stepper (saves frame, through pointer)
-;   calls rt_frame.pop_y
+;   calls rt_frame.pop
 reg_args__walk_through
 .L0000
     STA reg_args__walk_through__n
@@ -598,34 +581,22 @@ reg_args__walk_through
     LDA reg_args__walk_through__x+$01
     ADC #$00
     STA reg_args__walk_through__St2+$01
-    LDA reg_args__walk_through__n
     JSR rt_frame__push
-    LDA reg_args__walk_through__x
-    JSR rt_frame__push
-    LDA reg_args__walk_through__x+$01
-    JSR rt_frame__push
-    LDA reg_args__walk_through__g
-    JSR rt_frame__push
-    LDA reg_args__walk_through__g+$01
-    JSR rt_frame__push
+.L0033
+    LDA #$05
+    LDA reg_args__walk_through__n-$05,Y
+    ORA reg_args__walk_through__x-$08,Y
+    ORA reg_args__walk_through__g-$0B,Y
     LDA reg_args__walk_through__St2
     STA reg_args__stepper__p1
     LDA reg_args__walk_through__St2+$01
     STA reg_args__stepper__p1+$01
     LDA reg_args__walk_through__St1
-    JSR .L007F
-    JSR rt_frame__pop_y
-    STY reg_args__walk_through__g+$01
-    JSR rt_frame__pop_y
-    STY reg_args__walk_through__g
-    JSR rt_frame__pop_y
-    STY reg_args__walk_through__x+$01
-    JSR rt_frame__pop_y
-    STY reg_args__walk_through__x
-    JSR rt_frame__pop_y
-    STY reg_args__walk_through__n
+    JSR .L0057
+    JSR rt_frame__pop
+    JSR .L0033
     RTS
-.L007F
+.L0057
     JMP (reg_args__walk_through__g)
 
 ; function reg_args.main: exported

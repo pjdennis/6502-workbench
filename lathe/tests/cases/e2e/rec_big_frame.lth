@@ -1,0 +1,38 @@
+; A frame too large for one list: `fill` saves its parameters, a local array of 181 bytes, a
+; byte and a word, 187 bytes in 95 entries (a word or a slot's last byte each), so its saving
+; call pushes two lists, of 84 entries and of 11, and pops them in the opposite order
+; (lathe/rt/rt_frame.lth). Each level fills its array, calls the next, and then checks that
+; every byte came back as it was. Two levels of 187 bytes and the lists' addresses would not
+; fit the frame stack, so the recursion is one deep.
+; Prints the number of bytes that came back wrong at each level, and the sum.
+module rec_big_frame
+
+import libout
+
+var wrong: word = 0
+
+recursive func fill(depth: byte, seed: word): word
+  var t: [181]byte
+  var i: byte
+  var sum: word = 0
+  for i = 0 to 180 do
+    t[i] = lo(seed) + i * 3
+  end
+  if depth > 0 then
+    sum = fill(depth - 1, seed + 7)
+  end
+  for i = 0 to 180 do
+    if t[i] != lo(seed) + i * 3 then
+      wrong += 1
+    end
+    sum += t[i]
+  end
+  return sum + depth + seed
+end
+
+pub func main()
+  libout.dec(fill(1, 100))
+  libout.space()
+  libout.dec(wrong)
+  libout.nl()
+end

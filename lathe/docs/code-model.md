@@ -178,34 +178,36 @@ What it changes:
 A function marked `recursive` may be active more than once. The cost is paid only on calls between `recursive` functions, direct or through a function type marked `recursive`. Such a call is a **saving call**:
 
 1. The arguments are worked out into temporaries of the caller, one for each parameter.
-2. Every byte of the caller's frame that can be live is pushed onto the frame stack, one run-time call per byte: `LDA slot` / `JSR rt_frame.push`. That is the caller's parameters (in its class block, if it is a member), its locals declared so far, and the temporaries in use other than the arguments just worked out and the copy of a pointer called through.
+2. Every byte of the caller's frame that can be live is pushed onto the frame stack by one run-time call, `JSR rt_frame.push`, followed by the list of those bytes. That is the caller's parameters (in its class block, if it is a member), its locals declared so far, and the temporaries in use other than the arguments just worked out and the copy of a pointer called through.
 3. The argument temporaries are moved into the callee's parameters (`LDA` / `STA`), which may be the caller's own; those of the parameters passed in registers are loaded into Y, X and A, last.
 4. `JSR` to the callee, or to the `JMP (pointer)`.
-5. The saved bytes are popped in reverse order: `JSR rt_frame.pop_y` / `STY slot`. `pop_y` leaves A, X and the carry flag as they are, so the results are where a direct call leaves them.
+5. `JSR rt_frame.pop`, followed by a `JSR` to the list, puts the saved bytes back: `pop` reads the list's address from that `JSR`'s operand and returns past it, so the list is never run. It leaves A, X and the carry flag as they are, so the results are where a direct call leaves them.
 
 ```
         LDA nest.a          ; the arguments, into temporaries
         SBC #1 ...
         STA nest.$t3
         STX nest.$t4        ; b is still in X
-        LDA nest.a          ; push the caller's frame
-        JSR rt_frame.push
-        LDA nest.b
-        JSR rt_frame.push
-        LDX nest.$t4        ; the arguments, into X and A
+        JSR rt_frame.push   ; push the caller's frame: the list follows
+.list   LDA #2              ; the bytes the list pushes
+        LDA nest.a-5,Y      ; a byte: nest.a, read at Y = 5
+        LDA nest.b-8,Y      ; another, at Y = 8
+        LDX nest.$t4        ; push returns here; the arguments, into X and A
         LDA nest.$t3
         JSR nest
-        JSR rt_frame.pop_y  ; and the frame back, last byte first
-        STY nest.b
-        JSR rt_frame.pop_y
-        STY nest.a          ; the result is still in A
+        JSR rt_frame.pop    ; and the frame back, by the list
+        JSR .list           ; that pop reads and skips: the result is still in A
 ```
 
-Calls into a `recursive` function from outside, calls from it to functions that are not `recursive`, calls through unmarked function types, and everything else inside its body are unchanged: variables keep their fixed addresses and fast addressing. A saving call is never made a `JMP`, because the pops follow it.
+**The list** is part of the caller's code, after the `JSR`, made of instructions that nothing runs: `push` reads it through its return address and returns past it. Its first instruction, `LDA #n`, which has a label of the function, gives the bytes it pushes; then one entry for each word of the frame and for the last byte of a slot of odd size: `ORA addr,Y` (`$19`) for two bytes, `LDA addr,Y` (`$B9`) for one. The operand is the address less the entry's index in the list (counted from the `JSR`'s last byte to the operand's high byte), a fix-up of kind 1 with that as its addend, so that `rt_frame` reaches the slot through `(pointer),Y` with the index it has in Y anyway. A list has at most 84 entries, so that every index is below 256; a larger frame has a `JSR` and a list for each 84 entries, and as many `JSR rt_frame.pop` and `JSR` to a list after the call, the last list first. Being code, the list is wherever its caller is: in the caller's bank, read while that bank is mapped (`push` is called from it, and `pop` runs after the far call has mapped it again), and in each copy of the caller that another context has, naming that copy's slots ([`object-format.md`](object-format.md) needs nothing new: the operands are ordinary fix-ups of the function's own slots, and `abs,Y` instructions never shrink).
 
-**Cost.** Each saved byte costs 12 bytes of code at each saving call (10 when the slot is in zero page) and about 40 cycles: `LDA` and `JSR push` before, `JSR pop_y` and `STY` after. Each argument byte costs one `LDA` / `STA` more than a direct call's (one `STA` more for a register argument). The evaluator in `tests/cases/e2e/rec_eval.lth`, whose functions save 3 to 6 bytes at a call, saves 12 bytes for each level of parentheses.
+`push` takes the bytes the list needs on the frame stack at once, writes them from the top down, and returns past the list; `pop` puts the bytes back into their slots, and then frees them on the stack. Both go through the entries in order and the stack from the top down, so the frame stack holds the frames and nothing else. The `JSR` to the list is never made a `JMP`, because `pop` returns past it.
 
-**The frame stack** is the module `rt_frame` (`lathe/rt/rt_frame.lth`), which the compiler imports by itself when a module has a saving call: its `IMP` record tells the build which module to add. It is 256 bytes of main memory, of which 255 hold frames; its comment says how to make it larger. A push that would overflow it stores nothing and stops the program, with interrupts off, in the endless loop at `rt_frame.overflow`, which the map names. Each level of recursion also takes two bytes of the 6502's own stack for its `JSR`, so a recursion of more than about 120 levels runs out of that first, whatever its frames. An interrupt handler can use the frame stack too: it pops what it pushes before it returns, and the routines read and write the stack pointer once each.
+Calls into a `recursive` function from outside, calls from it to functions that are not `recursive`, calls through unmarked function types, and everything else inside its body are unchanged: variables keep their fixed addresses and fast addressing.
+
+**Cost.** A saving call costs 11 bytes of code for its three `JSR`s and the list's first instruction and 3 for each word or odd byte of the frame: 11 + 3 × entries. (Pushed and popped one byte at a time, as before 2026-11-17, it was 12 bytes a byte, 10 with the slot in zero page: the list is smaller for every frame but one of a single byte, 14 bytes against 12, which is not worth a second form in the compiler.) In cycles, the two routines take about 190 a call and about 120 for each word and 100 for each byte, push and pop together, against about 75 for each byte before. The compiler compiling itself, which makes about 58,000 saving calls of 5.4 bytes on average, takes about 0.1 % more cycles than before on Wendy 2 and on the BBC ([`spikes.md`](spikes.md), "Built: saving calls through a list"). Each argument byte costs one `LDA` / `STA` more than a direct call's (one `STA` more for a register argument). The evaluator in `tests/cases/e2e/rec_eval.lth`, whose functions save 3 to 6 bytes at a call, saves 5 to 8 bytes on the frame stack for each level of parentheses.
+
+**The frame stack** is the module `rt_frame` (`lathe/rt/rt_frame.lth`), which the compiler imports by itself when a module has a saving call: its `IMP` record tells the build which module to add. It is 256 bytes of main memory, of which 255 hold frames; its comment says how to make it larger. A push that would overflow it stores nothing and stops the program, with interrupts off, in the endless loop at `rt_frame.overflow`, which the map names. Each level of recursion also takes two bytes of the 6502's own stack for its `JSR`, so a recursion of more than about 120 levels runs out of that first, whatever its frames. An interrupt handler can use the frame stack too: it pops what it pushes before it returns; `push` takes its bytes before it writes them and `pop` gives them back after it has read them, each with one write of the stack pointer, so a handler that comes in between pushes above them. (The routines of one byte that came before wrote a byte before taking it and gave a byte back before reading it, and a handler that came in between could change it: `tests/cases/e2e-michael/irq_recursive.lth` found it.) `push` and `pop` keep their pointers in their own frames, two words and a byte in zero page each, of which a handler's context has copies; `rt_frame.sp` is in zero page too.
 
 Rules that follow:
 
@@ -297,7 +299,7 @@ Written in Lathe with assembly where needed, and linked function by function lik
 | Area | Routines |
 |---|---|
 | Arithmetic | multiply, divide and remainder for 8 and 16 bits; variable shifts for 16 bits (`lathe/rt/rt_math.lth`, below) |
-| Recursion | `rt_frame`: push and pop of one byte of a frame (see Recursion) |
+| Recursion | `rt_frame`: push and pop of a frame through a list (see Recursion) |
 | Far calls | one routine per banking or overlay scheme, supplied by the environment module |
 | Start-up | set the stack, load the banks (a banked program), give the variables that have initial values those values (`$init`), call `main`, exit; nothing else is cleared or set |
 | Environment | a module per machine wrapping its console, file and banking services |
@@ -348,7 +350,7 @@ Spike S3 hand-compiled four existing routines by these rules and got 1.47 times 
 - Turn a loop tested at the top into one tested at the bottom.
 - Keep a loop counter in X or Y when the body allows.
 
-The 65C02's extra instructions (`STZ`, `BRA`, `INC A`, `PHX` and the rest) are used when the environment says the CPU has them.
+When the environment says the CPU is a 65C02, the compiler uses its own instructions only in the entry and exit of an `interrupt` function (`PHX`, `PHY`, `PLY`, `PLX`, and no `CLD`), and an `asm` block may use all of them. Everything else it generates is the NMOS 6502's: `STZ`, `BRA`, `INC A` and `(zp)` are not used, though they would save about 2 KB of the two tools ([`spikes.md`](spikes.md), "Size for a 128 KB ROM: the generated code, measured").
 
 ## Known costs
 

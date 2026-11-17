@@ -69,6 +69,13 @@ class FrameStack(unittest.TestCase):
         build.build(self.program(COUNT % 85), image, keep=os.path.join(self.dir, 'work'))
         self.assertEqual(build.run_program(image), (0, bytes([85]), b''))
 
+    def test_a_level_more_overflows(self):
+        image = os.path.join(self.dir, 'deep.bin')
+        work = os.path.join(self.dir, 'work')
+        build.build(self.program(COUNT % 86), image, 'michael', keep=work)
+        with self.assertRaises(boards.RunError):
+            build.run_program(image, 'michael')
+
     def test_a_push_too_many_stops_the_program_in_the_overflow_loop(self):
         image = os.path.join(self.dir, 'deep.bin')
         work = os.path.join(self.dir, 'work')

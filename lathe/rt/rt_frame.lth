@@ -1,28 +1,49 @@
 ; The frame stack of recursive functions (lathe/docs/code-model.md, "Recursion").
 ;
 ; A call from a `recursive` function to a `recursive` function saves the caller's frame
-; here: before the call, `LDA slot` / `JSR rt_frame.push` for each byte; after it,
-; `JSR rt_frame.pop_y` / `STY slot` for each, last byte first. The compiler writes the calls and
+; here: before the call, `JSR rt_frame.push` and the list of the frame's bytes; after it,
+; `JSR rt_frame.pop` and a `JSR` to the list. The compiler writes the calls and the lists, and
 ; imports this module itself when a module has such a call.
+;
+; The list follows the JSR in the caller's code, so it is wherever the caller is, in a bank or
+; in the copy of another context, and readable whenever the caller runs. It is made of
+; instructions that nothing runs (push returns past it), which the linker reads as it
+; reads any code:
+;
+;     LDA #n              ; n: the bytes the list pushes
+;     LDA slot-i,Y        ; an entry of one byte (opcode $B9, bit 7 set)
+;     ORA slot-i,Y        ; an entry of two bytes, slot and slot+1 (opcode $19, bit 7 clear)
+;
+; where i is the index of the entry's last byte from the JSR's last byte: with Y = i,
+; `(slot),Y` is the slot. At most 84 entries (every index below 256); a larger frame has a list
+; and a JSR for each 84.
+;
+; push takes n bytes of the stack at once, writes the bytes from the top down, and returns past
+; the list. pop, after the call, reads the list's address from the operand of the JSR after its
+; own (which it skips: the list is never run), puts the bytes back and gives the n bytes back.
+; Both go through the entries in order and the stack from the top down, so the stack holds the
+; frames and nothing else.
 ;
 ; The stack is SIZE bytes of main memory, of which SIZE - 1 can be used. SIZE can be anything
 ; from 2 to 256: `sp` is a byte, the index of the next free byte. A larger stack needs a
-; second page and a word index (push and pop_y would then step a zero page pointer), at about
-; twice the cost per byte; until a program needs it, a deeper recursion needs a smaller frame.
+; second page and a word index; until a program needs it, a deeper recursion needs a smaller
+; frame.
 ;
 ; Overflow: a push that would fill the stack does not store anything. It stops the program
 ; with interrupts off in the loop at `overflow`, which the map file names, so that nothing
 ; past the stack is ever overwritten and a run that never ends shows where it is.
 ;
-; An interrupt handler can use the stack too: each routine reads and writes `sp` once, and a
-; handler pops everything it pushes before it returns.
+; An interrupt handler can use the stack too: push takes its bytes before it writes them
+; and pop gives them back after it has read them, each with one write of `sp`, and a
+; handler pops everything it pushes before it returns. The routines' own pointers are slots of
+; their frames, which a handler's context has copies of.
 module rt_frame
 
 const SIZE = 256
 const LIMIT = SIZE - 1          ; the most bytes the stack holds
 
 var stack: [SIZE]byte
-var sp: byte = 0
+var sp: byte zp = 0             ; in zero page: the routines are judged by their written size
 
 ; Where a program stops when the stack is full.
 pub asm func overflow()
@@ -31,28 +52,124 @@ pub asm func overflow()
   JMP .stop
 end
 
-; Push the byte in A. Changes Y and the flags.
-pub asm func push(v: byte in a)
-  LDY sp
-  CPY #LIMIT
-  BEQ .full
-  STA stack,Y
-  INY
-  STY sp
-  RTS
+; Push the bytes of the list that follows the JSR to here, and return past the list. Changes
+; A, X, Y and the flags.
+pub func push()
+  var list: ^byte               ; the JSR's last byte: the list is after it
+  var slot: ^byte               ; an entry's address, less its index
+  var stop: byte zp             ; sp as it was: the last byte goes just above it
+  asm
+    PLA
+    STA list
+    PLA
+    STA list+1
+    LDY #2
+    LDA sp
+    STA stop
+    CLC
+    ADC (list),Y                ; the frame's bytes
+    BCS .full
+    STA sp                      ; taken before they are written
+    TAX
+    INY
+.entry
+    LDA (list),Y                ; the entry's opcode
+    ASL A                       ; C: one byte
+    INY
+    LDA (list),Y
+    STA slot
+    INY
+    LDA (list),Y
+    STA slot+1
+    LDA (slot),Y
+    DEX
+    STA stack,X
+    INY
+    BCS .next
+    LDA (slot),Y                ; the second byte of a word
+    DEX
+    STA stack,X
+.next
+    CPX stop
+    BNE .entry
+    TYA                         ; C is set (X = stop): return to the list's address + Y
+    SBC #2
+    ADC list
+    TAY
+    LDA list+1
+    ADC #0
+    PHA
+    TYA
+    PHA
+    RTS
 .full
-  JMP overflow
+    JMP overflow
+  end
 end
 
-; Pop the byte pushed last into Y. A, X and the carry flag are left as they were: they hold
-; the results of the call the frame was saved around.
-pub asm func pop_y(): byte in y
-  PHA
-  LDY sp
-  DEY
-  STY sp
-  LDA stack,Y
-  TAY
-  PLA
-  RTS
+; Pop what the push of the list after the JSR that follows the JSR to here pushed, and return
+; past that JSR. A, X and the carry flag are left as they were: they hold the results of the call
+; the frame was saved around.
+pub func pop()
+  var list: ^byte
+  var slot: ^byte
+  var stop: byte zp             ; sp before the push: where the bytes end
+  asm
+    PHP
+    PHA
+    TXA
+    PHA
+    TSX
+    CLC
+    LDA $0104,X                 ; the JSR's last byte
+    STA slot
+    ADC #3                      ; return past the JSR after it, which nothing runs
+    STA $0104,X
+    LDA $0105,X
+    STA slot+1
+    ADC #0
+    STA $0105,X
+    LDY #2
+    LDA (slot),Y                ; its operand, the list's first instruction, less 1: the last
+    SEC                         ; byte of the JSR before it, as push has it
+    SBC #1
+    STA list
+    INY
+    LDA (slot),Y
+    SBC #0
+    STA list+1
+    LDY #2
+    LDA sp
+    TAX
+    SEC
+    SBC (list),Y
+    STA stop
+    INY
+.entry
+    LDA (list),Y
+    ASL A
+    INY
+    LDA (list),Y
+    STA slot
+    INY
+    LDA (list),Y
+    STA slot+1
+    DEX
+    LDA stack,X
+    STA (slot),Y
+    INY
+    BCS .next
+    DEX
+    LDA stack,X
+    STA (slot),Y
+.next
+    CPX stop
+    BNE .entry
+    STX sp                      ; given back after they are read
+    PLA
+    TAX
+    PLA
+    PLP
+    RTS
+  end
 end
