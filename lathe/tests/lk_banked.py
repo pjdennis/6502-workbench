@@ -46,11 +46,9 @@ def linker_files(image):
 
 
 def bank_names(env):
-    with open(env.path) as f:
-        for line in f:
-            p = line.split(';')[0].split()
-            if len(p) >= 5 and p[0].lower() == 'bank':
-                yield p[4]
+    for _, p in mapenv.read_entries(env.path):
+        if len(p) >= 5 and p[0].lower() == 'bank':
+            yield p[4]
 
 
 def files_of(d, skip=()):

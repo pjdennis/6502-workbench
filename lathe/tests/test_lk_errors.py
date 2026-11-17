@@ -166,6 +166,42 @@ class EnvironmentFile(ErrorTest):
         self.assertEqual((r.status, r.errors), (0, ''))
         self.assertEqual(r.map_text, 'F 0200 0005 $start\nF 0205 0001 t.main\n')
 
+    def test_when_and_unless(self):
+        # `when NAME ENTRY` reads ENTRY if NAME is defined above and not 0, `unless NAME ENTRY`
+        # if it is 0; nested, each must hold. An entry skipped is skipped completely: a second
+        # code entry, a bad one, a place of a module not linked.
+        base = ('cpu 6502\nzeropage $00 $FF\ndata $C000 $EFFF\nexit return\ndefine OFF 0\n'
+                'define On\ndefine TWO $2\n')
+        for lines, start in (('when ON code $0300 $BFFF\nunless on code $0400 $BFFF\n', 0x0300),
+                             ('unless off code $0300 $BFFF\nWHEN Off code $0400 $BFFF\n', 0x0300),
+                             ('when two code $0500 $BFFF\nwhen off code nonsense\n', 0x0500),
+                             ('code $0600 $BFFF\nwhen OFF code $0400 $BFFF\nwhen off place x W 1\n', 0x0600),
+                             ('when on when two unless off code $0700 $BFFF\n'
+                              'when on when off code $0400 $BFFF\n', 0x0700),
+                             ('code $0800 $BFFF\nunless on when nothing code\n', 0x0800),
+                             ('define two 0\nwhen two code $0400 $BFFF\nunless two code $0900 $BFFF\n', 0x0900)):
+            with self.subTest(lines=lines):
+                r = link([simple()], base + lines)
+                self.assertEqual((r.status, r.errors), (0, ''))
+                self.assertEqual(r.map_text, 'F %04X 0005 $start\nF %04X 0001 t.main\n' % (start, start + 5))
+
+    def test_when_and_unless_errors(self):
+        for lines, number, text in (
+                ('when\n', 3, 'environment file: bad entry'),
+                ('unless OFF\n', 3, 'environment file: bad entry'),
+                ('when OFF ; exit loop\n', 3, 'environment file: bad entry'),
+                ('unless OFF exit\n', 3, 'environment file: bad entry'),
+                ('unless OFF when\n', 3, 'environment file: bad entry'),
+                ('define\n', 3, 'environment file: bad entry'),
+                ('define X 1 2\n', 3, 'environment file: bad entry'),
+                ('define X $10000\n', 3, 'environment file: bad entry'),
+                ('when ON stack $FF\n', 42, 'environment file: no such window, bank, overlay or define: on'),
+                ('when on stack $FF\ndefine ON 1\n', 42, 'environment file: no such window, bank, overlay or define: on'),
+                ('unless OFF when ON stack $FF\n', 42, 'environment file: no such window, bank, overlay or define: on'),
+                ('unless OFF stack $FF\nstack $FF\n', 3, 'environment file: bad entry')):
+            with self.subTest(lines=lines):
+                self.assertError(link([simple()], ENV + 'define OFF 0\n' + lines), number, text)
+
 
 class ObjectFiles(ErrorTest):
     def test_wrong_version(self):

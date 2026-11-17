@@ -255,12 +255,22 @@ def counting_copies(where, argument):
         f.write(text)
     with open(ENV) as f:
         env = f.read()
-    split = int(re.search(r'(?m)^data\s+\$(\w+)', env).group(1), 16) + COUNTING_ROOM
-    env = re.sub(r'(?m)^code\s.*$', 'code      $1900 $%04X' % (split - 1), env)
-    env = re.sub(r'(?m)^data\s+\$\w+', 'data      $%04X' % split, env)
     with open(os.path.join(where, 'counting.env'), 'w') as f:
-        f.write(env)
+        f.write(moved_split(env, COUNTING_ROOM))
     return os.path.join(where, 'counting.env')
+
+
+# The developer's form's `code` and `data` entries: in lathec-bbc.env `unless ROMFORM` ones.
+SPLIT_CODE = re.compile(r'(?mi)^((?:unless\s+ROMFORM\s+)?)code\s.*$')
+SPLIT_DATA = re.compile(r'(?mi)^((?:unless\s+ROMFORM\s+)?)data\s+\$(\w+)')
+
+
+def moved_split(env, room):
+    """The text of a tool's environment file with the split between code and data of its
+    developer's form moved up by room bytes."""
+    split = int(SPLIT_DATA.search(env).group(2), 16) + room
+    env = SPLIT_CODE.sub(lambda m: m.group(1) + 'code      $1900 $%04X' % (split - 1), env)
+    return SPLIT_DATA.sub(lambda m: m.group(1) + 'data      $%04X' % split, env)
 
 
 @unittest.skipUnless(HAVE_TOOLS, 'emulator or compiler missing')

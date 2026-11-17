@@ -45,11 +45,9 @@ COUNTING_EXIT = '''  h = open_out("farcalls")            ; the far calls, for la
 def placement(env_path):
     """{module: bank} of the environment's `place` entries; other modules are fixed (0)."""
     found = {}
-    with open(env_path) as f:
-        for line in f:
-            p = line.split(';')[0].split()
-            if len(p) >= 4 and p[0].lower() == 'place':
-                found[p[1].lower()] = int(p[3])
+    for _, p in lk_banked.mapenv.read_entries(env_path):
+        if len(p) >= 4 and p[0].lower() == 'place':
+            found[p[1].lower()] = int(p[3])
     return found
 
 

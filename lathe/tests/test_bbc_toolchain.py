@@ -359,11 +359,8 @@ def build_counting(where):
         f.write(text.replace(old, '  h = open_out("COUNTS")'))
     with open(LINKER_ENV) as f:
         env = f.read()
-    split = int(re.search(r'(?m)^data\s+\$(\w+)', env).group(1), 16) + selfhost.COUNTING_ROOM
-    env = re.sub(r'(?m)^code\s.*$', 'code      $1900 $%04X' % (split - 1), env)
-    env = re.sub(r'(?m)^data\s+\$\w+', 'data      $%04X' % split, env)
     with open(os.path.join(where, 'llink.env'), 'w') as f:
-        f.write(env)
+        f.write(selfhost.moved_split(env, selfhost.COUNTING_ROOM))
     image = os.path.join(where, 'llink.bin')
     build.build(os.path.join(where, 'link.lth'), image, env=os.path.join(where, 'llink.env'),
                 keep=os.path.join(where, 'work'))

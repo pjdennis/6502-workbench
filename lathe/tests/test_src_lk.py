@@ -1183,6 +1183,25 @@ BAD_ENVS = [
     'switch W bank $F000 $1F\nbank W 1 $11 B1.BIN\n' + ''.join('place m%d W 1\n' % i for i in range(33)),
     'zeropage $00 $FF\ncode $0200 $7FFF\ndata $C000 $EFFF\nexit loop\nwindow W $8000 $9FFF\n'
     'switch W bank farcall $1F\n',
+] + [
+    # `when NAME ENTRY` and `unless NAME ENTRY`: read, skipped, and their errors.
+    'zeropage $00 $FF\ndata $C000 $EFFF\nexit loop\ndefine OFF 0\ndefine On\ndefine TWO $2\n' + lines
+    for lines in ('when ON code $0300 $7FFF\nunless on code $0400 $7FFF\n',
+                  'unless off code $0300 $7FFF\nWHEN Off code $0400 $7FFF\nwhen off place x W 1\n',
+                  'when two code $0500 $7FFF\nwhen off code nonsense\nwhen off when nothing\n',
+                  'when on when two unless off code $0700 $7FFF\nwhen on when off code $0400 $7FFF\n',
+                  'define two 0\nwhen two code $0400 $7FFF\nunless two code $0900 $7FFF\n',
+                  'code $0200 $7FFF\nwhen\n', 'code $0200 $7FFF\nunless OFF\n',
+                  'code $0200 $7FFF\nwhen OFF ; exit stop\n', 'code $0200 $7FFF\nunless OFF when\n',
+                  'code $0200 $7FFF\ndefine\n', 'code $0200 $7FFF\ndefine X 1 2\n',
+                  'code $0200 $7FFF\ndefine X $10000\n', 'code $0200 $7FFF\nwhen THREE stack $FF\n',
+                  'code $0200 $7FFF\nwhen three stack $FF\ndefine THREE 1\n',
+                  'code $0200 $7FFF\nunless OFF when THREE stack $FF\n',
+                  'code $0200 $7FFF\nunless OFF code $0200 $7FFF\n',
+                  # Sixteen defines (three above), and a seventeenth.
+                  'code $0200 $7FFF\n' + ''.join('define D%d %d\n' % (i, i & 1) for i in range(13))
+                  + 'when d12 stack $FF\nwhen d11 stack $FE\nunless d0 more data $F000 $F0FF\n',
+                  'code $0200 $7FFF\n' + ''.join('define D%d\n' % i for i in range(14)) + 'when d0 stack $F0\n')
 ]
 
 BANKS = ('cpu 6502\nzeropage $00 $FF\ncode $0200 $7FFF\ndata $C000 $EFFF\nexit loop\nwindow W $8000 $9FFF\n'

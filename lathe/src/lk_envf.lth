@@ -23,8 +23,14 @@
 ;     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
 ;     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
 ;
+;     define    NAME 1                ; for the compiler (`#if NAME`) and for `when` and `unless`
+;     when      NAME ENTRY            ; ENTRY, if NAME is defined above and not 0; else nothing
+;     unless    NAME ENTRY            ; ENTRY, if NAME is defined above and 0; else nothing
+;
 ; A window, its banks or overlays and the switch must come before the entries that name them.
-; Names (windows, modules, regions) are folded to lower case; file names are kept as written.
+; Names (windows, modules, regions, defines) are folded to lower case; file names are kept as
+; written. An entry that `when` or `unless` skips is not read at all; ENTRY may be another `when`
+; or `unless`. The latest `define` of a name counts.
 ;
 ; Entries this version does not know are skipped, because the file is to grow (architecture.md)
 ; and the compiler reads it too. An entry given twice is an error, and so is `start`, which an
@@ -39,6 +45,8 @@
 ;   |                                      |                                   | the last word   |
 ;   | read_word used before it is defined  | a forward declaration             | declare before  |
 ;   |                                      |                                   | use             |
+;   | condition's search: `while True` and | `loop ... until`                  | the tightest    |
+;   | `break`                              |                                   | loop            |
 ;   | the chains of `elif which == W_...`  | `case which`                      | one selector    |
 ;   | bank_number(), a byte's checks on a  | the number checked as a word,     | the type is the |
 ;   | number (mask, value): ints           | then stored as a byte             | storage         |
@@ -54,8 +62,8 @@ import lk_op (CPU_6502, CPU_65C02)
 import sys (close, read)
 
 ; The words the linker knows, each followed by a space; a word's number is its place, from 1.
-const WORDS: [153]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
-  "window switch bank overlay place region more farcall fixed rom "
+const WORDS: [172]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
+  "window switch bank overlay place region more farcall fixed rom define when unless "
 const W_CPU = 1
 const W_ZEROPAGE = 2
 const W_CODE = 3
@@ -82,6 +90,9 @@ const W_MORE = 23
 const W_FARCALL = 24
 const W_FIXED = 25
 const W_ROM = 26
+const W_DEFINE = 27
+const W_WHEN = 28
+const W_UNLESS = 29
 
 const HAVE_ZEROPAGE = 1
 const HAVE_CODE = 2
@@ -157,6 +168,12 @@ pub var region_count: byte = 0
 pub var region_name: [MAX_REGIONS]word
 pub var region_bank: [MAX_REGIONS]byte  ; the bank + 1, or 0 for fixed memory
 pub var region_used: byte = 0       ; lk_scan: a bank + 1 that a variable or constant is in, or 0
+
+const MAX_DEFINES = 16
+var define_count: byte = 0
+var define_name: [MAX_DEFINES]word      ; a define's name + 1
+var define_word: [MAX_DEFINES]byte      ; W_WHEN if it is not 0, else W_UNLESS: the word that
+                                        ; reads the entries it names
 
 pub const TOKEN_SIZE = 64
 pub var token: [TOKEN_SIZE]byte ; the word being read, in lower case
@@ -679,6 +696,47 @@ func farcall_entry()
   end_of_line()
 end
 
+; `define NAME [NUMBER]`.
+func define_entry()
+  var reads: byte
+  if define_count == MAX_DEFINES then
+    lk_err.fail(lk_err.E_ENV_FULL)
+  end
+  name_token()
+  define_name[define_count] = hold_token()
+  reads = W_WHEN
+  if read_token() and token_number() == 0 then
+    reads = W_UNLESS
+  end
+  define_word[define_count] = reads
+  define_count += 1
+  end_of_line()
+end
+
+; For a line whose first word is in token: false if `when` or `unless` skips its entry; else
+; true, with the entry's first word in token.
+func condition(): bool
+  var which: byte
+  var i: byte
+  which = keyword()
+  while which == W_WHEN or which == W_UNLESS do
+    name_token()
+    i = define_count
+    loop
+      if i == 0 then
+        fail_token(lk_err.E_ENV_UNKNOWN)
+      end
+      i -= 1
+    until is_token(define_name[i])
+    name_token()
+    if define_word[i] != which then
+      return false
+    end
+    which = keyword()
+  end
+  return true
+end
+
 func overlaps(lo1: word, hi1: word, lo2: word, hi2: word): bool
   return not (hi1 < lo2 or hi2 < lo1)
 end
@@ -871,6 +929,8 @@ func entry()
     farcall_entry()
   of W_ROM
     rom_entry()
+  of W_DEFINE
+    define_entry()
   end
 end
 
@@ -915,7 +975,7 @@ pub func read()
   handle = lk_file.open_in(lk_file.ARG_ENV)
   next_char()
   while not at_end do
-    if read_token() then
+    if read_token() and condition() then
       entry()
     end
     skip_line()

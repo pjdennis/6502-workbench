@@ -59,7 +59,7 @@ class EnvironmentEntries(ErrorTest):
                             ('place t OTHER 1\n', 'other'), ('place t WIN 2\n', 'win 2'),
                             ('region R WIN 3\n', 'win 3'), ('region R OTHER 1\n', 'other')):
             line = self.assertError(link([simple()], ENV + WINDOW + extra), 42,
-                                    'environment file: no such window, bank or overlay')
+                                    'environment file: no such window, bank, overlay or define')
             self.assertTrue(line.endswith(': ' + name), line)
 
     def test_a_name_given_twice(self):

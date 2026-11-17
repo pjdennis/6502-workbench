@@ -101,8 +101,7 @@ def read_env_banks(path):
     """(window first, window last, [Bank]) of an environment file's `window`, `bank` and `rom`
     entries (the window named in its `bank` entries)."""
     windows, banks = {}, []
-    with open(path) as fh:
-        lines = list(mapenv._lines(fh.read()))
+    lines = mapenv.read_entries(path)
     for n, words in lines:
         key = words[0].lower()
         if key == 'window' and len(words) == 4:
@@ -139,13 +138,12 @@ def load_program(p):
         if lo <= TAIL[1] and hi >= TAIL[0]:
             raise ImageError(f'{where}: its {name} range ${lo:04X}-${hi:04X} takes $0700-$07FF, where '
                              f'the tail and the stub are while it runs')
-    with open(p.env) as fh:
-        for n, words in mapenv._lines(fh.read()):
-            if words[0].lower() == 'more' and len(words) == 4:
-                lo, hi = mapenv._number(words[2], p.env), mapenv._number(words[3], p.env)
-                if lo <= TAIL[1] and hi >= TAIL[0]:
-                    raise ImageError(f'{where}: its more data range ${lo:04X}-${hi:04X} takes '
-                                     f'$0700-$07FF, where the tail and the stub are while it runs')
+    for n, words in mapenv.read_entries(p.env):
+        if words[0].lower() == 'more' and len(words) == 4:
+            lo, hi = mapenv._number(words[2], p.env), mapenv._number(words[3], p.env)
+            if lo <= TAIL[1] and hi >= TAIL[0]:
+                raise ImageError(f'{where}: its more data range ${lo:04X}-${hi:04X} takes '
+                                 f'$0700-$07FF, where the tail and the stub are while it runs')
     if not env.banked():
         p.banks = []
         return p
@@ -393,28 +391,18 @@ def rom_env(source, out, first=1):
     of the module ($8n) renumbered, in the order of the `bank` lines, as banks first, first + 1,
     ... of the image, and `rom` for each. Returns the next bank number free.
 
-    A line `;rom ENTRY` is an entry of the ROM form only (a comment to every other reader): a
-    `code` or `data` entry replaces the source's own, any other is added. The tools use it for
-    what the developer's form must keep fixed only because its start-up loads the banks, such as
-    `bbcfs`, which `bbc.open` calls (lathe/docs/bbc.md, "File names on the BBC")."""
+    The source defines ROMFORM as 0 and the result as 1, so that `when ROMFORM ENTRY` is an
+    entry of the ROM form only and `unless ROMFORM ENTRY` of the developer's form only
+    (configurations.md, "The environment file"). The tools use it for what the developer's form
+    must keep fixed only because its start-up loads the banks, such as `bbcfs`, which `bbc.open`
+    calls (lathe/docs/bbc.md, "File names on the BBC")."""
     lines, roms, n = [], [], first
     with open(source) as fh:
         for line in fh:
-            m = re.match(r';rom\s+(\S.*)$', line.rstrip('\n'))
-            if m:
-                entry = m.group(1)
-                key = entry.split()[0].lower()
-                same = [i for i, old in enumerate(lines)
-                        if old.split(';', 1)[0].split()[:1] == [key]] if key in ('code', 'data') else []
-                if len(same) > 1:
-                    raise ImageError(f'{source}: {key} is given twice')
-                if same:
-                    lines[same[0]] = entry + '\n'
-                else:
-                    lines.append(entry + '\n')
-                continue
             words = line.split(';', 1)[0].split()
-            if words and words[0].lower() == 'window' and len(words) == 4:
+            if [w.lower() for w in words[:2]] == ['define', 'romform'] and len(words) == 3:
+                line = re.sub(r'(?i)(romform\s+)\S+', r'\g<1>1', line, count=1)
+            elif words and words[0].lower() == 'window' and len(words) == 4:
                 line = f'window    {words[1]} ${FIRST:04X} ${LAST:04X}\n'
             elif words and words[0].lower() == 'bank' and len(words) in (4, 5) \
                     and mapenv._number(words[3], source) & 0x80:

@@ -24,6 +24,38 @@ def _lines(text):
             yield n, line.split()
 
 
+def entries(text, path='<env>'):
+    """(line number, words) of each entry of an environment file, comments and blank lines
+    left out. Every tool that reads an environment file reads its entries through this.
+
+    `when NAME ENTRY` is ENTRY if NAME is defined by a `define` above it and not 0, and nothing
+    otherwise; `unless NAME ENTRY` is the opposite; ENTRY may be another of them. An entry
+    skipped is skipped completely: it is not checked. The latest `define` of a name counts."""
+    defined = {}
+    for n, words in _lines(text):
+        where = f'{path}:{n}'
+        while words and words[0].lower() in ('when', 'unless'):
+            key = words[0].lower()
+            if len(words) < 2:
+                raise FormatError(f'{where}: {key} takes a define\'s name and an entry')
+            if words[1].lower() not in defined:
+                raise FormatError(f'{where}: {words[1]} is not defined above (by a define entry)')
+            if len(words) < 3:
+                raise FormatError(f'{where}: {key} takes a define\'s name and an entry')
+            words = words[2:] if defined[words[1].lower()] == (key == 'when') else None
+        if words is None:
+            continue
+        if words[0].lower() == 'define' and len(words) in (2, 3):
+            defined[words[1].lower()] = len(words) == 2 or _number(words[2], where) != 0
+        yield n, words
+
+
+def read_entries(path):
+    """entries() of the environment file at path."""
+    with open(path) as fh:
+        return list(entries(fh.read(), path))
+
+
 EXIT_CALL, EXIT_LOOP, EXIT_RETURN, EXIT_STOP = 'call', 'loop', 'return', 'stop'
 OUTPUT_IMAGE, OUTPUT_RAW = 'image', 'raw'
 KNOWN = ('cpu', 'zeropage', 'code', 'data', 'stack', 'exit', 'output')
@@ -64,7 +96,7 @@ def parse_env(text, path='<env>'):
     format grows; `start`, which an earlier version had, is an error."""
     env = Env(path=path)
     seen = set()
-    for n, words in _lines(text):
+    for n, words in entries(text, path):
         key, args, where = words[0].lower(), words[1:], f'{path}:{n}'
         if key in seen and key in KNOWN:
             raise FormatError(f'{where}: second {key} entry')

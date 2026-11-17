@@ -111,7 +111,7 @@ MESSAGES = (
     b"environment file: exit stop needs cpu 65c02\n"
     b"functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through\n"
     b"too many weights for slots of functions not read yet\n"
-    b"environment file: no such window, bank or overlay\n"
+    b"environment file: no such window, bank, overlay or define\n"
     b"environment file: named twice\n"
     b"a module the environment file places is not linked\n"
     b"code and data do not fit in a bank\n"

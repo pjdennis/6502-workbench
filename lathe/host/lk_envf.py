@@ -21,8 +21,14 @@
     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
 
+    define    NAME 1                ; for the compiler (`#if NAME`) and for `when` and `unless`
+    when      NAME ENTRY            ; ENTRY, if NAME is defined above and not 0; else nothing
+    unless    NAME ENTRY            ; ENTRY, if NAME is defined above and 0; else nothing
+
 A window, its banks or overlays and the switch must come before the entries that name them.
-Names (windows, modules, regions) are folded to lower case; file names are kept as written.
+Names (windows, modules, regions, defines) are folded to lower case; file names are kept as
+written. An entry that `when` or `unless` skips is not read at all; ENTRY may be another `when`
+or `unless`. The latest `define` of a name counts.
 
 Entries this version does not know are skipped, because the file is to grow (architecture.md)
 and the compiler reads it too. An entry given twice is an error, and so is `start`, which an
@@ -36,7 +42,7 @@ import lk_op
 
 # The words the linker knows, each followed by a space; a word's number is its place, from 1.
 WORDS = (b"cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
-         b"window switch bank overlay place region more farcall fixed rom ")
+         b"window switch bank overlay place region more farcall fixed rom define when unless ")
 W_CPU = 1
 W_ZEROPAGE = 2
 W_CODE = 3
@@ -63,6 +69,9 @@ W_MORE = 23
 W_FARCALL = 24
 W_FIXED = 25
 W_ROM = 26
+W_DEFINE = 27
+W_WHEN = 28
+W_UNLESS = 29
 
 HAVE_ZEROPAGE = 1
 HAVE_CODE = 2
@@ -138,6 +147,12 @@ region_count = 0
 region_name = [0] * MAX_REGIONS
 region_bank = bytearray(MAX_REGIONS)    # the bank + 1, or 0 for fixed memory
 region_used = 0                     # lk_scan: a bank + 1 that a variable or constant is in, or 0
+
+MAX_DEFINES = 16
+define_count = 0
+define_name = [0] * MAX_DEFINES     # a define's name + 1
+define_word = bytearray(MAX_DEFINES)    # W_WHEN if it is not 0, else W_UNLESS: the word that
+                                        # reads the entries it names
 
 TOKEN_SIZE = 64
 token = bytearray(TOKEN_SIZE)       # the word being read, in lower case
@@ -573,6 +588,41 @@ def farcall_entry():
     end_of_line()
 
 
+def define_entry():
+    """`define NAME [NUMBER]`."""
+    global define_count
+    if define_count == MAX_DEFINES:
+        lk_err.fail(lk_err.E_ENV_FULL)
+    name_token()
+    define_name[define_count] = hold_token()
+    reads = W_WHEN
+    if read_token() and token_number() == 0:
+        reads = W_UNLESS
+    define_word[define_count] = reads
+    define_count += 1
+    end_of_line()
+
+
+def condition():
+    """For a line whose first word is in token: False if `when` or `unless` skips its entry;
+    else True, with the entry's first word in token."""
+    which = keyword()
+    while which == W_WHEN or which == W_UNLESS:
+        name_token()
+        i = define_count
+        while True:
+            if i == 0:
+                fail_token(lk_err.E_ENV_UNKNOWN)
+            i -= 1
+            if is_token(define_name[i]):
+                break
+        name_token()
+        if define_word[i] != which:
+            return False
+        which = keyword()
+    return True
+
+
 def overlaps(lo1, hi1, lo2, hi2):
     return not (hi1 < lo2 or hi2 < lo1)
 
@@ -722,6 +772,8 @@ def entry():
         farcall_entry()
     elif which == W_ROM:
         rom_entry()
+    elif which == W_DEFINE:
+        define_entry()
 
 
 def check():
@@ -759,7 +811,7 @@ def read():
     handle = lk_file.open_in(lk_file.ARG_ENV)
     next_char()
     while not at_end:
-        if read_token():
+        if read_token() and condition():
             entry()
         skip_line()
     env.close(handle)

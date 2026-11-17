@@ -149,7 +149,20 @@ rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not 
 - `rom WIN N`, after the bank's entry, makes bank N read-only (a ROM): it takes code and constant data but never a variable, so the variables of a module placed there go to fixed memory, and a variable in a region there is error 60; its file is written, but it is not in `$banks`, since it is there already; its `W` line ends with ` rom`. An unknown bank is 42, a second `rom` for it 43, one in a window switched by `overlay` 3.
 - With no `place` entry, nothing is placed in a window and the output is what version 1 gives.
 
-`define` is for the compiler only: `build.py` passes it on as `-dNAME` or `-dNAME=NUMBER`, and the linker skips it, as it skips any entry it does not know. The linker writes the start-up code from the other entries (`../docs/object-format.md`, "Initial values and start-up"). `exit stop` ends it with `STP` (`$DB`), which only the 65C02 has: it needs `cpu 65c02`, or the link fails with error 39. `exit return ADDR` ends it with `RTS`, as `exit return` does, and starts it with `TSX` / `STX ADDR`, which keeps the stack pointer the program was entered with, so that it can return to its caller from any depth (the BBC: `lathe/rt/bbc.lth`); ADDR must be outside the zero page, code, data and more ranges (error 34).
+Conditional entries (2026-11-17; `../docs/configurations.md`, "As built"):
+
+```
+define    ROMFORM 0             ; bbcrom.rom_env makes it 1
+unless    ROMFORM code $1900 $519F
+when      ROMFORM code $1900 $4FFF
+when      ROMFORM place bbcfs WIN 5
+```
+
+- `when NAME ENTRY` is ENTRY if NAME is defined by a `define` above it and not 0 (a `define` without a number is true), and nothing otherwise; `unless NAME ENTRY` the opposite. ENTRY may be another `when` or `unless`. An entry skipped is not read at all, so it cannot be an error. The latest `define` of a name counts.
+- Errors: no name, or no entry after the name, 3; a name not defined above, 42; more than 16 `define` entries, 53.
+- The host tools read every environment file through `driver/mapenv.py`'s `entries`, which applies the conditions, so that they see the entries the linker reads.
+
+`define` is for the compiler, and for `when` and `unless`: `build.py` passes it on as `-dNAME` or `-dNAME=NUMBER`; the linker keeps its name and whether it is 0, and skips any entry it does not know. The linker writes the start-up code from the other entries (`../docs/object-format.md`, "Initial values and start-up"). `exit stop` ends it with `STP` (`$DB`), which only the 65C02 has: it needs `cpu 65c02`, or the link fails with error 39. `exit return ADDR` ends it with `RTS`, as `exit return` does, and starts it with `TSX` / `STX ADDR`, which keeps the stack pointer the program was entered with, so that it can return to its caller from any depth (the BBC: `lathe/rt/bbc.lth`); ADDR must be outside the zero page, code, data and more ranges (error 34).
 
 The output file:
 

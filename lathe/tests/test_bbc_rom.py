@@ -472,5 +472,47 @@ class RomModule(unittest.TestCase):
         self.assertIn('do not fit in the banks the programs leave free', text)
 
 
+class RomEnv(unittest.TestCase):
+    """bbcrom.rom_env: the ROM form's environment defines ROMFORM as 1, and its `when ROMFORM`
+    and `unless ROMFORM` entries choose what differs between the forms."""
+    DEV = ('cpu       6502\nzeropage  $00 $8F\ndefine    ROMFORM 0     ; bbcrom.rom_env makes it 1\n'
+           'unless    ROMFORM code $1900 $519F\nunless    ROMFORM data $51A0 $7BFF\n'
+           'when      ROMFORM code $1900 $4FFF\nwhen      ROMFORM data $5000 $7BFF\n'
+           'exit      return $0400\noutput    raw\n; a comment\nwindow    WIN $8000 $BFDF\n'
+           'switch    WIN bank farcall\nbank      WIN 1 $81 X1.BIN\nbank      WIN 32 $0C\n'
+           'place     m WIN 1\nwhen      ROMFORM place bbcfs WIN 1   ; fixed in the developer\'s form\n'
+           'place     n WIN 1\nfarcall   rt_bbc\n')
+
+    def test_the_forms(self):
+        with tempfile.TemporaryDirectory() as d:
+            dev, rom = os.path.join(d, 'dev.env'), os.path.join(d, 'rom.env')
+            with open(dev, 'w') as f:
+                f.write(self.DEV)
+            self.assertEqual(bbcrom.rom_env(dev, rom, 6), 7)
+            with open(rom) as f:
+                text = f.read()
+            self.assertEqual(text, self.DEV.replace('ROMFORM 0     ;', 'ROMFORM 1     ;')
+                             .replace('$8000 $BFDF', '$8050 $BFDF').replace('$81 X1.BIN', '$86 X1.BIN')
+                             + 'rom       WIN 1\n')
+            a, b = mapenv.read_env(dev), mapenv.read_env(rom)
+        self.assertEqual((a.code, a.data, a.places, a.defines[0]),
+                         ((0x1900, 0x519F), (0x51A0, 0x7BFF), ['m', 'n'], ('ROMFORM', 0)))
+        self.assertEqual((b.code, b.data, b.places, b.defines[0]),
+                         ((0x1900, 0x4FFF), (0x5000, 0x7BFF), ['m', 'bbcfs', 'n'], ('ROMFORM', 1)))
+
+    def test_the_tools_environments(self):
+        # The compiler's and the linker's: bbcfs is placed in the ROM form only, and the
+        # compiler's split differs.
+        for name, dev_split, rom_split in (('lathec-bbc.env', 0x51A0, 0x5000), ('linker-bbc.env', 0x4000, 0x4000)):
+            with self.subTest(env=name), tempfile.TemporaryDirectory() as d:
+                rom = os.path.join(d, name)
+                bbcrom.rom_env(os.path.join(ROOT, 'lathe', 'src', name), rom)
+                a, b = mapenv.read_env(os.path.join(ROOT, 'lathe', 'src', name)), mapenv.read_env(rom)
+                self.assertEqual((a.data[0], b.data[0]), (dev_split, rom_split))
+                self.assertNotIn('bbcfs', a.places)
+                self.assertEqual(set(b.places) - set(a.places), {'bbcfs'})
+                self.assertEqual((dict(a.defines)['ROMFORM'], dict(b.defines)['ROMFORM']), (0, 1))
+
+
 if __name__ == '__main__':
     unittest.main()

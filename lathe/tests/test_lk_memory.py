@@ -1,7 +1,7 @@
 """The linker's tables, laid out as the Lathe linker will lay them out, stay within a ceiling
 that only comes down (lk_memory_report.py: CEILING now, BUDGET the goal), but for the function
-limit's raise from 800 to 896 and the command file's words, which raised it by exactly what they
-cost."""
+limit's raise from 800 to 896, the command file's words and the environment file's defines,
+which raised it by exactly what they cost."""
 import os
 import sys
 import unittest
@@ -20,8 +20,10 @@ class Memory(unittest.TestCase):
         # 54,144 until the function limit went from 800 to 896 (2026-11-15), at 7 bytes a function
         # (fn_flags, fn_ctx, fn_class, fn_slot, fn_edge): 672 bytes more; and 512 for the words
         # of a command file (lk_file.arg_text, 2026-11-16), which the compiler's link on the BBC
-        # needs: its command line is longer than the 239 bytes the module copies.
-        self.assertLessEqual(lk_memory_report.CEILING, 54144 + 96 * 7 + 512)
+        # needs: its command line is longer than the 239 bytes the module copies; and 48 for the
+        # environment file's defines, which `when` and `unless` read (lk_envf.define_name and
+        # define_word, 16 of them, 2026-11-17).
+        self.assertLessEqual(lk_memory_report.CEILING, 54144 + 96 * 7 + 512 + 16 * 3)
         self.assertGreaterEqual(lk_memory_report.CEILING, lk_memory_report.BUDGET)
 
     def test_the_compiler_has_room_for_more_functions(self):

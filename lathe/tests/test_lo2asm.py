@@ -442,6 +442,40 @@ class TestEnv(unittest.TestCase):
             with self.assertRaisesRegex(mapenv.FormatError, pattern, msg=text):
                 self.parse(text)
 
+    def test_when_and_unless(self):
+        # `when NAME ENTRY` reads ENTRY if NAME is defined above and not 0, `unless` if it is 0;
+        # an entry skipped is skipped completely, a second `code` or a bad one alike.
+        base = ('cpu 6502\nzeropage $00 $FF\ndata $C000 $EFFF\nexit return\ndefine OFF 0\ndefine On\n'
+                'define Two $2\n')
+        for lines, code in (('when ON code $0300 $BFFF\nunless on code $0400 $BFFF\n', 0x0300),
+                            ('unless off code $0300 $BFFF\nwhen OFF code $0400 $BFFF\n', 0x0300),
+                            ('when two code $0500 $BFFF\nwhen off code nonsense\n', 0x0500),
+                            ('code $0600 $BFFF\nwhen OFF code $0400 $BFFF\n', 0x0600),
+                            ('when on when two unless off code $0700 $BFFF\n'
+                             'when on when off code $0400 $BFFF\n', 0x0700),
+                            ('code $0800 $BFFF\nunless on when nothing code\n', 0x0800)):
+            with self.subTest(lines=lines):
+                env = self.parse(base + lines)
+                self.assertEqual(env.code, (code, 0xBFFF))
+        env = self.parse(base + 'code $0200 $BFFF\nwhen on define LATER 1\nunless on define NOT 1\n'
+                         'when LATER place m W 1\nunless later place n W 1\n')
+        self.assertEqual(env.defines, [('OFF', 0), ('On', None), ('Two', 2), ('LATER', 1)])
+        self.assertEqual(env.places, ['m'])
+        self.assertEqual(self.parse(base + 'define on 0\ncode $0200 $BFFF\nwhen on place m W 1\n').places, [])
+
+    def test_when_and_unless_errors(self):
+        base = env_text() + 'define OFF 0\n'
+        for lines, pattern in (('when\n', r'x\.env:8: when takes a define\'s name and an entry'),
+                               ('unless OFF\n', r'x\.env:8: unless takes a define\'s name and an entry'),
+                               ('when OFF ; place m W 1\n', 'when takes a define\'s name and an entry'),
+                               ('when ON place m W 1\n', r'x\.env:8: ON is not defined above'),
+                               ('when on place m W 1\ndefine ON 1\n', 'on is not defined above'),
+                               ('unless OFF when ON place m W 1\n', 'ON is not defined above'),
+                               ('unless OFF when\n', 'when takes a define\'s name and an entry')):
+            with self.subTest(lines=lines):
+                with self.assertRaisesRegex(mapenv.FormatError, pattern):
+                    self.parse(base + lines)
+
 
 class TestMapCopies(unittest.TestCase):
     """F lines of function copies (lathe/host/README.md, "The map file")."""

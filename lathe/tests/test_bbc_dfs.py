@@ -55,9 +55,8 @@ def dfs_env(source, path, room=0):
     text, n = re.subn(r'(?m)^define\s+BBCFS\s+0\b', 'define    BBCFS 1', text)
     assert n == 1, source
     if room:
-        split = int(re.search(r'(?m)^data\s+\$(\w+)', text).group(1), 16) + room
-        text = re.sub(r'(?m)^code\s.*$', 'code      $1900 $%04X' % (split - 1), text)
-        text = re.sub(r'(?m)^data\s+\$\w+', 'data      $%04X' % split, text)
+        import test_bbc_selfhost
+        text = test_bbc_selfhost.moved_split(text, room)
     with open(path, 'w') as f:
         f.write(text)
     return path

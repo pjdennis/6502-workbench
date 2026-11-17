@@ -314,10 +314,11 @@ def link(objects, env=HOST_ENV, main=None, args=None, asm=False, command_file=No
             with open(map_path) as f:
                 map_text = f.read()
         code_lo = 0
-        for line in env.splitlines():
-            parts = line.split(';')[0].split()
-            if len(parts) > 1 and parts[0].lower() == 'code' and run.returncode == 0:
-                code_lo = int(parts[1][1:], 16) if parts[1][0] == '$' else int(parts[1])
+        if run.returncode == 0:
+            import mapenv
+            for _, parts in mapenv.entries(env):
+                if len(parts) > 1 and parts[0].lower() == 'code':
+                    code_lo = mapenv._number(parts[1], 'test.env')
         result = Result(run.returncode, run.stderr.decode('latin-1'), image, map_text, code_lo)
         for name in sorted(os.listdir(tmp)):
             if name not in known:
