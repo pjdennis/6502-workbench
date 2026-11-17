@@ -408,3 +408,353 @@ STUB_f  JSR fc_call
 - **Interrupts and banks work together** with the reentrant routine: in the timer test the handler ran, and made its far call, at least 256 times (the test requires it; the run's 3.9 million cycles at one interrupt every 307 suggest about 12,000), at many different points inside the main loop's far calls, without a fault. A 65C02-only routine (`PHX`, `PLY`) would save perhaps 10 to 15 cycles a call *(estimate)*; the NMOS routine was kept so that one routine serves every board.
 - **The emulator needs no change** for this: Wendy 2 with `--disk` has the file ports, and the default machine has host files ([`configurations.md`](configurations.md), "Where the banked compiler can run").
 - **Decided by this spike:** the `farcall` entry of the environment names a routine of one of two kinds, bank or overlay, with this 6-byte stub; `place` is by module. How the compiler's modules may call each other across banks is in [`configurations.md`](configurations.md).
+
+## Size for a 128 KB ROM: the source side, measured (2026-11-17)
+
+The goal: the compiler and the linker in one 128 KB ROM, eight banks of the module of 16,272 bytes each (`$8050-$BFDF`), 130,176 bytes, with each tool's resident part and constants stored there too. Measured with `lathe/tests/rom_report.py`, which builds the image as `test_bbc_toolchain.build_image` does (the tools' ROM forms, `BBCFS 0`) with `lathe/tests/lk_judged.py` as the linker (it links as `link.py` does and notes each bank's contents as the linker judges them, before zero page shrinks the code, and as placed). The image it builds is the one the tests build, byte for byte. What follows is the source side: what the tools' own source holds; what the compiler emits for each construct is not here.
+
+**The budget.** The image holds 138,512 bytes: the module's code and tables 495; the compiler 86,082 (banks 66,599, resident part 13,989 of which 1,746 are 291 stubs, `err`'s messages in slot 13 5,494); the linker 51,935 (banks 42,923, resident part 9,012 of which 456 are stubs). Eight banks are 8,336 bytes too few however they are packed, seven 24,608. The DFS build (`BBCFS 1`) adds about 880 more (`bbc.md`, "What it costs").
+
+**The packing.** A tool's bank file must fit a bank whole, and the linker judges it as written: the compiler's banks are 74,988 bytes so judged (66,599 placed: 4.61 banks), the linker's 50,684 (42,923: 3.11 banks). `bbcrom.py` puts the resident parts and the slot constants only in bank 0 and in banks no program's code is in, so the 53,198 bytes at the ends of the ten code banks hold nothing; the image takes banks 0 to 11.
+
+| Bank | Judged | Placed | Left, as judged |
+|---|---|---|---|
+| compiler 1: `expr` | 15,717 | 14,756 | 555 |
+| compiler 2: `gen`, `lathec` | 15,154 | 13,533 | 1,118 |
+| compiler 3: `decl`, `parts`, `out` | 15,441 | 13,314 | 831 |
+| compiler 4: `reg`, `inlines` | 14,367 | 12,533 | 1,905 |
+| compiler 5: the rest | 14,309 | 12,463 | 1,963 |
+| linker 1: `lk_envf`, `lk_err`, `lk_file`, `link` | 9,025 | 8,292 | 7,247 |
+| linker 2: `lk_scan`, `lk_name` | 10,714 | 8,910 | 5,558 |
+| linker 3: `lk_graph`, `lk_boot`, `lk_win` | 9,176 | 7,605 | 7,096 |
+| linker 4: `lk_alloc` | 10,285 | 8,307 | 5,987 |
+| linker 5: `lk_map`, `lk_emit`, `lk_place`, `lk_fix`, `lk_out`, `lk_op` | 11,484 | 9,809 | 4,788 |
+
+- *Measured:* letting `bbcrom.py` put the resident parts in the ends of the code banks too (the copy list has a bank for each entry, and the copier reads any bank) takes the image from twelve banks to eleven; the module's tables grow by 32 bytes, and `test_bbc_toolchain.py` passes. Not committed.
+- So eight banks need the linker's code in three banks and the module's own code in the end of a code bank (its service code reaches bank 0 by `LDA latch`; another bank would do as well). Three banks hold 48,816 judged bytes: the linker is 1,868 over before any packing loss. Ten banks of code would remain otherwise.
+- *Counted:* without the bytes it judges before shrinking (the rule of `lk_place` and [`configurations.md`](configurations.md), "Sizes": whether a program links cannot depend on what zero page promotion chose), the compiler's banks would have 8,389 bytes more room and the linker's 7,761.
+
+**The largest modules** (bytes in the ROM; code per line of code, not blank and not only a comment): `expr` 14,816 (9.7), `gen` 12,969 (6.3), `decl` 10,385 (6.3), `reg` 7,660 (6.3), `err` 6,140 (5,494 of it messages), `kernel` 5,742 (6.9), `inlines` 5,392 (6.7), `asmblock` 4,106 (4.9); `lk_alloc` 8,511 (9.8), `lk_tab` 5,661 (8.3, all resident), `lk_graph` 5,475 (8.0), `lk_scan` 4,794 (6.0), `lk_name` 4,449 (7.7), `lk_envf` 4,186 (5.2), `lk_map` 3,674 (7.1), `lk_err` 3,460 (2,839 of it messages). The functions most costly for their lines: `expr.variable` 1,093 bytes for 59 lines (18.5 a line), `expr.initial_value` 495 (17.7), `expr.name_statement` 422 (16.9), `expr.for_statement` 1,154 (13.4), `kernel.sym_find` 608 (14.1, resident), `kernel.thaw` 822 (11.9, resident); `lk_tab.add_waiting` 315 (19.7), `lk_alloc.take` 426 (18.5), `lk_alloc.start_choices` 798 (17.0), `lk_envf.check` 515 (17.2), `lk_tab.build_chains` 792 (16.5, resident).
+
+**What both tools hold** (resident, code, constants and stubs): `bbc` 671 and 674, `rt_bbc` 402 and 402, `rt_math` 353 and 290, `sys` 76 and 82, `disk` 15 and 15, start-up 86 and 71: 1,603 and 1,534. The copies differ in their addresses (each tool's slots, variables and zero page are its own), so no copy can serve both as it is. Beyond the libraries the tools share little: two decimal printers in each (`err.put_decimal` 84 and `lathec.decimal`, a reader, 130; `lk_err.put_word` 125 and `lk_map.decimal` 99), number readers (`lex.number` 121, `lk_envf.token_number` 138). The object format is written by one and read by the other.
+
+**Messages.** *Counted:* the compiler's are 5,494 bytes (132 lines), the linker's 2,839 (62 lines and its fixed texts): 8,333, 6 % of the image. A table of the words used more than once, each written as one byte, would make them 5,329 bytes in all with the tables (128 words; 2,736 bytes less, the two tools each with its own table) before the code that expands them.
+
+**Recursion.** *Counted, by a copy of the host compiler noting each saving call:* `expr` makes 97 saving calls, which push 464 bytes of frame (12 bytes of code a byte: about 5.5 KB); `decl` 2, 17 bytes. 92 of the bytes pushed are of locals and parameters that no later line of the function names (about 1.1 KB of code); others are locals declared, or state saved, before a call that does not need them.
+
+**Changes measured** in the twins only, one at a time against the image above (bytes of the whole image; the twins were then not byte-identical with the host, and nothing was committed):
+
+| Change | Bytes | Where it shows |
+|---|---|---|
+| `expr.here()` for the 28 `err.position(lex.line, lex.col)` of `expr` | −327 | bank 1 (−489 judged) |
+| `for_statement` saves its loop state after the limit, not before the first expression | −144 | bank 1 |
+| `case_statement`'s selector in a function of its own, so its position and type are not saved at each body | −134 | bank 1 (−161 judged) |
+| `kernel.flags_of`, `kind_of`, `value_of`, `params_of`, `type_of` for the 184 calls of `byte_of`/`word_of` with those columns (placed in bank 5: far calls from the other banks) | −321 | banks; resident +22 (stubs) |
+| the same accessors, each with its own `with` block (fixed: no far call) | −148 | resident +240: the compiler's code range is then 149 bytes over |
+| `kernel.name_word` and `name_set_word` plain functions, not `inline` (each with a block of `NAMES`) | −332 | resident −424; banks +92 |
+| `lk_tab.add_wk` and `sub_wk` for the 7 read-modify-writes of work words in `lk_alloc` | −133 | bank 4 −189 (−224 judged), resident +56 |
+| all of them but the fixed accessors, together | −1,394 | compiler −1,261 (resident −402, banks −1,127 judged), linker −133 |
+
+Together they build an image with which `test_bbc_toolchain.py` passes.
+
+**Features**, *counted* as the code of the functions that serve only them (a lower bound: the code inside shared functions and their messages are not counted): `inline` 6,881 in the compiler; the embedded assembler 3,795 (with its tables, 4,106 is the module); conditional compilation 771; banked data in the compiler 1,241; records, enumerations and function types in the compiler 2,047, function classes in the linker 3,281; interrupt functions 123 in the compiler and their contexts 1,553 in the linker; zero page promotion 5,204 of `lk_alloc`, of which the bounds that spare layouts 519; windows, banks, far calls and overlays 6,252 in the linker; the map 3,622, of which its slot and class parameter lines 1,472; the start-up and stubs written by `lk_boot` 1,194; the command file and arguments 430. The DFS name mapping is 0 in this image (`BBCFS 0`); 65C02 support about 100 (a few tables and an option).
+
+**What follows.** Eight banks need about 8.4 KB less in all, the linker's code in three banks, and the module's code and the resident parts at the ends of code banks. Only the messages are near that size alone: kept in a file on the disc, they free 8,333 bytes of the ROM, 2,839 of them in the linker's first bank, after which its code packs into three banks (a search over the module sizes as judged, with 971 bytes to spare in all, 129 in the fullest bank). The refactorings above and more of their kind are worth about 2 to 3 KB; sharing the libraries' resident copies at most 1.5 KB, less what the mechanism would cost. Seven banks would need about 25 KB less and the compiler's code in four banks: that is not reached without cutting `inline` and the embedded assembler as well.
+
+## Size for a 128 KB ROM: the generated code, measured (2026-11-17)
+
+The question: how much of the two tools' code is more than the code model needs, and which changes to the code generator, the code model or the run-time would pay for themselves when the compiler (which is in the ROM too) compiles itself and the linker. Measured on the compiler as `lathec-bbc.env` builds it and the linker as `linker-bbc.env` builds it, from `main` at d92d442. "Measured" is a build; "counted" is a scan of the code as built; "estimated" says how.
+
+**The tools** (in `lathe/tests/`): `code_listing.py` lists a linked program's code instruction by instruction from its object files and map, with each operand's symbol and slot and its size as placed (zero page shrinking applied; every function's total is checked against its F line). `construct_lathec.py` stands in for `lathec.py` (through `LATHE_COMPILER`) and records, for every entry of the function buffer, which compiler functions were on the stack when it was added; the files it writes are the host compiler's. `construct_report.py` builds both tools so and gives every placed byte a construct, with a table of calls by callee. `idiom_report.py` counts wasteful patterns, `frame_report.py` the saving calls' pushes and pops and other forms of them, `stub_report.py` the far-call stubs, `c02_report.py` what the 65C02's instructions would save.
+
+**What the ROM would hold today**: the compiler's five bank files, 66,599 bytes, its slot 13 constants, 5,494, and its resident part, 14,059; the linker's five bank files, 42,923, and its resident part, 9,082; the module's own code, about 500: 138,650 bytes, where eight banks hold 130,176 (16,272 each between the 80-byte header and `$BFE0`). Code is 77,684 bytes in the compiler (76,058 of its own modules, the rest `bbc`, `rt_bbc`, `rt_math`, `rt_frame`, `sys`, `disk`) and 48,100 in the linker (46,570 of its own); stubs 1,746 (291 of them) and 456 (76); constant data 6,722 (5,494 of it err's messages) and 3,449 (2,795 of it lk_err's).
+
+### Where the bytes are, by construct (counted)
+
+Bytes as placed of the tools' own modules (not the run-time modules), by the compiler function that emitted them (`construct_report.py`):
+
+| Construct | Compiler | % | Linker | % |
+|---|---|---|---|---|
+| call: the `JSR` (or the `JMP` of a tail call) | 11,307 | 14.9 | 6,198 | 13.3 |
+| call: register arguments loaded before the `JSR` | 10,903 | 14.3 | 4,589 | 9.9 |
+| call: arguments worked out into the callee's slots | 6,928 | 9.1 | 3,218 | 6.9 |
+| function entry: register parameters stored | 2,076 | 2.7 | 1,183 | 2.5 |
+| saving calls: the frame pushed and popped | 5,851 | 7.7 | 0 | 0 |
+| call: values saved before a call | 172 | 0.2 | 199 | 0.4 |
+| return: the result into A, X or C, `RTS` | 1,397 | 1.8 | 1,091 | 2.3 |
+| moves: assignments and other stores | 9,573 | 12.6 | 4,090 | 8.8 |
+| arithmetic: `+ - & \| ^`, shifts, `INC`, `DEC` | 6,326 | 8.3 | 7,888 | 16.9 |
+| arithmetic: `rt_math` call set-up | 249 | 0.3 | 128 | 0.3 |
+| comparisons `==` `!=` | 5,995 | 7.9 | 2,115 | 4.5 |
+| comparisons `<` `<=` `>` `>=` | 2,241 | 2.9 | 2,715 | 5.8 |
+| conditions: their branches | 4,824 | 6.3 | 2,616 | 5.6 |
+| conditions: a `bool` as a value or in C | 1,454 | 1.9 | 695 | 1.5 |
+| branches: the `JMP` of a long branch (108 and 231 of them) | 324 | 0.4 | 693 | 1.5 |
+| loops: `for`, `while`, `loop` | 1,849 | 2.4 | 2,585 | 5.6 |
+| `if`, `case`, `break`: jumps and selectors | 820 | 1.1 | 466 | 1.0 |
+| arrays: the element address of a big array (a zero page pointer) | 1,081 | 1.4 | 4,003 | 8.6 |
+| arrays: an index register loaded | 914 | 1.2 | 387 | 0.8 |
+| pointers: Y loaded for `(zp),Y`, or a pointer copied to zero page | 289 | 0.4 | 514 | 1.1 |
+| `with` blocks: map and unmap | 916 | 1.2 | 662 | 1.4 |
+| initial values (`$init`) | 567 | 0.7 | 531 | 1.1 |
+| **total** | **76,058** | | **46,570** | |
+
+- **Calls are half the compiler and a third of the linker**: 3,794 call sites in the compiler (303 of them already tail `JMP`s), 2,093 in the linker. With the entry stores, the slot stores and the saving calls they are 37,237 bytes of the compiler's 76,058 (49 %) and 15,387 of the linker's 46,570 (33 %). The callees with the most bytes at their calls (call sites, then the bytes of the `JSR`s, the register set-up, the slot stores and the entry stores): `kernel.byte_of` 198 (594, 1,182, 0, 6: 1,782 in all; most often `LDY #2 / LDX s+1 / LDA s`), `err.fatal` 265 (1,327; `LDA #n`), `err.position` 101 (1,192), `kernel.word_of` 89 (804), `kernel.set_byte` 58 (663), `kernel.put` 75 (562), `kernel.set_word` 33 (461), `lex.expect` 65 (459); in the linker `lk_tab.set_wk` 90 (939), `lk_sym.row_of` 66 (484), `lk_tab.wk` 121 (423), `lk_tab.add16` 29 (345).
+- **The saving calls**: 74 in 43 functions of `expr`, 5,578 bytes of `LDA slot / JSR rt_frame.push` and `JSR rt_frame.pop_y / STY slot`, 1 to 21 bytes saved a call (4 to 7 at most calls); `expr.for_statement` alone has 624.
+- **Zero page is not what makes it large.** Built with a larger `zeropage` range (measured; the BBC's is `$00-$8F`, and full): 8 bytes more (`$97`) saves 290 bytes of code over both tools, 16 more 453, 32 more 833, the whole page (`$FF`) 2,752 (2.2 %). Of the BBC's zero page outside `$00-$8F`, only `$A8-$AF`, the workspace of a `*` command, might be taken, for the 290.
+- **Far calls.** 291 stubs in the compiler, all but 19 for a function called from another bank, with 1,204 call sites through them; 76 in the linker (233 call sites from banks, 13 from fixed code). A 5-byte stub that calls an entry of its bank (`PHA / LDA #bank / JMP`, 6 bytes a bank) would save 261 and 46 bytes (counted), for about 10 cycles more a far call. A table, or a shared trampoline with an index, needs the same 3 bytes of bank and address for each function and a way to find them, so it is not smaller. Fewer banks cut stubs only where a module's callers come to share its bank.
+
+### Patterns larger than they need be (counted)
+
+`idiom_report.py`, over every function both maps keep (run-time modules included): occurrences, with their bytes in brackets. The code generator is already tight at the level of single instructions: a load of what a register holds was found once in 125,648 bytes, a store then a load of the same into another register 16 times.
+
+| Pattern | Compiler | Linker | Bytes each |
+|---|---|---|---|
+| a long branch (Bxx over `JMP`) that could branch to a `JMP` to the same place within reach | 32 (96) | 102 (306) | 3 |
+| a word worked out in A and X (`TAY` ... `TAX` / `TYA`) and then stored to memory | 31 (93) | 95 (285) | 3 |
+| the same tail twice in one function, ending in `RTS` or `JMP` (cross-jumping) | 95 (520) | 31 (154) | its length less 3 |
+| a store into a temporary that no instruction reads | 103 (240) | 60 (124) | 2 or 3 |
+| a register parameter stored on entry and never read | 120 (253) | 41 (90) | 2 or 3 |
+| `JSR` then `RTS` after a join (a `JMP` to a `JMP` made `RTS`) | 93 | 30 | 1 |
+| a word compared with a constant whose low byte is 0 (`LDA lo / CMP #0` before `SBC`) | 12 (53) | 12 (51) | 4 or 5 |
+| `CMP #0` after a `JSR` whose byte result is tested (it needs a convention: Z of a byte result) | 23 (46) | 25 (50) | 2 |
+| `CLC` with the carry known clear, `SEC` with it known set | 41 | 87 | 1 |
+| the same element pointer of a big array set up again in a function | 3 (33) | 5 (55) | 11 |
+| repeated straight-line sequences inside one function that a subroutine of the function could hold (an upper bound, the saving calls' pushes and pops left out) | 2,055 | 1,994 | |
+| repeated sequences across functions: the commonest is the call `err.position(lex.line, lex.col)`, 24 to 35 times, 12 to 15 bytes each | about 300 | | |
+
+### Experiments (measured)
+
+Made in the host compiler only (the twins do not follow), each behind an environment variable, on the side branch `experiment-codegen-size-a6fb85`. Correctness: `test_cases.py` (every run of the corpus right; the snapshot cases differ, as they must), and `test_src_selfhost.py` with `LATHE_SELFHOST=1` run with the compiler built by the changed host: the Lathe compiler so built compiles all eighteen of its modules on Wendy 2 to the files the unchanged host writes.
+
+| Change | Compiler | Linker | Python lines | Cycles of the self-compile on Wendy 2 |
+|---|---|---|---|---|
+| saving calls push and pop through a list of the slot bytes' addresses in constant data: `LDA #<list / LDX #>list / JSR rt_frame.push_list` before the call, `JSR rt_frame.pop_list` after it (`LATHE_X_LIST`) | code −5,073, constant data +1,036, variables +6: **−4,037** (bank 1, `expr`, −3,720; the two routines, 109 bytes, in the resident part) | 0 | about 30 in `gen` | 884.2 million against 849.2 (+4.1 %: the routines call `push` and `pop_y` for each byte; written to store directly they would be about as fast as now, estimated) |
+| a long branch goes to a `JMP` to the same place within reach (`LATHE_X_CHAIN`) | −51 | −144 | about 45 in `fbuf` | |
+| stores into temporaries nothing reads are taken out (`LATHE_X_DEADTEMP`) | −246 | −124 | about 28 in `fbuf` | |
+| a word compared with a constant whose low byte is 0 compares the high bytes only (`LATHE_X_CMP0`) | −77 | −88 | about 14 in `cond` | |
+| a `JSR` before a `JMP` made `RTS` becomes a `JMP` (`LATHE_X_JOIN`) | −67 | −25 | about 10 in `fbuf` | |
+| the four above together | −438 | −387 | | 846.7 million (−0.3 %) |
+
+At about 9 bytes of compiled twin a line of Python, the four small changes cost about what they save: 825 bytes saved for about 850 of compiler. Only the frame lists pay clearly, about 3.8 KB net with the compiler's growth counted. The list is constant data of the caller's bank, named by fix-ups of kinds 7 and 8 (with kinds 2 and 3 the lists were fixed and the resident part did not fit by 663 bytes); the routines need two zero page pointers, which as written are variables of the module, shared by an interrupt handler that makes saving calls (a real version would give them to the routines' own frames).
+
+**The 65C02.** The compiler uses the 65C02's instructions only in the entry and exit of interrupt functions: built with `cpu 65c02` both tools are the same size as for the NMOS 6502 (measured). Counted on the NMOS code, `STZ` for `LDA #0 / STA` would save 858 and 670 bytes, `BRA` for a near `JMP` 287 and 124, `INC A` and `(zp)` a few more: about 2.0 KB of both, 1.6 %.
+
+### A denser form for cold code (estimated)
+
+Three functions of `lk_map` translated by hand into a compact interpreted code (a 16-bit accumulator; a one-byte opcode with the slot number in it for loads and stores of the function's own slots, which would have to be contiguous and outside zero page; two-byte calls through a table of callees; three-byte loads of a word element of a big table; a five-byte header at the entry): `symbol_line`, 96 bytes of 6502 code, would be about 40; `decimal`, 99, about 42; `begin`, 39, about 28: 0.4 to 0.7 of the native size, call-heavy code at the top of the range. The cold code of both tools (the environment reader, the map, errors, the main programs, the embedded assembler, the interface writer) is about 18 to 20 KB, so about 8 KB less at best, for an interpreter of 600 to 900 bytes in each tool and 3 to 10 times the cycles in that code. But the compiler would need a second code generator beside GEN, REG and COND, in host and twin, of several KB of compiled code in the same ROM: more than the saving. Not worth it while the compiler must compile itself.
+
+### What the code generator can give
+
+Taking only what pays with the compiler's growth counted, in order: the saving calls' lists (measured, about 3.8 KB net); an error call as `BRK n` for the functions that never return and take one constant (`err.fatal`'s 265 calls, `lk_err.fail`'s 35, and the 48 calls of `lk_envf.bad` and `lk_scan.damaged`, which take none), with `BRK` decoded as two bytes by the linker (counted 950 bytes, against about 200 of compiler and handler: about 0.75 KB net); the bank a `with` block replaces kept on the 6502's stack by `rt_with.map` and taken back by `unmap` instead of a temporary (counted about 520, for about 20 cycles more a block); subroutines of a function for its repeated sequences (counted at most 4 KB, perhaps half of it found by a pass the 6502 can afford, for about 1 KB of compiler: 1 to 1.4 KB net); the 5-byte stubs (about 0.3 KB). In all **4.4 KB (the first two) to 6.5 KB**: the ROM's contents would go from about 138.7 KB to 132 to 134 KB, still above the 130.2 KB of eight banks, before any loss to packing modules into banks. The generated code is near what this code model allows: half the compiler is calls, and the rest of the size is in what the sources ask for (tables of more than 256 rows, accessor calls, recursion in EXPR, 8.3 KB of messages). The rest of the way to 128 KB must come from the sources and the layout.
+
+## Disc space for the rebuild on two DFS discs, measured (2026-11-17)
+
+The question: can the sources and the build artifacts of the compiler's rebuild on the BBC (the loop of `test_bbc_dfs.Loop`, [`bbc.md`](bbc.md), "The loop under DFS names") live on two double-sided 80-track Acorn DFS discs, four sides of 798 sectors (204,288 bytes) and 31 files each, 3,192 sectors and 124 files in all, without changing discs in the middle; and if not, what it would take. The tools are in the ROM form unless said otherwise. Nothing in the tools was changed for this.
+
+**How it was measured.** `lathe/tests/disc_report.py` builds the loop's files with the host's tools, as `test_bbc_dfs.Loop` lays them out (that test, run again for this on 2026-11-17, passes: every file the BBC writes in the loop is the host's, 4,504,887,211 cycles), and reports from the real files. Every re-encoding below is done by a script on the existing files and decoded back to the same bytes (`encode` and `decode`; LZSS and the word table likewise), except the two marked as leaving something out. `--fit` packs each case into four sides in whole sectors. Labels: *measured* (from the files, or by a run), *counted* (from a tally of the files' contents), *estimated* (reasoning given). ROM costs are estimates throughout: nothing was built.
+
+### The inventory
+
+Measured, the compiler's loop (`lathec-bbc.env` with `BBCFS 1`), bytes:
+
+| Module | Source | Object | Interface | | Module | Source | Object | Interface |
+|---|---|---|---|---|---|---|---|---|
+| bbcfs | 5,150 | 1,571 | 30 | | asmblock | 29,639 | 19,176 | 41 |
+| bbc | 13,939 | 3,482 | 203 | | fold | 7,660 | 6,839 | 201 |
+| disk | 8,457 | 2,795 | 149 | | cond | 18,884 | 12,062 | 242 |
+| host | 1,426 | 142 | 784 | | gen | 77,996 | 59,536 | 1,130 |
+| sys | 8,768 | 751 | 434 | | inlines | 36,013 | 25,427 | 696 |
+| err | 16,963 | 8,964 | 2,520 | | parts | 16,459 | 11,159 | 549 |
+| kernel | 38,418 | 29,567 | 2,135 | | expr | 58,636 | 67,288 | 302 |
+| fbuf | 30,682 | 18,935 | 761 | | decl | 68,061 | 51,896 | 68 |
+| src | 4,585 | 2,781 | 205 | | lathec | 8,172 | 5,322 | 20 |
+| lex | 23,384 | 11,867 | 1,480 | | rt_math | 8,624 | 3,134 | 249 |
+| out | 15,394 | 12,644 | 637 | | rt_bbc | 11,103 | 1,746 | 138 |
+| typetab | 8,777 | 4,932 | 714 | | rt_frame | 1,861 | 332 | 49 |
+| reg | 51,685 | 35,279 | 1,980 | | **25 modules** | **570,736** | **397,627** | **15,717** |
+
+| Other files (DFS name) | Bytes | Files |
+|---|---|---|
+| the environment `lathec-bbc.env` (`E.LATHEC-`) | 4,197 | 1 |
+| the command file `LINKARG` | 257 (305 with the loop's drive prefixes) | 1 |
+| the image `LATHEC` and its banks `B.LATHE1` to `B.LATHE5`, `B.LATHE33` | 14,482 + 72,093 = 86,575 | 7 |
+| the map `M.LATHEC` | 125,229 | 1 |
+| **all** | **1,200,338 bytes, 4,729 sectors** | **85** |
+| the RAM form adds: the short module image `MODULE`, and `LOADMOD` | 196,608 + 459 | 2 (770 sectors) |
+
+The loop's report gives drive 3 as 892,573 bytes: the sources, the map and the short image, 570,736 + 125,229 + 196,608. ([`bbc.md`](bbc.md) splits that as 569,705 and 126,260; the files are as above.) Whole sectors add 10,286 bytes to the 1,200,338.
+
+**What each step needs on line** (measured; a compile reads its source and the interfaces of its imports, and of the modules their `LI_MODULE` entries name, and writes its object and interface):
+
+- A compile: at most 148,489 bytes in 13 files (`gen`); the most files, 18 (`expr`, 139,912 bytes).
+- The link: the environment, the command file and the 25 objects, and it writes the image, the six bank files and then the map: 613,885 bytes, 35 files. It reads no source and no interface.
+- The two compiles again (`err`, `kernel`): the image and its banks (the developer's form loads them at its start, by bare names, from the current drive), the source, the interfaces of `bbc`, `sys` (and `err`), and the object and interface written over.
+- So the whole loop, without changing discs, needs every file at once at the end of the link: the sources stay for the two compiles again, and the map, written last, is made by reading the objects again. **4,729 sectors against 3,192**: 1,537 over (1.9 sides), with the ROM form. The file count, 85, is not the limit.
+
+### The sources: 570,736 bytes
+
+Counted, all 25 modules (a comment runs from `;` outside a string or character to the end of the line):
+
+| Part | Bytes | Share |
+|---|---|---|
+| comments | 213,541 | 37.4 % |
+| of them, the header comment of each module (before its `module` line) | 80,822 | 14.2 % |
+| code (without indentation and import lines) | 285,674 | 50.1 % |
+| import lines, with their continuation lines | 18,194 | 3.2 % |
+| of them, the lists (the same imports written bare would be 1,237) | 16,957 | 3.0 % |
+| indentation (two spaces a level) | 32,279 | 5.7 % |
+| spaces before a comment after code | 6,616 | 1.2 % |
+| line ends | 13,347 | 2.3 % |
+| blank lines | 1,085 | 0.2 % |
+| trailing space | 0 | |
+
+By module the shares are alike, but the run-time and machine modules are mostly comment: `rt_bbc` 69 %, `rt_frame` 79 %, `bbcfs` 56 % (`disc_report.py` prints the table by module). The import lists are what keeps a compile's name heap small ([`language.md`](language.md), "Import lists"; the commit that brought them took the heap from 18,944 to 9,216 bytes), so a copy without them is not an option. In these 25 modules they are 16,957 bytes (the 38 KB quoted for them when they came is not this set's figure; not checked which files it counted).
+
+The options, measured on the 25 sources:
+
+| Form on the disc | Bytes | Saves | What the compiler makes of it | Cost in the tools |
+|---|---|---|---|---|
+| as in the repository | 570,736 | | | |
+| **disc copy**: comments removed, every line kept, indentation as it is | 352,607 | 218,129 (38.2 %) | measured: every object, interface, image, bank file and the map are the same bytes as from the readable sources; an error's line and column are the same | none (a host tool) |
+| disc copy, indentation as tabs | 321,935 | 248,801 | measured: objects, image, banks and map the same; four interfaces differ (`host`, `kernel`, `lex`, `sys`: the columns saved with inline bodies); errors give the right line, a column counted with a tab as one | none |
+| disc copy, no indentation | 319,035 | 251,701 | as with tabs | none |
+| comments kept, indentation as tabs | 539,499 | 31,237 | as with tabs | none |
+| header comments moved to a document (a change to the repository) | 489,914 | 80,822 | the same, but the lines move in the repository too | none |
+| **word table**: bytes `$80`-`$FF` stand for 112 words (a word and its space counting as one) and runs of 2 to 17 spaces, from a fixed table; decoded and compared | 396,225 | 174,511 (30.6 %) | the same text, byte for byte, expanded as it is read: lines and columns right | estimated about 1 KB of a bank: the table 689 bytes, an index of 128 entries, about 100 bytes of code in `src`; no RAM to speak of |
+| **LZSS**, 1 KB window (a flag byte for eight items, a match two bytes); decoded and compared | 259,820 | 310,916 (54.5 %) | the same text, byte for byte | estimated 150 to 250 bytes of code; **1 KB of RAM** for the window (the compiler's ROM form has 2,211 bytes of main RAM free) |
+| LZSS, 2 KB window | 229,360 | 341,376 | | 2 KB of RAM |
+| deflate, 1 KB window | 208,182 | 362,554 | | estimated about 1 KB of code and 1 to 2 KB of tables, besides the window: the RAM is not there |
+| deflate, 32 KB window (zlib -9) | 158,090 | 412,646 | | not possible |
+
+A disc copy is honest only if it is called what it is: the code is all there and every error points at the right line, but the explanations are not on the disc; the readable source is the repository's. A coded copy (word table, LZSS) is the readable text itself, but `*TYPE` on the BBC shows codes: it is read through the compiler (or a small expander) only. Deflate's last 52 KB over LZSS cost RAM the compiler does not have: poor value.
+
+### The objects: 397,627 bytes for 89,288 bytes of code
+
+Counted, all 25 objects (records' type and length, 3 bytes each, apart):
+
+| Part | Bytes | Share |
+|---|---|---|
+| `FIX` entries: 23,514 fix-ups at 8 bytes | 188,080 | 47.3 % |
+| `CODE`: the written layout | 89,288 | 22.5 % |
+| of it (and of `DATA`), the bytes under fix-ups, all 0, which the linker writes over | 46,185 | 11.6 % |
+| record headers: 11,522 records (3,007 `CALL`, 2,452 `SLOT`, 2,012 `SYM`, 800 each of `FUNC`, `FIX`, `CODE`, `ENDF` ...) | 34,566 | 8.7 % |
+| `SYM` names (`module.name`, a length byte each) | 29,659 | 7.5 % |
+| `CALL` bodies (5 bytes each) | 15,035 | 3.8 % |
+| `SLOT` fields (5 bytes each) | 12,260 | 3.1 % |
+| `SLOT` names | 10,877 | 2.7 % |
+| `DATA` bytes | 6,689 | 1.7 % |
+| `WGT` | 3,348 | 0.8 % |
+| `FUNC`, `VAR`, `SYM` kinds, `IMP`, `MOD`, `RGN`, `DFIX` and the rest | 7,825 | 2.0 % |
+
+**Why five times the code.** Every 3.8 bytes of written code have a fix-up, and a fix-up is 8 bytes; half of the code bytes are zeros that the fix-ups fill; and every slot and every call is a record of its own with a 3-byte header. Of the fix-ups (counted): 16,607 are kind 5 and 6,064 kind 1; 12,256 name the function being defined (11,774 of them its own slots); 17,895 have no addend; every one is less than 128 bytes after the one before it; 18,831 name a symbol below 127.
+
+**What a plain link does not need.** The `SLOT` names (the map's S lines and `lo2asm` use them): 8,425 bytes. Nothing else: the names of symbols are how files meet, `WGT` decides zero page (4,191 bytes), `CALL`'s outer symbol is needed for calls inside arguments, and `CLAS` parameter names are already empty. A separate file for 8 KB would be another file for the linker to open: not worth it.
+
+**Re-encoded** (measured: each option alone, then added one after another; every one decoded back to the original bytes but the slot names):
+
+| Option | Alone | Together | Set |
+|---|---|---|---|
+| as written | | | 397,627 |
+| leave out the bytes under fix-ups (`holes`): the reader puts the fix-up's bytes where they were | -46,185 | -46,185 | 351,442 |
+| a fix-up as a byte of kind and flags, then the offset, the symbol only if not the function being defined, the slot only if not `$FF`, the addend only if not 0 | -70,430 | -116,615 | 281,012 |
+| numbers as variable-length (7 bits a byte; a symbol as n + 1, `$FFFF` as 0; addends zigzagged), a fix-up's offset as the distance from the one before | -75,134 | -164,878 | 232,749 |
+| a record header of 2 bytes when the body is below 255 bytes | -10,870 | -176,226 | 221,401 |
+| `ENDF` left out (it always follows `CODE`); a function's `SLOT` records as one record, and its `CALL` records as one | -13,357 | -184,679 | 212,948 |
+| a `SYM` name as the number of its module among the `MOD` and `IMP` records, and the rest of the name | -8,890 | **-193,569 (48.7 %)** | **204,058** |
+| leave out the slot names (loses them for the map) | -8,425 | -201,994 | 195,633 |
+| for scale: deflate -9 of each object as written | | | 153,326 |
+| for scale: LZSS (1 KB window) of each object as written; of the 204,058 | | | 216,815; 140,834 |
+
+What it would cost, estimated against the sizes of what is there now (the maps): `lk_rec.get_word` is 26 bytes, `lk_rec.advance` 91, `lk_fix.read_entry` 51, `out.begin_record` 21, `out.table_end` 275.
+
+- **The linker** reads fix-ups in five places now, 8 bytes at a time (`lk_fix` twice, `lk_graph` twice, `lk_scan`); one decoder in `lk_rec` replacing them, with a variable-length number reader, is perhaps 150 to 250 bytes more than what it replaces; the holes, 100 to 250 (the emitter writes the fix-up's bytes instead of reading them, and a function's written length becomes `CODE`'s length and the bytes its fix-ups cover, in `lk_place`, `lk_map`, `lk_emit`); short headers and runs, a few dozen; module numbers for names, about 150 and room for one file's module names. About 400 to 800 bytes in all, and `lk_rec` is resident: part of it comes out of the linker's main RAM (4,129 bytes free). Reading stays one pass from the start of a file, which is what the linker's several readings and `lk_rec.goto` need.
+- **The compiler** writes a record's length before its body, from counts it holds; with variable lengths it needs a pass over the fix-ups it holds to size the record first, and to skip the bytes under fix-ups as it writes code: perhaps 400 to 700 bytes, mostly in bank 3 (`out`), some in fixed code (`out.table_end` is fixed).
+- **The host tools** (`lk_rec.py`, `out.py`, `lo2asm`, `lodump`) change with them; the format would be version 5.
+- **Time.** The compiler's link reads 4,009,214 bytes ([`bbc.md`](bbc.md)), nearly all of it object files read again and again; objects half the size are about 2 MB less to read, which at the 1,000 cycles a byte [`bbc.md`](bbc.md) estimates for a real DFS is about 16 minutes at 2 MHz (estimated; the emulator charges nothing for a byte read). The decoding costs cycles of its own, not measured.
+- **A general compressor in the linker** (deflate) saves 50,732 bytes over the set of 204,058 for perhaps 1 KB of code, 1 to 2 KB of tables and a window in RAM the linker does not have, and it would run once for every reading of every file: not worth it. LZSS on top of the re-encoding (140,834) would need 1 KB of the linker's RAM: possible, not needed for the fit.
+
+### The interfaces: 15,717 bytes
+
+Counted: 427 function entries (7,824 bytes), 410 constants (5,752; `err.li`'s error numbers are 2,520 bytes alone), 112 variables (1,465), 15 `LI_USES` entries (339), 7 module entries, 2 records; the names of entries are 9,047 bytes of it, inline bodies 893. At 1.3 % of the loop's files there is nothing worth changing here.
+
+### The map: 125,229 bytes
+
+Counted, by line kind: S (slots) 2,412 lines, 82,402 bytes (65.8 %); F 779 lines, 24,113; V 317, 9,417; T 291, 7,608; D 50, 1,486; W 9, 203. The module prefixes of the names are 20,563 bytes of it.
+
+- **Who reads it.** Nothing on the BBC. On the host: `bbcrom.py` reads its V lines for the listing only (it builds the image from the resident file, the bank files and the environment); `build.py --asm` (`lo2asm.render_program`) needs the F, D, V, S and C lines; the tests compare it byte for byte with the host's; people read it.
+- **A link without a map is not possible today.** The map is the fourth argument (`lk_file.ARG_MAP`), always opened; a name that cannot be opened is a link error. Allowing none (a name such as `-`, and the host's twin the same) is perhaps 30 to 60 bytes, and the link would also skip the map's own readings of the objects (estimated).
+- **Sizes**: none, 0; without the S lines, 42,827 (what `bbcrom.py`'s listing needs, and the functions' addresses); the W lines alone, 203; the full map, 125,229, on request.
+
+### The image and bank files: 86,575 bytes
+
+They are the product and must be written. The command line places them already: `2/LATHEC` writes the image and its six bank files on drive 2 (the bank files go beside the image), the map has its own name (`3/LATHEC.map`), and the objects are read from any drive. The new compiler in the developer's form loads its banks by bare names from the current drive, so `*DRIVE` to the image's drive before `*RUN LATHEC`, or keep it on drive 0.
+
+### Fitting four sides
+
+Measured by packing whole files into four sides of 798 sectors and 31 files (`disc_report.py --fit`); a module's object and interface are on one side (one compile writes both into one directory), the image and its banks on one side. "64 free" means each side keeps at least 16 KB free (below). Sectors, the compiler's loop, ROM form:
+
+| Sources | Objects | Map | Sectors | Spare | Fits | 64 free a side | With the RAM form |
+|---|---|---|---|---|---|---|---|
+| readable | as written | full | 4,729 | -1,537 | no | no | no |
+| readable | as written | none | 4,239 | -1,047 | no | no | no |
+| readable | re-encoded | none | 3,484 | -292 | no | no | no |
+| readable | re-encoded, no slot names | none | 3,451 | -259 | no | no | no |
+| comments kept, tabs | re-encoded | none | 3,364 | -172 | no | no | no |
+| header comments moved out | re-encoded | none | 3,169 | 23 | packed full only | no | no |
+| header comments moved out, tabs | re-encoded | none | 3,047 | 145 | packed full only | no | no |
+| word table | as written | none | 3,577 | -385 | no | no | no |
+| word table | re-encoded | full | 3,312 | -120 | no | no | no |
+| word table | re-encoded | without S | 2,990 | 202 | yes | no | no |
+| word table | re-encoded | none | 2,822 | 370 | yes | yes | no |
+| LZSS 1 KB | as written | none | 3,022 | 170 | yes | no | no |
+| **LZSS 1 KB** | **re-encoded** | **full** | **2,757** | **435** | **yes** | **yes** | no |
+| LZSS 1 KB | re-encoded | without S | 2,435 | 757 | yes | yes | no |
+| LZSS 1 KB | re-encoded | none | 2,267 | 925 | yes | yes | yes (3,037) |
+| disc copy | as written | full | 3,874 | -682 | no | no | no |
+| disc copy | as written | none | 3,384 | -192 | no | no | no |
+| disc copy | re-encoded | full | 3,119 | 73 | yes | no | no |
+| **disc copy** | **re-encoded** | **without S** | **2,797** | **395** | **yes** | **yes** | no |
+| disc copy | re-encoded | none | 2,629 | 563 | yes | yes | no |
+| disc copy, tabs | re-encoded | without S | 2,682 | 510 | yes | yes | no |
+| disc copy, tabs | re-encoded | none | 2,514 | 678 | yes | yes | no |
+
+**Readable sources do not fit four sides under any arrangement measured.** With them on the disc as text (2,242 sectors) and the image, banks, environment and interfaces (433 sectors), 517 sectors (132,352 bytes) are left for 25 objects, whose code without the bytes under fix-ups (43,103) and constant data (6,689) are 49,792 bytes before a single fix-up or name; the best lossless re-encoding is 809 sectors, and deflate of the objects as written about 600. Moving the header comments into documents gets within 23 sectors, packed to the last sector of every side: no room for the next change to the compiler.
+
+Two arrangements that fit with room, from the packer (each side: files, sectors used of 798):
+
+| Side | LZSS sources, re-encoded objects, full map | Disc copy, re-encoded objects, map without S lines |
+|---|---|---|
+| 0 | the map; 5 modules' objects and interfaces; 5 sources: 16 files, 689 | the image and banks; 8 modules' objects and interfaces; 4 sources: 27 files, 700 |
+| 1 | the image and banks, the command file; 7 modules' objects and interfaces; 4 sources: 26 files, 690 | the environment; 3 modules' objects and interfaces; 10 sources: 17 files, 700 |
+| 2 | the environment; 6 modules' objects and interfaces; 8 sources: 21 files, 689 | the command file; 6 modules' objects and interfaces; 7 sources: 20 files, 699 |
+| 3 | 7 modules' objects and interfaces; 8 sources: 22 files, 689 | the map; 8 modules' objects and interfaces; 4 sources: 21 files, 698 |
+
+A compile names its source's drive, its own side as the output directory and the other sides as directories of interfaces (`*LATHE ... 3/gen.lth 1 0 2 3`); the command file names each object's drive.
+
+**The RAM form** adds 770 sectors, nearly a side (`bbc.md`: 772 of an 80-track side's 800 with the catalogue). It fits beside the work only with LZSS sources, re-encoded objects and no map (3,037 sectors). Otherwise the module image is best on a disc of its own: `LOADMOD` reads it once, before the first compile, and it is not needed again while the machine is on, so that is a change of disc before the loop, not in it.
+
+**The linker's own rebuild** (measured the same way, 26 modules, 87 files): sources 335,269, objects 262,481, interfaces 9,901, environment and command file 4,753, image and banks 52,436 (6 files), map 83,499 (S lines 59,338); 748,339 bytes, 2,967 sectors. **It fits four sides as it is**, readable and with the full map, though packed (225 sectors spare, not 64 a side); without its map, 2,640 sectors, with 64 free a side; with the RAM form only with re-encoded objects. On the same four sides as the compiler's loop it adds 675,264 bytes, 2,671 sectors as it is (seven modules, `bbcfs`, `bbc`, `disk`, `host`, `sys`, `rt_math`, `rt_bbc`, are shared: their sources, objects and interfaces are the same bytes in both loops, 73,075 bytes); both together are 7,400 sectors, and even the smallest case measured (LZSS sources, re-encoded objects, no maps) is 3,540, 348 over. The linker's rebuild needs discs of its own, and they need no change at all.
+
+**The DFS's other limits.** From `emulator/NOTES-bbcbplus.md` (third parties' documents, not Acorn's): a new file opened for output is given 16 KB, a file written over keeps its old space, and a file is one run of sectors that cannot grow into the next file ("Can't extend"). Not checked: whether a new file goes after the last file or into the first gap that holds 16 KB, whether an OPENOUT fails when less than 16 KB is free, and what `*COMPACT` uses for its buffer.
+
+- In the loop as measured nothing is deleted, the tools write one file at a time (most writing 1, `test_bbc_dfs.Loop`), and each file is written to its end and closed before the next is created. If the read-only files (sources, environment, command file) are put on each side first, the free space of a side is one run after its last file, and every file the loop creates is the last on its side while it grows, wherever the DFS puts new files: no arrangement above is at risk of "Can't extend".
+- The 16 KB a new file is given: if an OPENOUT fails with less than 16 KB free (not checked), a side must keep 64 sectors free when its last file is created; the column "64 free a side" is that case. The largest single file a side must take is the map (490 sectors, full) or `L.GEN` (305 as text).
+- The two compiles again write `O.ERR`, `I.ERR`, `O.KERNEL` and `I.KERNEL` over files of the same length: they keep their space.
+- **A second rebuild on the same discs** is where it would bite: an object that grows after a change to its source cannot pass the file after it. Before rebuilding, `*DELETE` the objects and interfaces and `*COMPACT` the side, which then has its free space in one run again. Between the steps of one loop `*COMPACT` is not needed.
+
+### What I would do, in order
+
+1. **Re-encode the objects** (object format version 5: the holes, packed fix-ups, variable-length numbers and deltas, short headers, runs, module numbers): 397,627 to 204,058 bytes, nothing lost. Every arrangement that fits needs it, and it halves what each link reads. Cost estimated at 400 to 800 bytes of the linker (part of it resident) and 400 to 700 of the compiler, and the host twins.
+2. **Make the map optional** in the linker (no map, or the map without S lines; the full map on request and on the host): 125,229 to 0 or 42,827 bytes, about 30 to 60 bytes of the linker for none.
+3. **Then the sources, which is the owner's choice** (the four sides cannot hold them as plain text):
+   - **LZSS-coded sources** (the repository's text, comments and all, byte for byte; a host tool writes them, the compiler decodes as it reads): 259,820 bytes; fits with the full map and 64 sectors free a side, and with no map even the RAM form. It costs 150 to 250 bytes of the compiler and 1 KB of RAM for the window (of the 2,211 bytes of main RAM the ROM form has free, or a sideways RAM slot if one has 1 KB to spare: not checked). The disc's files are not readable with `*TYPE`.
+   - **Word-table sources**: 396,225 bytes, no RAM, about 1 KB of a bank; fits only without the map (with 64 free a side), or with the map without S lines packed full. The same text, also not readable with `*TYPE`.
+   - **A disc copy without comments**: 352,607 bytes, no change to the compiler at all (a host tool), every file the compiler and linker write the same as from the readable sources, every error at the right line and column; fits with the map without S lines and 64 sectors free a side. The disc is then not the readable source.
+   - **More discs, readable sources as text**: three discs and one change. With the objects re-encoded and the map without S lines, one disc in drive 1 holds every file the loop writes, the environment and the command file (1,410 sectors of 1,596, more than 64 free a side); drive 0 takes a disc of the sources of `bbcfs` to `inlines` (1,563 sectors), then, when `parts` is to be compiled (the 19th of 25), a disc of `parts` to `rt_frame` with copies of `err`'s and `kernel`'s sources (897 sectors) for the two compiles again. The link needs drive 1 only. With today's formats (no change to the tools) the objects and interfaces alone are 1,637 sectors, more than one disc, and it takes more changes.
+   - **ADFS** (from memory, not checked: 640 KB a disc, 2,560 sectors, about 2,553 free of the map and root directory; 47 entries a directory; directories of 5 sectors): two discs, 5,106 sectors, hold the loop as it is today (4,729 sectors and four directories) with about 350 sectors spare, readable and with the full map, but not the RAM form as well (5,519) unless the map goes. It needs `BBCFS 2` built (about 40 bytes, and `*CDIR` for each directory first, [`bbc.md`](bbc.md), "ADFS: what it would take"), an ADFS ROM in the machine and a free ROM socket for it (not checked for the B+128), and an ADFS mode in the emulator. ADFS's own rules for a file that grows were not checked.
+4. **Not**: shortening names or deleting comments in the repository; dropping the import lists in a disc copy (the compiler's tables need them); dropping the slot names (8,425 bytes, and the map loses them); a separate file of debugging records (8 KB); deflate in either tool.
+
+If the owner wants the sources on the disc readable as they are in the repository, the measured answer is: LZSS-coded copies on two DFS discs (with the format change and the optional map), which keeps the text but not `*TYPE`; or three DFS discs and one change in the middle of the compiles; or two ADFS discs and no change to the formats.
+
+Not done here: anything on a real disc or a real DFS; the decoders and the format change themselves (every ROM cost above is an estimate); the BBC runs of the disc copies (the host's tools compiled and linked them, and `test_bbc_dfs.Loop` shows the BBC's tools write what the host's write); the linker's rebuild on the BBC under DFS names (its files were measured from the host's tools only).
