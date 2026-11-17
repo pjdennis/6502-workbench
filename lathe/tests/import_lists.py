@@ -51,6 +51,27 @@ SRC = os.path.join(LATHE, 'src')
 COMPILER_ENVS = [os.path.join(SRC, e + '.env')
                  for e in ('compiler', 'compiler-small', 'compiler-bank', 'compiler-bbc', 'compiler-bbc-bank')]
 LINKER_ENVS = [os.path.join(SRC, e + '.env') for e in ('linker', 'linker-bank', 'linker-bbc')]
+
+
+def rom_form(name):
+    """The ROM form of the tool's environment lathe/src/NAME.env (bbcrom.rom_env), written once
+    to a directory of its own: what it compiles differently (err's and lk_err's message file,
+    under `when ROMFORM`) is built only there."""
+    import atexit
+    import bbcrom
+    global _ROM_DIR
+    if _ROM_DIR is None:
+        _ROM_DIR = tempfile.mkdtemp(prefix='lathe-lists-rom-')
+        atexit.register(shutil.rmtree, _ROM_DIR, True)
+    path = os.path.join(_ROM_DIR, name + '-rom.env')
+    if not os.path.exists(path):
+        bbcrom.rom_env(os.path.join(SRC, name + '.env'), path)
+    return path
+
+
+_ROM_DIR = None
+# The modules that compile differently in a tool's ROM form, and its environment there.
+ROM_FORMS = {'err.lth': 'lathec-bbc', 'lk_err.lth': 'linker-bbc'}
 BOARD_ENVS = [os.path.join(LATHE, 'env', e + '.env')
               for e in ('host', 'michael', 'wendy2', 'wendy2disk', 'bbc', 'bbc-bank', 'bbc-rom', 'bbc-dfs')]
 IMPORT = re.compile(r'^(\s*)import\s+([A-Za-z][A-Za-z0-9_]*)\s*(\(?)', re.I)
@@ -102,6 +123,8 @@ def configs(path):
     if os.path.dirname(os.path.abspath(path)) == RT_BBC:
         return [e for e in BOARD_ENVS + COMPILER_ENVS + LINKER_ENVS if is_bbc(e)]
     if os.path.dirname(os.path.abspath(path)) == SRC:
+        if name in ROM_FORMS:
+            return (LINKER_ENVS if name.startswith('lk') else COMPILER_ENVS) + [rom_form(ROM_FORMS[name])]
         if name.startswith('lk') or name == 'link.lth':
             return LINKER_ENVS
         if name == 'sys.lth':

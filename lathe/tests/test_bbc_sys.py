@@ -4,7 +4,8 @@
   the `#if PORTS` part with bbc for disk (but where the other machines use the table of open
   files, which the BBC has not: lathe/docs/bbc.md, "Step 4"), so that PORTS 0 and 1 compile what they did before the
   BBC was added (the object files are the same: checked once by hand when this was written, and
-  here by the structure).
+  here by the structure). What only the BBC has (BBC_ONLY: open_unmapped and seek, for the
+  message file of the tools' ROM forms) is an `#if PORTS == 2` with no `#else`, which PORTS 0 and 1 pass over.
 - Every environment with PORTS 2 is a BBC's, and the others keep 0 or 1.
 - lathe/src/copytest.lth built with bbc.env and run on the BBC gives the cases of test_disk.py's
   SysOverDisk, with the error output in the output and the statuses as MOS errors.
@@ -29,6 +30,15 @@ RT = os.path.join(ROOT, 'lathe', 'rt')
 SRC = os.path.join(ROOT, 'lathe', 'src')
 TABLE = re.compile(r'\b(files|MAX_FILES|keep)\b')
 THREE = re.compile(r'^#if PORTS == 2\n(.*?)^#else\n^#if PORTS\n(.*?)^#else\n(.*?)^#end\n^#end\n', re.M | re.S)
+BBC_ONLY = ('open_unmapped', 'seek')
+ONLY = re.compile(r'^#if PORTS == 2\n((?:(?!#).*\n)*?)^#end(?:\n|\Z)', re.M)
+
+
+def bbc_only(code):
+    """code without its parts for the BBC alone, each of which must define one of BBC_ONLY."""
+    for part in ONLY.findall(code):
+        assert re.search(r'^pub (inline )?func (%s)\(' % '|'.join(BBC_ONLY), part, re.M), part
+    return ONLY.sub('', code)
 
 
 def _read(path, mode='r'):
@@ -38,7 +48,7 @@ def _read(path, mode='r'):
 
 class Choice(unittest.TestCase):
     def test_bbc_has_what_sys_uses_of_disk(self):
-        code = code_of(os.path.join(SRC, 'sys.lth'))
+        code = bbc_only(code_of(os.path.join(SRC, 'sys.lth')))
         bbc = signatures(os.path.join(RT, 'bbc.lth'))
         disk = signatures(os.path.join(RT, 'disk.lth'))
         used = sorted(set(calls(code, 'bbc')))
@@ -47,7 +57,7 @@ class Choice(unittest.TestCase):
             self.assertEqual(bbc[name], disk[name], name)
 
     def test_each_choice_has_three_parts(self):
-        code = code_of(os.path.join(SRC, 'sys.lth'))
+        code = bbc_only(code_of(os.path.join(SRC, 'sys.lth')))
         # The import lists are what import_lists.py writes for each module: not the same text.
         code = re.sub(r'^(import \w+) \([^)]*\)', r'\1', code, flags=re.M)
         found = THREE.findall(code)
@@ -66,6 +76,14 @@ class Choice(unittest.TestCase):
         self.assertEqual(own, 6)    # the table, keep, open_in, open_out, close and exit
         outside = THREE.sub('', code)
         self.assertEqual(calls(outside, 'bbc') + calls(outside, 'disk') + calls(outside, 'host'), [])
+
+    def test_what_only_the_bbc_has(self):
+        code = code_of(os.path.join(SRC, 'sys.lth'))
+        only = ''.join(ONLY.findall(code))
+        self.assertEqual(sorted(set(calls(only, 'bbc'))), sorted(BBC_ONLY))
+        bbc = signatures(os.path.join(RT, 'bbc.lth'))
+        self.assertEqual(bbc['seek'], (['byte', 'byte', 'byte'], []))
+        self.assertEqual(bbc['open_unmapped'], bbc['open'])
 
     def test_bbc_has_no_initial_values(self):
         """sys.lth imports bbc in every build, and a module's $init is linked whether or not

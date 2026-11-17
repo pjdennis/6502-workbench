@@ -259,9 +259,10 @@ def keep_in_object(obj):
                 if named_count > lk_tab.MAX_FIXES:
                     lk_err.fail(lk_err.E_FIXES)
                 for i in range(0, named_count):
-                    keep_target(data, lk_tab.wk(NAMED + i))
-                    note_address(lk_tab.NONE, 1, lk_tab.wk(NAMED + i), 0xFF, 0)
-                    note_named(lk_tab.NONE, 1, lk_tab.wk(NAMED + i))
+                    named_sym = lk_tab.wk(NAMED + i)
+                    keep_target(data, named_sym)
+                    note_address(lk_tab.NONE, 1, named_sym, 0xFF, 0)
+                    note_named(lk_tab.NONE, 1, named_sym)
             lk_tab.def_f[lk_sym.row_of(data)] |= lk_tab.D_PASSED
             named_count = 0
         kind = lk_rec.advance()

@@ -108,7 +108,7 @@ What changed, and what each change saved:
 - **Fewer exports.** The twins export what other modules use, and `err`'s 125 error numbers are a fifth of every importer's names: numbering errors by module, or passing a small number with a module prefix, would leave each module a few names.
 - **One heap for the name heap, the function buffer, the string and the constant table**, which are rarely all full at once: names growing up, the function buffer down, so that one module's many names and another's long function share the slack.
 - **Symbols as rows reached through a pointer**, not 384-row columns: the same memory, but `LDY #offset` / `LDA (row),Y` for each field where a column access now computes a 16-bit address (`kernel.thaw`, which fills a row, is 631 bytes of code; the twins of KERNEL and FBUF already reach the entries of the name heap and the function buffer through a pointer in the functions that read them most).
-- **Messages on disk.** `err`'s 122 message texts are 5.1 KB of constant data with their table; kept in a file read only when an error is reported, they would leave about 5 KB of code space.
+- **Messages on disk.** `err`'s 122 message texts are 5.1 KB of constant data with their table; kept in a file read only when an error is reported, they would leave about 5 KB of code space. Built for the BBC's ROM forms of both tools (2026-11-17): the file `LATHERR` ([`bbc.md`](bbc.md), "The message file").
 - **Stream buffers.** On the target each open stream needs a buffer (the emulator's host calls need none): the files open at once are the source and one other: an interface while the imports are read (one at a time, however deep: an interface that brings in a module it names is closed while that one is read, and opened again where it was, 2026-11-16), then the object file, then the interface written; so about 512 bytes of text memory at 256 bytes each.
 
 ## Configurations
@@ -335,7 +335,7 @@ A period machine with little zero page, no banks and a disk is the same file wit
 
 ## Errors and debugging
 
-- **Compile errors.** The compiler stops at the first error and reports file, line, column and a message. Message texts can be kept in a separate file, leaving only numbers in the compiler, when memory is tight.
+- **Compile errors.** The compiler stops at the first error and reports file, line, column and a message. Message texts can be kept in a separate file, leaving only numbers in the compiler, when memory is tight: the BBC's ROM forms of the compiler and the linker do so, reading them from `LATHERR`, which `lathe/host/driver/msgfile.py` writes from the host's tables, and give the number alone when it is not on the disc ([`bbc.md`](bbc.md), "The message file").
 - **Link errors** name the functions involved and, for storage problems, the call chain.
 - **Map file.** Lists every function, variable and slot with its address, and every function copy and stub the linker created.
 - **Finding a run-time address.** Given an address, the map file gives the function and offset. The compiler, run in a "find" mode, recompiles that module and stops when the function's code reaches that offset, which gives the line. No line tables are stored. This is Turbo Pascal's method.

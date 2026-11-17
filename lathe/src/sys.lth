@@ -54,7 +54,8 @@
 module sys
 
 #if PORTS == 2
-import bbc (argc, argv, close, exit, open, open_out, put_byte, put_error, read, write)
+import bbc (argc, argv, close, exit, open, open_out, open_unmapped, put_byte, put_error, read, seek,
+            write)
 #else
 #if PORTS
 import disk
@@ -296,3 +297,21 @@ pub func exit(code: byte)
 #end
 #end
 end
+
+#if PORTS == 2
+; open_in() with the name as it is, never mapped: on the BBC with BBCFS 1 or 2, open_in() maps it
+; (lathe/rt/bbc.lth). For the compiler's message file, whose name every filing system takes as
+; it is (lathe/src/err.lth, lathe/docs/bbc.md, "The message file").
+pub inline func open_unmapped(p: ^byte): byte
+  return bbc.open_unmapped(p)
+end
+#end
+
+#if PORTS == 2
+; The next read() of the file starts at its byte `low + 256 * high`. The BBC only, where the
+; tools' ROM forms read their messages so (lathe/src/err.lth, lathe/docs/bbc.md, "The message
+; file").
+pub inline func seek(handle: byte, low: byte, high: byte)
+  bbc.seek(handle, low, high)
+end
+#end

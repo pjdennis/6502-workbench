@@ -179,26 +179,27 @@ def run_adfs(module, disk, lines, ram=False):
     return status, boards.bbc_output(out), said, written, cycles, report
 
 
-def build_image(out_dir, page=True):
+def build_image(out_dir, page=True, banks=16):
     """The module image of both tools built with BBCFS 2 and ADFS 1 in out_dir/MODULE (and the
-    banks in use alone in MODULE.disc), with LOADMOD for $1F00 beside it. Returns (image,
-    {tool: (its developer's environment, its ROM environment, its map)})."""
+    banks in use alone in MODULE.disc), with LOADMOD for $1F00 beside it; of sixteen banks, the
+    tools' from bank 1, or of eight (the 128 KB module, scheme direct8), the compiler's from bank
+    0. Returns (image, {tool: (its developer's environment, its ROM environment, its map)})."""
     import bbcrom
     tools, envs = [], {}
-    first = 1
+    first = 1 if banks == 16 else 0
     for command, source, env in (('LATHE', 'lathec.lth', COMPILER_ENV), ('LLINK', 'link.lth', LINKER_ENV)):
         d = os.path.join(out_dir, command.lower())
         os.makedirs(d)
         dev = adfs_env(env, os.path.join(d, 'dev.env'), page)
         rom = os.path.join(d, os.path.basename(env))
-        first = bbcrom.rom_env(dev, rom, first)
+        first = bbcrom.rom_env(dev, rom, first, banks)
         resident = os.path.join(d, command)
         build.build(os.path.join(LATHE, 'src', source), resident, env=rom, keep=os.path.join(d, 'work'))
         m = os.path.join(d, 'work', os.path.splitext(source)[0] + '.map')
         tools.append((command, resident, rom, m))
         envs[command] = (dev, rom, m)
     image = os.path.join(out_dir, 'MODULE')
-    bbcrom.image(tools, image, os.path.join(out_dir, 'listing'), short=image + '.disc')
+    bbcrom.image(tools, image, os.path.join(out_dir, 'listing'), short=image + '.disc', banks=banks)
     bbcrom.loader(os.path.join(out_dir, 'LOADMOD'), PAGE if page else 0x1900)
     return image, envs
 
@@ -457,20 +458,23 @@ class Toolchain(unittest.TestCase):
 
     def test_a_directory_that_cannot_be_made(self):
         """The root holds 47 entries, so *CDIR lo is Dir full: open_out gives 0 and the compiler
-        says error 63, as for any output file it cannot create."""
+        says error 63, as for any output file it cannot create, its text read from the message
+        file in the root."""
         import test_bbc_toolchain as toolchain
+        import test_msgfile
         case = [c for c in toolchain.corpus() if c[0] == 'hello'][0]
         work = os.path.join(self.dir, 'full')
         os.makedirs(work)
         disk, compiles, link, files, said, load = toolchain.prepare(adfs_case(case, work), os.path.join(work, 'w'))
         to_adfs(disk)
+        test_msgfile.put_on(disk, 2)
         n = len(os.listdir(disk))
         for i in range(47 - n):
             with open(os.path.join(disk, 'F%02d' % i), 'wb') as f:
                 f.write(b'x')
         status, out, mos, written, cycles, report = run_adfs(self.module, disk, [boards.module_command('LATHE', compiles[0])])
         self.assertNotEqual(status, 0)
-        self.assertIn(b'error 63', out)
+        self.assertIn(b'error 63: cannot create the output file', out)
         self.assertEqual(written, {})
         self.assertFalse(os.path.exists(os.path.join(disk, 'lo')))
 
@@ -711,6 +715,83 @@ class SelfHost(unittest.TestCase):
         self.assertEqual(most, (2, 1))
 
 
+def rebuild_on_two_discs(case, module, work, title, message_file=False):
+    """Loop's run with the module image `module` (built by build_image(), in the module scheme in
+    force) in work, checked by the test case `case`; with message_file, the message file LATHERR
+    in drive 0's root, beside the sources, where the tools look for it (lathe/docs/bbc.md, "The
+    message file"). Prints the account under `title` with LATHE_BBC_ADFS_LOOP or _REPORT.
+    Returns (cycles, the emulator's adfs report, catalogue())."""
+    import subprocess
+    import test_bbc_selflink as selflink
+    import test_bbc_toolchain as toolchain
+    env = adfs_env(COMPILER_ENV, os.path.join(work, 'lathec.env'))
+    steps = toolchain.recorded(os.path.join(LATHE, 'src', 'lathec.lth'), env, os.path.join(work, 'build'))
+    flat = os.path.join(work, 'flat')
+    os.makedirs(flat)
+    compiles, link = toolchain.lay_out(steps, flat)
+    disk = os.path.join(work, 'host')
+    for d in ('0', '1'):
+        os.makedirs(os.path.join(disk, d))
+    shutil.copy(os.path.join(flat, os.path.basename(env)), disk)
+    moved = []
+    for args in compiles:             # the source from drive 0, the object and interface to 1
+        name = args[-2]
+        shutil.copy(os.path.join(flat, name), os.path.join(disk, '0', name))
+        moved.append(args[:-2] + ['0/' + name, '1'])
+    compiles = moved
+    link = link[:2] + ['1/' + link[2], '1/' + link[3]] + ['1/' + o for o in link[4:]]
+    with open(os.path.join(disk, selflink.COMMAND_FILE), 'w') as f:
+        f.write(''.join(a + '\n' for a in link))
+    again = [args for args in compiles if os.path.splitext(os.path.basename(args[-2]))[0] in selflink.LOOP_AGAIN]
+    case.assertEqual(len(again), len(selflink.LOOP_AGAIN))
+    host = os.path.join(work, 'hostrun')
+    shutil.copytree(disk, host)
+    before = set(files_of(host))
+    for args in compiles:
+        r = subprocess.run([sys.executable, build.COMPILER] + args, cwd=host, capture_output=True)
+        case.assertEqual((r.returncode, r.stdout + r.stderr), (0, b''), args)
+    r = subprocess.run([sys.executable, build.LINKER] + link, cwd=host, capture_output=True)
+    case.assertEqual((r.returncode, r.stdout + r.stderr), (0, b''))
+    files = {f: d for f, d in files_of(host).items() if f not in before}
+    want = {bbcfs.adfs_host_file(bbcfs.adfs_name(f)): d for f, d in files.items()}
+    bbc = os.path.join(work, 'bbc')
+    os.makedirs(bbc)
+    for f, d in files_of(disk).items():
+        put(bbc, f, d)
+    if message_file:
+        import test_msgfile
+        test_msgfile.put_on(bbc, 2)
+    image = link[2]
+    lines = [boards.module_command('LATHE', args) for args in compiles]
+    lines.append(boards.module_command('LLINK', ['@' + selflink.COMMAND_FILE]))
+    name = os.path.basename(image)
+    lines += ['DIR :1', 'LOAD %s %X' % (name, PAGE), 'SAVE %s %X +%X %X' % (name, PAGE, len(files[image]), PAGE)]
+    lines += [boards.module_command('RUN', [name] + args) for args in again]
+    global CAP
+    saved, CAP = CAP, selflink.CAP
+    try:
+        status, out, mos, written, cycles, report = run_adfs(module, bbc, lines, ram=True)
+    finally:
+        CAP = saved
+    case.assertEqual((status, out, mos), (0, b'', b''))
+    case.assertEqual(sorted(written), sorted(want))
+    for f in want:
+        case.assertTrue(written[f] == want[f], f + ' differs')
+    case.assertEqual(report[:2], (2, 1))
+    cat = catalogue(bbc)
+    case.assertEqual(sorted(cat), [0, 1])
+    for d, (_, _, n, most) in cat.items():
+        case.assertEqual(report[3][d][0], n, d)        # the emulator's count is the disc's
+        case.assertLessEqual(report[3][d][1], SECTORS)
+        case.assertLessEqual(most, 47)
+    if REPORT or LOOP:
+        print('\n%s: %d cycles, %.1f minutes at 2 MHz; most open %d, writing %d,'
+              ' most entries %d' % ((title, cycles, cycles / 2e6 / 60) + report[:3]))
+        for line in account(cat, report):
+            print('  ' + line)
+    return cycles, report, cat
+
+
 @unittest.skipUnless(HAVE_TOOLS and (LOOP or REPORT), 'LATHE_BBC_ADFS_LOOP=1 runs it')
 class Loop(unittest.TestCase):
     """The compiler rebuilt on two ADFS discs (L, 640 KB each), with the tools built with BBCFS 2
@@ -730,74 +811,10 @@ class Loop(unittest.TestCase):
     none (lathe/docs/boards.md, "On two ADFS discs", is the recipe)."""
 
     def test_the_compiler_rebuilds_itself_on_two_adfs_discs(self):
-        import subprocess
-        import test_bbc_selflink as selflink
-        import test_bbc_toolchain as toolchain
         work = tempfile.mkdtemp(prefix='lathe-bbc-adfs-loop-')
         self.addCleanup(shutil.rmtree, work, True)
         module, _ = build_image(os.path.join(work, 'image'))
-        env = adfs_env(COMPILER_ENV, os.path.join(work, 'lathec.env'))
-        steps = toolchain.recorded(os.path.join(LATHE, 'src', 'lathec.lth'), env, os.path.join(work, 'build'))
-        flat = os.path.join(work, 'flat')
-        os.makedirs(flat)
-        compiles, link = toolchain.lay_out(steps, flat)
-        disk = os.path.join(work, 'host')
-        for d in ('0', '1'):
-            os.makedirs(os.path.join(disk, d))
-        shutil.copy(os.path.join(flat, os.path.basename(env)), disk)
-        moved = []
-        for args in compiles:             # the source from drive 0, the object and interface to 1
-            name = args[-2]
-            shutil.copy(os.path.join(flat, name), os.path.join(disk, '0', name))
-            moved.append(args[:-2] + ['0/' + name, '1'])
-        compiles = moved
-        link = link[:2] + ['1/' + link[2], '1/' + link[3]] + ['1/' + o for o in link[4:]]
-        with open(os.path.join(disk, selflink.COMMAND_FILE), 'w') as f:
-            f.write(''.join(a + '\n' for a in link))
-        again = [args for args in compiles if os.path.splitext(os.path.basename(args[-2]))[0] in selflink.LOOP_AGAIN]
-        self.assertEqual(len(again), len(selflink.LOOP_AGAIN))
-        host = os.path.join(work, 'hostrun')
-        shutil.copytree(disk, host)
-        before = set(files_of(host))
-        for args in compiles:
-            r = subprocess.run([sys.executable, build.COMPILER] + args, cwd=host, capture_output=True)
-            self.assertEqual((r.returncode, r.stdout + r.stderr), (0, b''), args)
-        r = subprocess.run([sys.executable, build.LINKER] + link, cwd=host, capture_output=True)
-        self.assertEqual((r.returncode, r.stdout + r.stderr), (0, b''))
-        files = {f: d for f, d in files_of(host).items() if f not in before}
-        want = {bbcfs.adfs_host_file(bbcfs.adfs_name(f)): d for f, d in files.items()}
-        bbc = os.path.join(work, 'bbc')
-        os.makedirs(bbc)
-        for f, d in files_of(disk).items():
-            put(bbc, f, d)
-        image = link[2]
-        lines = [boards.module_command('LATHE', args) for args in compiles]
-        lines.append(boards.module_command('LLINK', ['@' + selflink.COMMAND_FILE]))
-        name = os.path.basename(image)
-        lines += ['DIR :1', 'LOAD %s %X' % (name, PAGE), 'SAVE %s %X +%X %X' % (name, PAGE, len(files[image]), PAGE)]
-        lines += [boards.module_command('RUN', [name] + args) for args in again]
-        global CAP
-        saved, CAP = CAP, selflink.CAP
-        try:
-            status, out, mos, written, cycles, report = run_adfs(module, bbc, lines, ram=True)
-        finally:
-            CAP = saved
-        self.assertEqual((status, out, mos), (0, b'', b''))
-        self.assertEqual(sorted(written), sorted(want))
-        for f in want:
-            self.assertTrue(written[f] == want[f], f + ' differs')
-        self.assertEqual(report[:2], (2, 1))
-        cat = catalogue(bbc)
-        self.assertEqual(sorted(cat), [0, 1])
-        for d, (_, _, n, most) in cat.items():
-            self.assertEqual(report[3][d][0], n, d)        # the emulator's count is the disc's
-            self.assertLessEqual(report[3][d][1], SECTORS)
-            self.assertLessEqual(most, 47)
-        if REPORT or LOOP:
-            print('\nthe loop on two ADFS discs: %d cycles, %.1f minutes at 2 MHz; most open %d, writing %d,'
-                  ' most entries %d' % ((cycles, cycles / 2e6 / 60) + report[:3]))
-            for line in account(cat, report):
-                print('  ' + line)
+        rebuild_on_two_discs(self, module, work, 'the loop on two ADFS discs')
 
 
 if __name__ == '__main__':

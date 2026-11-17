@@ -63,6 +63,13 @@ def straddles(addr, size):
     return lk_envf.cpu == lk_op.CPU_6502 and size == 2 and (addr & 0xFF) == 0xFF
 
 
+def larger(a, b):
+    """The larger of a and b."""
+    if b > a:
+        return b
+    return a
+
+
 # ---- the size of a node
 
 def zp_size(n):
@@ -149,16 +156,17 @@ def layout_set(pool, first, limit):
     """Lay out the set that is lk_graph.order_at(first..limit-1). Returns where it ends."""
     start = 0
     for i in range(first, limit):
-        if base_of(lk_graph.order_at(i)) > start:
-            start = base_of(lk_graph.order_at(i))
+        start = larger(start, base_of(lk_graph.order_at(i)))
     pos = start
     for i in range(first, limit):
-        lk_tab.set_wk(LAY_BASE + lk_graph.order_at(i), pos)
-        pos = node_end(pool, lk_graph.order_at(i), pos)
+        n = lk_graph.order_at(i)
+        lk_tab.set_wk(LAY_BASE + n, pos)
+        pos = node_end(pool, n, pos)
     for i in range(first, limit):
-        lk_tab.set_wk(LAY_END + lk_graph.order_at(i), pos)
-        lk_tab.set_wk(LAY_SIZE + lk_graph.order_at(i), pos - start)
-        raise_callees(lk_graph.order_at(i), pos)
+        n = lk_graph.order_at(i)
+        lk_tab.set_wk(LAY_END + n, pos)
+        lk_tab.set_wk(LAY_SIZE + n, pos - start)
+        raise_callees(n, pos)
     return pos
 
 
@@ -319,7 +327,7 @@ def start_choices():
                     must_fit(lk_tab.slot_bytes(s), lk_tab.fn_ref(f))
                     lk_tab.set_slot_zp(s)
                 elif is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)):
-                    lk_tab.set_wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s), lk_tab.wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s)) + 1)
+                    lk_tab.add_wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s), 1)
     for k in range(0, lk_tab.cls_count):
         if lk_tab.cls_reach[k] != 0:
             for p in range(lk_tab.cls_par[k], lk_tab.cls_par[k] + lk_tab.cls_np[k]):
@@ -327,7 +335,7 @@ def start_choices():
                     must_fit(lk_tab.cp_size[p], lk_tab.cls_ref(k))
                     lk_tab.cp_info[p] |= lk_tab.S_ZP
                 elif is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]):
-                    lk_tab.set_wk(WEIGHT_COUNT + lk_tab.cp_weight[p], lk_tab.wk(WEIGHT_COUNT + lk_tab.cp_weight[p]) + 1)
+                    lk_tab.add_wk(WEIGHT_COUNT + lk_tab.cp_weight[p], 1)
     zp_vars = 0
     for d in range(0, lk_tab.def_count):
         if lk_tab.is_kept_var(d):
@@ -336,7 +344,7 @@ def start_choices():
                 lk_tab.def_f[d] |= lk_tab.D_ZP
                 zp_vars += lk_tab.def_b[d]
             elif (lk_tab.def_f[d] & lk_tab.D_CLASS) == 1 and lk_tab.def_b[d] <= zp_cap:
-                lk_tab.set_wk(WEIGHT_COUNT + lk_tab.def_w(d), lk_tab.wk(WEIGHT_COUNT + lk_tab.def_w(d)) + 1)
+                lk_tab.add_wk(WEIGHT_COUNT + lk_tab.def_w(d), 1)
 
 
 def growth(n, size):
@@ -359,17 +367,17 @@ def move_slot(f, i, into):
         if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)):
             n = lk_tab.copy_node(f, ctx)
             if into:
-                lk_tab.set_wk(lk_tab.W_ZSIZE + n, lk_tab.wk(lk_tab.W_ZSIZE + n) + lk_tab.slot_bytes(s))
+                lk_tab.add_wk(lk_tab.W_ZSIZE + n, lk_tab.slot_bytes(s))
             else:
-                lk_tab.set_wk(lk_tab.W_ZSIZE + n, lk_tab.wk(lk_tab.W_ZSIZE + n) - lk_tab.slot_bytes(s))
+                lk_tab.sub_wk(lk_tab.W_ZSIZE + n, lk_tab.slot_bytes(s))
 
 
 def move_cparam(k, p, into):
     lk_tab.cp_info[p] ^= lk_tab.S_ZP
     if into:
-        lk_tab.set_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k]) + lk_tab.cp_size[p])
+        lk_tab.add_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.cp_size[p])
     else:
-        lk_tab.set_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k]) - lk_tab.cp_size[p])
+        lk_tab.sub_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.cp_size[p])
 
 
 def move_var(d, into):
@@ -384,24 +392,6 @@ def move_var(d, into):
 def var_is_candidate(d, weight):
     return lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_CLASS) == 1 \
         and lk_tab.def_w(d) == weight and lk_tab.def_b[d] <= zp_cap
-
-
-def move_weight(weight, into):
-    """Move every candidate of this weight into zero page, or all of them out again."""
-    for f in range(0, lk_tab.fn_count):
-        if lk_tab.fn_ctx[f] != 0:
-            for i in range(0, lk_tab.fn_nslots(f)):
-                s = lk_tab.fn_slot[f] + i
-                if lk_tab.slot_weight_of(s) == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)):
-                    move_slot(f, i, into)
-    for k in range(0, lk_tab.cls_count):
-        if lk_tab.cls_reach[k] != 0:
-            for p in range(lk_tab.cls_par[k], lk_tab.cls_par[k] + lk_tab.cls_np[k]):
-                if lk_tab.cp_weight[p] == weight and is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]):
-                    move_cparam(k, p, into)
-    for d in range(0, lk_tab.def_count):
-        if var_is_candidate(d, weight):
-            move_var(d, into)
 
 
 # Promotion decides most items without laying the program out again. After a layout L, what
@@ -448,16 +438,14 @@ def deepest(ctx, extra):
         if not used and through(extra) >= t:
             total = lk_tab.add16(total, cand_size)
             used = True
-            if lk_tab.add16(through(extra), total) > deep:
-                deep = lk_tab.add16(through(extra), total)
-        if (lk_tab.wk(LIST + 2 * i + 1) >> 12) == ctx:
-            total = lk_tab.add16(total, lk_tab.wk(LIST + 2 * i + 1) & 0xFFF)
-            if lk_tab.add16(t, total) > deep:
-                deep = lk_tab.add16(t, total)
+            deep = larger(deep, lk_tab.add16(through(extra), total))
+        entry = lk_tab.wk(LIST + 2 * i + 1)
+        if (entry >> 12) == ctx:
+            total = lk_tab.add16(total, entry & 0xFFF)
+            deep = larger(deep, lk_tab.add16(t, total))
     if not used:
         total = lk_tab.add16(total, cand_size)
-        if lk_tab.add16(through(extra), total) > deep:
-            deep = lk_tab.add16(through(extra), total)
+        deep = larger(deep, lk_tab.add16(through(extra), total))
     return deep
 
 
@@ -547,34 +535,46 @@ def try_var(d):
         move_var(d, True)
 
 
-def try_slots(weight):
+# What each_candidate() does with a candidate.
+MOVE_OUT = 0                            # takes it out of zero page
+MOVE_IN = 1                             # puts it in
+TRY = 2                                 # puts it in if the deepest chain still fits (judge)
+
+
+def each_candidate(weight, how):
+    """Each candidate of this weight, its slots, then its class parameters, then its variables:
+    moved into zero page or out of it, or tried."""
     for f in range(0, lk_tab.fn_count):
         if lk_tab.fn_ctx[f] != 0:
             for i in range(0, lk_tab.fn_nslots(f)):
                 s = lk_tab.fn_slot[f] + i
                 if lk_tab.slot_weight_of(s) == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)):
-                    try_slot(f, i)
-
-
-def try_cparams(weight):
+                    if how == TRY:
+                        try_slot(f, i)
+                    else:
+                        move_slot(f, i, how == MOVE_IN)
     for k in range(0, lk_tab.cls_count):
         if lk_tab.cls_reach[k] != 0:
             for p in range(lk_tab.cls_par[k], lk_tab.cls_par[k] + lk_tab.cls_np[k]):
                 if lk_tab.cp_weight[p] == weight and is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]):
-                    try_cparam(k, p)
-
-
-def try_vars(weight):
+                    if how == TRY:
+                        try_cparam(k, p)
+                    else:
+                        move_cparam(k, p, how == MOVE_IN)
     for d in range(0, lk_tab.def_count):
         if var_is_candidate(d, weight):
-            try_var(d)
+            if how == TRY:
+                try_var(d)
+            else:
+                move_var(d, how == MOVE_IN)
 
 
-def move_all(into):
-    """Move every candidate of weight 1 or more into zero page, or out again."""
+def move_all(how):
+    """Move every candidate of weight 1 or more into zero page (MOVE_IN), or out again
+    (MOVE_OUT)."""
     for weight in range(1, WEIGHTS):
         if lk_tab.wk(WEIGHT_COUNT + weight) != 0:
-            move_weight(weight, into)
+            each_candidate(weight, how)
 
 
 def promote():
@@ -585,16 +585,14 @@ def promote():
     First every candidate is tried at once. More in zero page never makes a chain need less, so
     if they all fit, each would have been taken one at a time too: one layout does the work.
     Otherwise each is judged in turn (judge)."""
-    move_all(True)
+    move_all(MOVE_IN)
     if layout_zp():
         return
-    move_all(False)
+    move_all(MOVE_OUT)
     lay_out()
     for weight in range(WEIGHTS - 1, 0, -1):
         if lk_tab.wk(WEIGHT_COUNT + weight) != 0:
-            try_slots(weight)
-            try_cparams(weight)
-            try_vars(weight)
+            each_candidate(weight, TRY)
 
 
 # ---- addresses

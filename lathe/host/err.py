@@ -6,7 +6,9 @@ reported at. The compiler stops at the first error: fatal() writes
 It never returns and nothing catches it.
 
 MESSAGES has one line per error, `number text`, so the texts can move to a file of their own
-when the compiler has to be smaller (docs/architecture.md, "Errors and debugging").
+when the compiler has to be smaller (docs/architecture.md, "Errors and debugging"): the BBC's ROM
+form of the twin reads them from LATHERR, which lathe/host/driver/msgfile.py writes from MESSAGES
+(docs/bbc.md, "The message file").
 
 The numbers are grouped by what the error is about:
 

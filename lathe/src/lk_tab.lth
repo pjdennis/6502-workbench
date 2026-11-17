@@ -230,6 +230,16 @@ pub func set_wk(i: word, v: word)
   end
 end
 
+; Add v to work word i.
+pub func add_wk(i: word, v: word)
+  set_wk(i, wk(i) + v)
+end
+
+; Take v from work word i.
+pub func sub_wk(i: word, v: word)
+  set_wk(i, wk(i) - v)
+end
+
 pub var overflow: bool = false  ; set when add16 could not hold its result
 
 ; a + b, or $FFFF with `overflow` set if that does not fit in 16 bits.

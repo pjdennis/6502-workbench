@@ -29,9 +29,33 @@
 ;   | begin(): range(0, len(PREFIX)) by i   | by a byte k; i a word           | the types differ  |
 ;   | `put_number` divides an int           | a byte: every number it is given| (as left)         |
 ;   |                                       | is one                          |                   |
+;   | MESSAGES in every build               | with `define MESSAGE_FILE 1` (the| the 128 KB       |
+;   |                                       | BBC's ROM forms) no texts:      | module (lathe/    |
+;   |                                       | put_text() reads the file       | docs/bbc.md)      |
+;   |                                       | LATHERR, which lathe/host/driver|                   |
+;   |                                       | /msgfile.py writes from MESSAGES|                   |
 module lk_err
 
+#if PORTS == 2
+#if MESSAGE_FILE
+import sys (close, exit, open_in, put_error, read, seek)
+#else
 import sys (exit, put_error)
+#end
+#else
+import sys (exit, put_error)
+#end
+
+; The BBC's ROM forms of the linker (`define MESSAGE_FILE 1`, linker-bbc.env's `when ROMFORM`)
+; hold no texts: begin() reads the text from the message file, LATHERR, if it can be opened
+; (lathe/host/driver/msgfile.py writes it from lathe/host/lk_err.py's MESSAGES; lathe/docs/
+; bbc.md, "The message file"), and otherwise writes the number alone. Every other build has the
+; texts, as the Python has them.
+#if PORTS == 2
+const FROM_FILE = MESSAGE_FILE
+#else
+const FROM_FILE = 0
+#end
 
 pub const E_USAGE = 1
 pub const E_OPEN = 2
@@ -95,6 +119,12 @@ pub const E_REGION_NO_FILE = 59
 pub const E_REGION_ROM = 60
 pub const E_COMMAND_FILE = 61
 
+#if FROM_FILE
+; The message file (lathe/host/driver/msgfile.py): the compiler's index, then the low bytes of
+; the places of the texts of link errors 0 to 255, then their high bytes, then the texts, each
+; what follows the number in an error's line, ": text", ended by a zero.
+const MESSAGE_FILE_NAME = "LATHERR"     ; a name without `.`: mapped, it is the same (err.lth)
+#else
 ; One message per line, in the order of the numbers above: errors 1 to SECOND - 1 in MESSAGES,
 ; the rest in MESSAGES2.
 const SECOND = 30
@@ -159,6 +189,7 @@ const MESSAGES2 = "address must be in zero page\n"
                   "constant data in a region is in a bank that has no file\n"
                   "a variable in a region is in a read-only bank\n"
                   "command file: too many arguments, or too long\n"
+#end
 
 const PREFIX: [11]byte = "link error "
 
@@ -222,15 +253,48 @@ pub func over(amount: word, wrapped: bool)
   end
 end
 
+#if FROM_FILE
+; What follows the number of error n in its line, from the message file, if it can be opened;
+; nothing if not.
+func put_text(n: byte)
+  var handle: byte
+  var low: byte
+  var c: byte
+  handle = sys.open_in(@MESSAGE_FILE_NAME)
+  if handle == 0 then
+    return
+  end
+  sys.seek(handle, n, 2)            ; the low byte of the text's place
+  low = sys.read(handle)
+  sys.seek(handle, n, 3)            ; its high byte
+  c = sys.read(handle)
+  sys.seek(handle, low, c)
+  loop
+    c = sys.read(handle)            ; 0 at the end of the text, and at the end of the file
+    if c == 0 then
+      break
+    end
+    put(c)
+  end
+  sys.close(handle)
+end
+#end
+
 ; Start error n: `link error N: text`.
 pub func begin(n: byte)
   var k: byte
+#if FROM_FILE
+#else
   var i: word
   var line: byte
+#end
   for k = 0 until len(PREFIX) do
     put(PREFIX[k])
   end
   put_number(n)
+#if FROM_FILE
+  put_text(n)
+#else
   put(58)
   put(32)
   i = 0
@@ -259,6 +323,7 @@ pub func begin(n: byte)
     put(MESSAGES2[i])
     i += 1
   end
+#end
 end
 
 ; Separates the text from the first name.

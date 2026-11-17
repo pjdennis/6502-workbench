@@ -15,11 +15,15 @@ The machinery, which works today:
   compiles a program from the ROM and through LOADMOD as the host compiler does.
 
 The gate: both tools in the eight-bank image, the compiler in banks 0 to 4 and the linker in 5 to
-7 (linker-bbc.env's `when ROM128` entries). While they do not fit it is an expected failure whose
-message says by how many bytes, in all and bank by bank; LATHE_BBC_ROM128_REPORT=1 prints the
-whole account. When they fit, the same image runs the tool chain on a small program; with
-LATHE_BBC_ROM128_SELFHOST=1 the compiler compiles itself from it, with LATHE_BBC_ROM128_SELFLINK=1
-the linker links the compiler, and with LATHE_BBC_ROM128_LOOP=1 the rebuild loop runs.
+7 (linker-bbc.env's `when ROM128` entries). Its message says by how many bytes they are over, in
+all and bank by bank, if they do not fit; LATHE_BBC_ROM128_REPORT=1 prints the whole account. The
+texts of the errors are not in the image: they are in the message file, LATHERR (lathe/docs/bbc.md,
+"The message file"). The same image runs the tool chain on two small programs and both tools'
+errors, with the message file and without it; with LATHE_BBC_ROM128_SELFHOST=1 the compiler
+compiles itself from it, with LATHE_BBC_ROM128_SELFLINK=1 the linker links the compiler, with
+LATHE_BBC_ROM128_LOOP=1 the rebuild loop runs, and with LATHE_BBC_ROM128_ADFS=1 the rebuild loop
+runs on two ADFS discs from the image built with ADFS's names and PAGE (BBCFS 2, ADFS 1), the
+message file on the first: the build the owner will use.
 """
 import os
 import re
@@ -224,6 +228,7 @@ REPORT = os.environ.get('LATHE_BBC_ROM128_REPORT') == '1'
 SELFHOST = os.environ.get('LATHE_BBC_ROM128_SELFHOST') == '1'
 SELFLINK = os.environ.get('LATHE_BBC_ROM128_SELFLINK') == '1'
 LOOP = os.environ.get('LATHE_BBC_ROM128_LOOP') == '1'
+ADFS = os.environ.get('LATHE_BBC_ROM128_ADFS') == '1'
 BANKS = 8
 JUDGED = os.path.join(HERE, 'lk_judged.py')
 # The tools, the first bank of each, as test_bbc_toolchain.build_image has them.
@@ -375,20 +380,25 @@ class Rom128(unittest.TestCase):
 
     def test_the_account_holds_every_byte(self):
         """The account's numbers are the links' own: the compiler's banks are 0 to 4, the
-        linker's 5 to 7, and the parts copied are the resident parts and the compiler's
-        messages."""
+        linker's 5 to 7, and the parts copied are the resident parts (the compiler's messages,
+        which were copied to slot 13, are in the message file)."""
         self.assertEqual(sorted(self.account.rows), list(range(8)))
         self.assertEqual({r[0] for n, r in self.account.rows.items() if n < 5}, {'LATHE'})
         self.assertEqual({r[0] for n, r in self.account.rows.items() if n >= 5}, {'LLINK'})
-        self.assertEqual([w for w, n in self.account.parts],
-                         ['LATHE slot 13 constants', 'LATHE resident part', 'LLINK resident part'])
+        self.assertEqual([w for w, n in self.account.parts], ['LATHE resident part', 'LLINK resident part'])
         self.assertFalse([c for c, e in self.account.errors if c == 'LATHE'])
 
-    @unittest.expectedFailure
     def test_both_tools_fit_the_128k_image(self):
-        """Not yet: the message says by how much (lathe/docs/bbc.md, "The 128 KB module"). When
-        this passes, remove expectedFailure: the tests below then run from the image."""
+        """lathe/docs/bbc.md, "The 128 KB module": the message, if not, says by how much."""
         self.assertTrue(self.account.fits(), self.account.summary())
+
+    def test_errors_from_the_128k_image(self):
+        """Both tools' errors: with the message file on the disc the host's, without it the
+        number alone (test_msgfile.py)."""
+        self.need_image()
+        import test_msgfile
+        with scheme():
+            test_msgfile.check_runs(self, self.image, self.dir)
 
     def need_image(self):
         if self.image is None:
@@ -415,7 +425,9 @@ class Rom128(unittest.TestCase):
     @unittest.skipUnless(SELFHOST, 'LATHE_BBC_ROM128_SELFHOST=1 has the compiler compile itself from it')
     def test_the_compiler_compiles_itself_from_the_128k_image(self):
         self.need_image()
-        compile_modules(self, self.image, ('rom', 'loader'), selfhost_modules())
+        cycles = compile_modules(self, self.image, ('rom', 'loader'), selfhost_modules())
+        print('\nthe self-compile from the 128 KB image: %d cycles in the ROM form, %d through LOADMOD' % (
+            sum(c['rom'] for c in cycles.values()), sum(c['loader'] for c in cycles.values())))
 
     @unittest.skipUnless(SELFLINK, 'LATHE_BBC_ROM128_SELFLINK=1 has the linker link the compiler from it')
     def test_the_linker_links_the_compiler_from_the_128k_image(self):
@@ -432,6 +444,7 @@ class Rom128(unittest.TestCase):
             lines = [boards.module_command('LLINK', ['@' + selflink.COMMAND_FILE])]
             status, out, mos, written, cycles, traffic = chain.bbc_run(self.image, disk, lines)
             self.assertEqual((status, out, mos), (0, b'', b''))
+            print('\nthe linker links the compiler from the 128 KB image: %d cycles' % cycles)
             expected = selflink.link_outputs(files)
             self.assertEqual(sorted(written), sorted(expected))
             for f in expected:
@@ -455,9 +468,37 @@ class Rom128(unittest.TestCase):
             lines += [boards.module_command('RUN', [image] + args) for args in again]
             status, out, mos, written, cycles, traffic = selflink.run_long(self.image, disk, lines)
             self.assertEqual((status, mos, out), (0, b'', b''))
+            print('\nthe rebuild loop from the 128 KB image: %d cycles' % cycles)
             self.assertEqual(sorted(written), sorted(files))
             for f in files:
                 self.assertTrue(written[f] == files[f], f + ' differs')
+
+
+@unittest.skipUnless(HAVE_TOOLS and ADFS, 'LATHE_BBC_ROM128_ADFS=1 runs the rebuild on two ADFS discs from it')
+class Adfs128(unittest.TestCase):
+    """The build the owner will use: the 128 KB image of both tools built with ADFS's names and
+    PAGE (BBCFS 2, ADFS 1), the compiler in banks 0 to 4 and the linker in 5 to 7, its RAM form
+    holding the image from power on (as a programmed EPROM does), doing the rebuild loop on two
+    ADFS discs (test_bbc_adfs.Loop), with the message file LATHERR on the first beside the
+    sources."""
+
+    def test_the_compiler_rebuilds_itself_on_two_adfs_discs_from_the_128k_image(self):
+        import test_bbc_adfs as adfs
+        work = tempfile.mkdtemp(prefix='lathe-bbc-rom128-adfs-loop-')
+        self.addCleanup(shutil.rmtree, work, True)
+        module, _ = adfs.build_image(os.path.join(work, 'image'), banks=BANKS)
+        with open(os.path.join(work, 'image', 'listing')) as f:
+            listing = f.read()
+        self.assertEqual(re.findall(r'\*LATHE: .*; banks ([0-9, ]+);', listing), ['0, 1, 2, 3, 4'])
+        self.assertEqual(re.findall(r'\*LLINK: .*; banks ([0-9, ]+);', listing), ['5, 6, 7'])
+        saved, adfs.LOOP = adfs.LOOP, True          # its account is printed
+        try:
+            with scheme():
+                cycles, report, cat = adfs.rebuild_on_two_discs(
+                    self, module, work, 'the loop on two ADFS discs from the 128 KB image', message_file=True)
+        finally:
+            adfs.LOOP = saved
+        self.assertIn('LATHERR', os.listdir(os.path.join(work, 'bbc')))
 
 
 MAINRAM = os.path.join(HERE, 'lk_mainram.py')
@@ -598,7 +639,9 @@ class Compiler8(unittest.TestCase):
                 print('  %-9s rom %12d  loader %12d' % (name, c['rom'], c['loader']))
 
     def test_its_start_up(self):
+        import test_msgfile
         with scheme(), tempfile.TemporaryDirectory() as d:
+            test_msgfile.put_on(d)
             code, out, err, cycles = boards.run_module(BOARD, self.image, d, 'LATHE', raw=True)
         self.assertIn(b'usage: lathec', out)
         if REPORT:

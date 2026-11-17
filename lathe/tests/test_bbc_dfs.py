@@ -505,6 +505,8 @@ class Toolchain(unittest.TestCase):
         self.assertTrue(files['averylongone.lo'] != files['averylongtwo.lo'])
         os.unlink(os.path.join(disk, 'averylongtwo.lth'))
         to_dfs(disk)
+        import test_msgfile
+        test_msgfile.put_on(disk, 1)        # the texts of the errors, as $.LATHERR
         self.assertEqual(sorted(os.listdir(disk)).count('L.AVERYLO'), 1)
         two = [c for c in compiles if c[-2] == 'averylongtwo.lth'][0]
         main = [c for c in compiles if c[-2] == 'meeting.lth'][0]

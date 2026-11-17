@@ -518,11 +518,14 @@ def run_host_full(item, work):
 
 def run_bbc(image, item, work):
     """(status, output, what the MOS said, {file: bytes}) of the compiler in the ROM form on
-    the BBC (test_bbc_selfhost.report_run), or an exception's text in place of the output."""
+    the BBC (test_bbc_selfhost.report_run), with the message file on the disc, or an exception's
+    text in place of the output."""
     import test_bbc_selfhost as bbc_selfhost
+    import test_msgfile
     kind, path, args, files = item
     with tempfile.TemporaryDirectory(dir=work) as disk:
         fill(disk, files)
+        test_msgfile.put_on(disk)
         try:
             got = bbc_selfhost.report_run('rom', image, disk, args)
         except Exception as e:      # an argument the BBC's command line cannot carry

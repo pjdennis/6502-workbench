@@ -455,7 +455,7 @@ Far calls are about 7 % of the compiler's link (at about 190 cycles), blocks abo
 
 ## The 128 KB module (2026-11-17)
 
-The owner wants the compiler and the linker in one 128 KB EPROM: eight banks of 16 KB. This is the layout's part of that: an eight-bank form of the module that can use every byte of the eight banks, and a gate that says how far the tools are from fitting it. The tools themselves are being made smaller elsewhere. Built: the scheme `direct8` in the emulator, `bbcrom.py --banks 8`, the home bank, the packing, LOADMOD for both schemes, the `ROM128` layouts in `lathec-bbc.env` and `linker-bbc.env`, `lathe/tests/test_bbc_rom128.py` (the gate) and `lathe/tests/farcall_matrix.py` (the far calls between modules, counted on the BBC).
+The owner wants the compiler and the linker in one 128 KB EPROM: eight banks of 16 KB. This is the layout's part of that: an eight-bank form of the module that can use every byte of the eight banks, and a gate that says how far the tools are from fitting it. **Since 2026-11-17 both tools fit it**, with 5,815 bytes to spare (4,610 in the ADFS build), once their errors' texts went to a file on the disc ("The message file", below), the linker was refactored to fit three banks ("The linker in three banks, as built") and the compiler's own code was made smaller ("The tools' banks", "Built instead"). Built: the scheme `direct8` in the emulator, `bbcrom.py --banks 8`, the home bank, the packing, LOADMOD for both schemes, the `ROM128` layouts in `lathec-bbc.env` and `linker-bbc.env`, `lathe/tests/test_bbc_rom128.py` (the gate) and `lathe/tests/farcall_matrix.py` (the far calls between modules, counted on the BBC).
 
 ### The form: direct8
 
@@ -491,7 +491,7 @@ In the compiler's link, lk_alloc calls lk_graph 1,150,365 times: 90 % of its far
 | the most even: link, lk_err, lk_file, lk_scan, lk_map, lk_emit / lk_envf, lk_name, lk_win, lk_boot, lk_place, lk_fix / lk_graph, lk_alloc; lk_out and lk_op fixed | 16,696 (424) / 16,619 (347) / 16,688 (416) | 271,898 | 3,198,900,000 | 58,935 | 338,600,000 |
 | by phase, lk_graph and lk_alloc apart: link, lk_err, lk_file, lk_envf, lk_scan, lk_win / lk_name, lk_graph, lk_boot, lk_place, lk_fix / lk_alloc, lk_map, lk_emit, lk_out, lk_op | 16,258 / 16,779 (507) / 17,847 (1,575) | 1,429,290 | 3,443,100,000 | 80,893 | 343,200,000 |
 
-The chosen layout is in `linker-bbc.env` under `when ROM128`. Fixing lk_out and lk_op (803 bytes as placed) uses the room the code range `$1900-$3FFF` had left (972 bytes) and takes 881 bytes as judged out of the banks; it saves only 1,288 far calls, since lk_emit, their caller, shares their bank. The resident part is 9,767 bytes (9,012 in five banks: lk_out and lk_op, and fewer stubs). With `BBCFS 1` the ROM form puts `bbcfs` in bank 1 as well (`when ROMFORM`), which that build must also make room for.
+The chosen layout is in `linker-bbc.env` under `when ROM128`, with lk_boot moved to bank 1 since ("The linker in three banks, as built"). Fixing lk_out and lk_op (803 bytes as placed) uses the room the code range `$1900-$3FFF` had left (972 bytes) and takes 881 bytes as judged out of the banks; it saves only 1,288 far calls, since lk_emit, their caller, shares their bank. The resident part is 9,767 bytes (9,012 in five banks: lk_out and lk_op, and fewer stubs). With `BBCFS 1` the ROM form puts `bbcfs` in bank 1 as well (`when ROMFORM`), which that build must also make room for.
 
 **The compiler in five banks** fits as it is; the search over every assignment of its 11 groups to five banks that fit found a better one, which `lathec-bbc.env` gives under `when ROM128`: bank 1 expr; 2 gen and lathec; 3 decl and asmblock; 4 parts, out, inlines, kernel, lex, fbuf, src and err; 5 reg, cond, fold and typetab (reg's and gen's calls of fold and typetab were the most of any pair, 98,212 and 71,079). Measured from the eight-bank image, the 18 compiles of the self-compile, every file the host's:
 
@@ -504,24 +504,54 @@ The chosen layout is in `linker-bbc.env` under `when ROM128`. Fixing lk_out and 
 
 ### The account (the gate)
 
-`test_bbc_rom128.py` links both tools for the eight-bank image (the compiler in banks 0 to 4, the linker in 5 to 7) with `lk_judged.py`, so that a tool that does not link is measured too, and lays the image out from what the links give. `test_both_tools_fit_the_128k_image` is an expected failure whose message gives the bytes over; `LATHE_BBC_ROM128_REPORT=1` prints the whole account. On 2026-11-17:
+`test_bbc_rom128.py` links both tools for the eight-bank image (the compiler in banks 0 to 4, the linker in 5 to 7) with `lk_judged.py`, so that a tool that does not link is measured too, and lays the image out from what the links give. `test_both_tools_fit_the_128k_image` must pass, and its message says by how many bytes, in all and bank by bank, if it does not; `LATHE_BBC_ROM128_REPORT=1` prints the account. On 2026-11-17, after the message file, the linker's refactoring and the compiler's smaller code (`BBCFS 0`):
 
-| Bank | Tool | Judged | Placed | Over as judged | Left to `$BFEF` | Modules |
+| Bank | Tool | Judged | Placed | Left as judged | Left to `$BFEF` | Modules |
 |---|---|---|---|---|---|---|
-| 0 | LATHE | 15,717 | 14,756 | | 1,532 | expr |
-| 1 | LATHE | 15,154 | 13,533 | | 2,755 | gen, lathec |
-| 2 | LATHE | 15,714 | 13,768 | | 2,520 | decl, asmblock |
-| 3 | LATHE | 14,716 | 12,550 | | 3,738 | inlines, parts, out, lex, kernel, fbuf, src, err |
-| 4 | LATHE | 13,687 | 11,992 | | 4,296 | reg, cond, fold, typetab |
-| 5 | LLINK | 16,844 | 14,961 | **572** | 1,327 | lk_envf, lk_err, lk_emit, lk_place, lk_fix, lk_win, lk_file, link |
-| 6 | LLINK | 16,471 | 13,772 | **199** | 2,516 | lk_scan, lk_name, lk_map, lk_boot |
-| 7 | LLINK | 16,688 | 13,572 | **416** | 2,716 | lk_alloc, lk_graph |
+| 0 | LATHE | 15,466 | 14,101 | 806 | 2,187 | expr, parts, out |
+| 1 | LATHE | 15,396 | 13,685 | 876 | 2,603 | gen, lathec |
+| 2 | LATHE | 15,343 | 13,100 | 929 | 3,188 | decl, asmblock |
+| 3 | LATHE | 12,342 | 10,512 | 3,930 | 5,776 | inlines, kernel, lex, fbuf, src, err |
+| 4 | LATHE | 13,648 | 12,030 | 2,624 | 4,258 | reg, cond, fold, typetab |
+| 5 | LLINK | 15,309 | 13,248 | 963 | 3,040 | lk_envf, lk_emit, lk_place, lk_fix, lk_boot, lk_win, lk_file, lk_err, link |
+| 6 | LLINK | 15,079 | 12,556 | 1,193 | 3,732 | lk_scan, lk_name, lk_map |
+| 7 | LLINK | 16,031 | 13,060 | **241** | 3,228 | lk_alloc, lk_graph |
 
-Copied at the commands: the compiler's messages for slot 13 (5,494 bytes), its resident part (13,959) and the linker's (9,767). In use: 108,904 bytes of code banks and 29,220 copied, 138,124 of the 130,304 the eight banks hold to `$BFEF`; with the module's code and tables (about 500 bytes) and the copy entries, **8,363 bytes over**. The linker does not link yet: link error 45, its bank 1 (the image's 5) 572 bytes over.
+Copied at the commands: the resident parts, the compiler's 11,849 bytes and the linker's 9,829 (nothing for slot 13: its messages are in the file). In use: 102,292 bytes of code banks and 21,678 copied, **123,970 of the 130,304** the eight banks hold to `$BFEF`; with the module's code and tables (519 bytes, in bank 3) and seven pieces, **5,815 bytes free**. The fullest bank as the linker judges it is the linker's bank 3, lk_alloc and lk_graph, 241 bytes below the 16,272 a bank holds.
 
-**What must still shrink for the gate to pass**: 8,363 bytes anywhere in the two tools (code of a bank, a resident part or the messages copied to slot 13: a byte saved is a byte saved), and of that, as the linker judges them, 572 bytes in the linker's bank 1 (lk_envf, lk_err, lk_emit, lk_place, lk_fix, lk_win, lk_file, link), 199 in its bank 2 (lk_scan, lk_name, lk_map, lk_boot) and 416 in its bank 3 (lk_alloc, lk_graph). The compiler's banks fit as they are. Moving the compiler's 5,494 bytes of messages out of the ROM removes them from the copy (and the slot-13 copy at every `*LATHE`). When the account is 0, `test_both_tools_fit_the_128k_image` succeeds unexpectedly: remove its `expectedFailure`, and the same file runs the tool chain on two small programs (`hello`, and `farcall` banked through LOADMOD) from the 128 KB image; `LATHE_BBC_ROM128_SELFHOST=1` the self-compile from it in the ROM and loader forms, `LATHE_BBC_ROM128_SELFLINK=1` the linker linking the compiler, `LATHE_BBC_ROM128_LOOP=1` the rebuild loop.
+**The ADFS build** (`BBCFS 2`, `ADFS 1`, the owner's): `bbcfs` goes in the compiler's bank 5 (14,273 judged) and the linker's bank 1 (15,934 judged, **338 left**: the fullest in that build), the resident parts are 11,909 and 9,897; in use 125,167, **4,610 free**.
+
+(With the message file and the linker's work alone, on 05824fd's compiler: 125,254 in use, 4,523 free, 3,326 with ADFS.)
+
+Before (2026-11-17, 05824fd): 134,224 bytes in use, 4,463 over, the linker's banks 572, 199 and 416 over as judged, so it did not link (link error 45).
 
 What the packing recovered: the sixteen-bank image of both tools left 53,013 bytes unused at the ends of its ten code banks; in the eight-bank layout every one of those bytes can take a piece, and `$BFE0-$BFEF` of each bank (128 bytes in eight banks) is room it did not have. What the eight banks cannot use: the reserved bytes (80 a bank), 16 bytes at the top of each, 8 bytes an entry, and gaps of 8 bytes or fewer.
+
+### The linker in three banks, as built
+
+With `lk_err`'s texts in the file, the linker's bank 1 was 13,917 bytes as judged, 2,355 below a bank; banks 2 and 3 were still 199 and 416 over. In host and twin alike, the output unchanged (`test_src_lk.py`, `test_src_link.py`, the linker's host tests, and the gates that compare every file the Lathe-written linker writes with the host's), judged bytes of the bank:
+
+| Change | Bank | Judged |
+|---|---|---|
+| `lk_tab.add_wk` and `sub_wk` for the seven read-modify-writes of work words in `lk_alloc` (`lk_tab` is fixed: 56 bytes of main RAM) | 3 | -224 |
+| `lk_alloc.each_candidate(weight, how)`, one walk over the candidates of a weight that moves them in, out, or tries them, for `move_weight` and `try_slots`, `try_cparams` and `try_vars`, which walked the same three sets | 3 | -280 |
+| `lk_alloc.larger` for `deepest`'s three maxima, each of which worked its sum out twice, and the second word of a list entry read once | 3 | -89 |
+| `layout_set`: `larger` for its start, and each node read from `order` once a loop | 3 | -27 |
+| `keep_in_object`: a fix-up's symbol read from the work area once, not three times | 3 | -33 |
+| `lk_boot` in bank 1 (`when ROM128 place lk_boot WIN 1`): its callers are lk_emit and lk_place, there, and it calls lk_win and lk_envf, there too | 2, 1 | -1,392, +1,392 |
+
+Bank 3 went from 16,688 to 16,031, bank 2 from 16,471 to 15,079, bank 1 from 13,917 to 15,309. Not needed: merging `lk_map.decimal` into `lk_err.put_word` (they write to different places, the map and the error output, so one would take where to write, and lk_map is in another bank: a far call for every number of the map).
+
+**Cycles, from the eight-bank image** (`LATHE_BBC_ROM128_SELFHOST=1`, `_SELFLINK=1`, `_LOOP=1`, `_ADFS=1`; every file the host tools'), against the sixteen-bank image's of 05824fd, and before and after the compiler's smaller source was merged (2026-11-17):
+
+| What | Sixteen banks (05824fd) | Eight banks, the message file and the linker's work | Eight banks, merged |
+|---|---|---|---|
+| the self-compile, the ROM form (18 compiles) | 946.6 million | 897.7 million (935.7 through LOADMOD) | **877.0 million** (915.0 through LOADMOD) |
+| the linker links the compiler | 3,407 million | 2,961 million | **3,463 million** |
+| the rebuild loop (25 compiles, the link, two compiles by the new compiler) | 4,345 to 4,481 million | 4,008 million | **4,484 million** |
+| the rebuild on two ADFS discs, `BBCFS 2` and `ADFS 1`, the message file on drive 0 | 4,510 million | 4,026 million | **4,504 million**, 37.5 minutes at 2 MHz |
+
+The eight-bank image is faster for the far calls its layout keeps in one bank (lk_alloc's calls of lk_graph, and now lk_boot's) and for the shorter start-up (below). The merged tree's compiler is a larger program to link: kernel's column accessors and name functions are hundreds of short functions and thousands of calls more for the linker to read, place and promote, so its link costs 502 million cycles more than before them (the merged tree's loops in the sixteen-bank image: 4,814 million under DFS names, 4,822 million on two ADFS discs). On the two ADFS discs from the 128 KB image: at most 2 files open and 1 written, at most 25 entries in a directory.
 
 ### Start-up
 
@@ -534,8 +564,11 @@ Each command copies its pieces a byte at a time with a bank switch a byte, as be
 | sixteen banks with `--tails` (banks 0 to 10; `*LLINK` copies 2 pieces, not 1) | 1,467,942 | 555,088 |
 | eight banks, the compiler alone (`when ROM128` layout, banks 0 to 4) | 1,466,112 | |
 | eight banks, the linker alone in its five banks (banks 0 to 4) | | 554,975 |
+| sixteen banks, the messages in the file (2026-11-17; the usage read from it) | 978,160 | 563,528 |
+| the same with the compiler's smaller code (the merged tree) | 861,628 | 563,532 |
+| eight banks, both tools, the merged tree | 861,934 | 607,461 |
 
-The linker in three banks has 755 bytes more to copy (9,767), about 45,000 cycles more at 60 a byte; it cannot be measured until it links.
+The compiler's start-up is 495,310 cycles shorter without the 5,494 bytes it copied to slot 13 ("The message file"). The linker in three banks copies its larger resident part (9,829 bytes: lk_out and lk_op are fixed there).
 
 ### What `cc128` would take
 
@@ -839,6 +872,94 @@ A second rebuild on the same discs writes every file over its old one in its own
 - **`*COMPACT`, `*MAP`, `*FREE`, a disc used for months.** The emulator lays each run out as if the disc had just been compacted.
 - **A shorter BBC command line** (`*LATHE EXPR`), as for the DFS: the tests replay the host's command lines.
 - **A build for `$1D00`** (ADFS without the DFS): a second set of `when` entries would give 512 bytes; one build serves both.
+
+## The message file (2026-11-17)
+
+The texts of the errors are 5,494 bytes in the compiler (`err`'s three strings, in the region `MSGS`, copied to sideways slot 13 at every `*LATHE`) and 2,803 in the linker (`lk_err`'s two, in its first bank): 6 % of the 128 KB image, and in the linker's fullest bank. The BBC's ROM forms of both tools now hold none: an error prints its text from a file on the disc if it can open it, and otherwise its number alone, with everything else as before. Turbo Pascal 3 did the same with its optional `TURBO.MSG`. Built: `lathe/host/driver/msgfile.py`, `put_text()` in `lathe/src/err.lth` and `lathe/src/lk_err.lth` under `define MESSAGE_FILE`, `bbc.seek` and `bbc.open_unmapped` (`lathe/rt/bbc.lth`) with `sys.seek` and `sys.open_unmapped` (`lathe/src/sys.lth`, the BBC only), and the tests `lathe/tests/test_msgfile.py`.
+
+### The choice, in the environment
+
+`define MESSAGE_FILE`, a name no module has: `lathec-bbc.env` and `linker-bbc.env` say `unless ROMFORM define MESSAGE_FILE 0` and `when ROMFORM define MESSAGE_FILE 1`, so it is 1 in every ROM form (sixteen banks and eight) and 0 in the developer's forms; `compiler-bbc.env` and `compiler-bbc-bank.env` (the compiler's test programs on the BBC) say 0. `err.lth` and `lk_err.lth` test it inside `#if PORTS == 2`, so no other machine's environment needs it. Every other build keeps its texts and is the same: the images, bank files and maps of both tools' developer's forms with `BBCFS` 0, 1 and 2, of `errtest` and `kerneltest` on the BBC and on the default machine, and the objects of `err` and `lk_err` everywhere, compared before and after. The objects of `bbc` differ in every build (the two new functions, linked only where they are called) and `sys.li` in the BBC's (the two inline functions).
+
+The developer's forms keep their texts: they load their banks from the disc anyway, and their main RAM has room (5,329 and 4,952 bytes free with `BBCFS 0`).
+
+### The file
+
+One file for both tools, `LATHERR`, written from the tables the host tools print from (`err.MESSAGES`, `lk_err.MESSAGES`), so it says what they say:
+
+| Bytes | What |
+|---|---|
+| 0-255 | the compiler's index: byte n is the low byte of the place of error n's text |
+| 256-511 | the high bytes |
+| 512-1023 | the linker's index, the same |
+| 1024- | the texts, each as it follows the number in the error's line, `: ` and the text, ended by a zero: first `: ` alone, where every number with no text points; then the compiler's, then the linker's |
+
+9,258 bytes, 37 sectors. An entry for every byte, so the reader checks nothing; the zero ends a text and the end of the file reads as one, so a file cut short ends the text. The tools find a text by number with three seeks (OSARGS 1, `PTR#`) and no arithmetic: the low byte, the high byte, the text. A seek costs no disc time of its own: a filing system reads the sector that holds the byte asked for, so an error reads three sectors (one more if the text runs into the next), about half a second on a real DFS at a revolution a sector, where reading forward through the file to its last text would read 37, several seconds. That is why the index is at the front and why there is a seek.
+
+**The name.** `LATHERR` has no `.`, which the BBC's mapping of names leaves as it is ("File names on the BBC"): it is `$.LATHERR` on the DFS (`X.LATHE` it would have been as `lathe.msg`), `LATHERR` in the current directory on ADFS, and `LATHERR` in the emulator's directory, seven characters, legal under both. That matters for the compiler: an error can be raised inside a `with` block, so everything the error path reaches is kept in fixed memory (`lk_tab.F_FIXED`), and `bbc.open` would reach `bbcfs.map`, which the ROM forms place in a bank; kept fixed, `bbcfs` cost the compiler 454 bytes of main RAM with `BBCFS 2` (412 bytes over at ADFS's PAGE in the eight-bank form). So the compiler opens the file with `bbc.open_unmapped`, which copies the name and calls OSFIND, and the linker, whose `lk_err` is in a bank, with `sys.open_in`; a name without `.` makes both open the same file under every filing system.
+
+**Where it is looked for**: in the current directory and drive, as every name without a drive is. In the rebuild on two ADFS discs, in the root of drive 0 beside the sources.
+
+**Files open at once.** At an error the compiler has its source and perhaps an interface open, the linker an object file and perhaps the image or a bank file: the message file is the third, of the DFS's five and ADFS's ten, and it is closed again before the line ends.
+
+### What an error looks like
+
+With the file on the disc, exactly what the host tools print (`test_src_lathec.OnTheBBC`, `test_bbc_dfs`'s names that meet, `test_bbc_adfs`'s directory that cannot be made, and `test_msgfile.py`, each against the host). Without it:
+
+| With `LATHERR` | Without |
+|---|---|
+| `rows_record_size.lth:7:8: error 136: a record in an array declared rows must be padded to a size that is a power of two; its size is 3` | `rows_record_size.lth:7:8: error 136 3` |
+| `error_directive.lth:4:1: error 181: #error: this configuration is not supported` | `error_directive.lth:4:1: error 181: this configuration is not supported` |
+| `undefined.lth:3:3: error 40: undefined name` | `undefined.lth:3:3: error 40` |
+| `lathec: error 60: usage: lathec [-c6502\|-c65c02] ...` | `lathec: error 60` |
+| `link error 1: usage: link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...` | `link error 1` |
+| `link error 2: cannot open file: none.env` | `link error 2: none.env` |
+
+The status is the same either way. `lathe/host/err.py` and `lathe/host/lk_err.py` list what each number means.
+
+### What it costs and what it saves
+
+Bytes as placed, the eight-bank ROM forms with `BBCFS 0`:
+
+| | The compiler | The linker |
+|---|---|---|
+| Texts out | 5,494 (slot 13's constants, copied at every `*LATHE`) | 2,803 (bank 1) |
+| Code out | `message_start` 130, `fatal_start` 191 to 72: 249 (fixed) | `begin` 220 to 33: 187 (bank 1) |
+| Reader in | `put_text` 89, its name 8, `bbc.open_unmapped` 54, `bbc.seek` 17: 168 (all fixed: the error path runs inside `with` blocks) | `put_text` 77 (bank 1); its name 8 and `bbc.seek` 17 (fixed) |
+| Net | 5,575 less; resident part 14,046 to 13,973 (with the compiler's smaller code: 11,932 to 11,849) | 2,913 less in bank 1 (judged 3,506 to 579 for `lk_err`), 25 more fixed; resident part 9,772 to 9,797 |
+
+The reader is in fixed memory in the compiler, not in a bank: `err.fatal` is called inside `with` blocks (kernel's, fbuf's, lex's), so the linker keeps it and all it reaches fixed, and before this `message_start` and `fatal_start` were fixed for the same reason. It is smaller than what left fixed memory with it, so main RAM gains in every ROM form (below); its buffers are none (it writes each byte as it reads it) and its variables are three bytes of frame.
+
+**The sideways slots** of the compiler's ROM form (16,352 bytes each, `$8000-$BFDF`): slot 12 (the name heap) 7,136 free, as before; **slot 13 7,392 free, 1,898 before** (`fbuf`'s buffer and labels, `lex.string`, `kernel.tokens`: 8,960 bytes of variables, and no constants, so no bank file: `when ROMFORM bank WIN 33 $0D`); slot 0 5,968; slot 1 10,656. The linker's (0, 1 and 12) are as they were.
+
+**The start-up.** `*LATHE` no longer copies 5,494 bytes into slot 13, one bank switch a byte. `*LATHE` and `*LLINK` with no arguments (the usage, read from the file; then without it), in cycles:
+
+| Image | `*LATHE` before | after, with the file | without | `*LLINK` before | after, with | without |
+|---|---|---|---|---|---|---|
+| sixteen banks, both tools | 1,473,470 | 978,160 | 966,417 | 555,228 | 563,528 | 555,304 |
+| eight banks, the compiler alone | 1,472,011 | 976,503 | 964,760 | | | |
+| eight banks, both tools | (did not link) | 976,509 | 964,766 | | 607,460 | 599,296 |
+| sixteen banks, with the compiler's smaller code: before (that work alone) and after | 1,358,051 | 861,628 | 849,885 | 555,228 | 563,532 | 555,308 |
+| eight banks, both tools, the merged tree | | 861,934 | 850,191 | | 607,461 | 599,297 |
+
+So **495,310 cycles less at every `*LATHE`** (a quarter of a second at 2 MHz), and about 11,700 more for reading a text, which the emulator's MOS charges nearly nothing for (a real disc adds its three sectors). The linker's start-up in eight banks copies its larger resident part (lk_out and lk_op are fixed there).
+
+### Main RAM
+
+Free of `PAGE-$7BFF` and `$0401-$06FF` (26,111 bytes at `$1900`, 24,575 at `$1F00`) less what the map places there; the eight-bank forms linked as `test_bbc_rom128.AdfsMainRam` links them, so that a form that did not link before is measured too. Before is 05824fd; "compiler's work" is the branch that made the compiler's code smaller ("The tools' banks"), alone; after is both together (with the linker's refactorings below, whose `add_wk` and `sub_wk` are 56 bytes of `lk_tab`, which is fixed):
+
+| Form | The compiler: before | compiler's work | after | The linker: before | after |
+|---|---|---|---|---|---|
+| developer's, `BBCFS 0` | 5,329 | 7,658 | 7,658 | 4,952 | 4,899 |
+| ROM, sixteen banks, `BBCFS 0` | 1,637 | 3,787 | 3,874 | 4,027 | 3,946 |
+| ROM, eight banks, `BBCFS 0` | 1,672 | 3,787 | 3,874 | 3,272 | 3,215 |
+| developer's, `BBCFS 1` | 4,893 | 7,222 | 7,222 | 4,508 | 4,455 |
+| ROM, sixteen banks, `BBCFS 1` | 1,611 | 3,760 | 3,847 | 3,994 | 3,904 |
+| developer's, `BBCFS 2`, `$1F00` | 3,200 | 5,526 | 5,526 | 2,816 | 2,762 |
+| ROM, sixteen banks, `BBCFS 2`, `$1F00` | 16 | 2,168 | **2,254** | 2,401 | 2,312 |
+| ROM, eight banks, `BBCFS 2`, `$1F00` | 51 | 2,166 | **2,253** | 1,646 | 1,581 |
+
+The message file gives the compiler 75 to 87 bytes in every ROM form and nothing in the developer's forms, which are the same; the linker loses 53 to 90 (the reader's 25 fixed bytes, `add_wk` and `sub_wk`, and in the ROM forms stubs that moved). The splits in `lathec-bbc.env` stay where the compiler's work put them: the ROM form's code ends at `$4756` with `BBCFS 1` (`$47A9` before the message file) below the split at `$4F00`, and at `$4D85` with `BBCFS 2` below `$5220`.
 
 ## Open, for the owner
 

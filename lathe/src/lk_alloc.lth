@@ -61,14 +61,14 @@ import lk_graph (edge_node, first_edge, next_edge, order_at, order_count, scc_of
 import lk_name (error_name, error_node)
 import lk_op (CPU_6502)
 import lk_sym ()
-import lk_tab (add16, cls_count, cls_node, cls_np, cls_par, cls_reach, cls_ref, copy_node, cp_addr,
-               cp_info, cp_size, cp_weight, ctx_count, ctx_of, D_CLASS, D_ZP, def_a, def_b,
+import lk_tab (add16, add_wk, cls_count, cls_node, cls_np, cls_par, cls_reach, cls_ref, copy_node,
+               cp_addr, cp_info, cp_size, cp_weight, ctx_count, ctx_of, D_CLASS, D_ZP, def_a, def_b,
                def_count, def_f, def_ref, def_w, first_in_order, flip_slot_zp, fn_count, fn_ctx,
                fn_nslots, fn_ref, fn_slot, has_copy, in_block, in_frame, is_kept_var, is_node,
                MAX_CONTEXTS, MAX_NODES, mbase_of, member_class, next_in_order, node_class,
                node_count, node_is_class, NONE, overflow, own_of, S_CLASS, S_ZP, set_slot_zp,
-               set_wk, set_zbase, slot_bytes, slot_class, slot_in_zp, slot_weight_of, W_MBASE,
-               W_ZSIZE, wk, work, zbase_of)
+               set_wk, set_zbase, slot_bytes, slot_class, slot_in_zp, slot_weight_of, sub_wk,
+               W_MBASE, W_ZSIZE, wk, work, zbase_of)
 import lk_win (bank_def)
 
 const POOL_ZP = 0
@@ -98,6 +98,14 @@ pub var layouts: word = 0       ; how often zero page has been laid out: a measu
 ; True if a two-byte item at addr would lie across a page boundary and must not.
 pub func straddles(addr: word, size: word): bool
   return lk_envf.cpu == lk_op.CPU_6502 and size == 2 and lo(addr) == $FF
+end
+
+; The larger of a and b.
+func larger(a: word, b: word): word
+  if b > a then
+    return b
+  end
+  return a
 end
 
 ; ---- the size of a node
@@ -227,21 +235,22 @@ func layout_set(pool: byte, first: word, limit: word): word
   var start: word
   var i: word
   var pos: word
+  var n: word
   start = 0
   for i = first until limit do
-    if base_of(lk_graph.order_at(i)) > start then
-      start = base_of(lk_graph.order_at(i))
-    end
+    start = larger(start, base_of(lk_graph.order_at(i)))
   end
   pos = start
   for i = first until limit do
-    lk_tab.set_wk(LAY_BASE + lk_graph.order_at(i), pos)
-    pos = node_end(pool, lk_graph.order_at(i), pos)
+    n = lk_graph.order_at(i)
+    lk_tab.set_wk(LAY_BASE + n, pos)
+    pos = node_end(pool, n, pos)
   end
   for i = first until limit do
-    lk_tab.set_wk(LAY_END + lk_graph.order_at(i), pos)
-    lk_tab.set_wk(LAY_SIZE + lk_graph.order_at(i), pos - start)
-    raise_callees(lk_graph.order_at(i), pos)
+    n = lk_graph.order_at(i)
+    lk_tab.set_wk(LAY_END + n, pos)
+    lk_tab.set_wk(LAY_SIZE + n, pos - start)
+    raise_callees(n, pos)
   end
   return pos
 end
@@ -469,7 +478,7 @@ func start_choices()
           must_fit(lk_tab.slot_bytes(s), lk_tab.fn_ref(f))
           lk_tab.set_slot_zp(s)
         elif is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
-          lk_tab.set_wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s), lk_tab.wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s)) + 1)
+          lk_tab.add_wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s), 1)
         end
       end
     end
@@ -481,7 +490,7 @@ func start_choices()
           must_fit(lk_tab.cp_size[p], lk_tab.cls_ref(k))
           lk_tab.cp_info[p] |= lk_tab.S_ZP
         elif is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]) then
-          lk_tab.set_wk(WEIGHT_COUNT + lk_tab.cp_weight[p], lk_tab.wk(WEIGHT_COUNT + lk_tab.cp_weight[p]) + 1)
+          lk_tab.add_wk(WEIGHT_COUNT + lk_tab.cp_weight[p], 1)
         end
       end
     end
@@ -494,7 +503,7 @@ func start_choices()
         lk_tab.def_f[d] |= lk_tab.D_ZP
         zp_vars += lk_tab.def_b[d]
       elif (lk_tab.def_f[d] & lk_tab.D_CLASS) == 1 and lk_tab.def_b[d] <= zp_cap then
-        lk_tab.set_wk(WEIGHT_COUNT + lk_tab.def_w(d), lk_tab.wk(WEIGHT_COUNT + lk_tab.def_w(d)) + 1)
+        lk_tab.add_wk(WEIGHT_COUNT + lk_tab.def_w(d), 1)
       end
     end
   end
@@ -525,9 +534,9 @@ func move_slot(f: word, i: byte, into: bool)
     if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)) then
       n = lk_tab.copy_node(f, ctx)
       if into then
-        lk_tab.set_wk(lk_tab.W_ZSIZE + n, lk_tab.wk(lk_tab.W_ZSIZE + n) + lk_tab.slot_bytes(s))
+        lk_tab.add_wk(lk_tab.W_ZSIZE + n, lk_tab.slot_bytes(s))
       else
-        lk_tab.set_wk(lk_tab.W_ZSIZE + n, lk_tab.wk(lk_tab.W_ZSIZE + n) - lk_tab.slot_bytes(s))
+        lk_tab.sub_wk(lk_tab.W_ZSIZE + n, lk_tab.slot_bytes(s))
       end
     end
   end
@@ -536,9 +545,9 @@ end
 func move_cparam(k: byte, p: byte, into: bool)
   lk_tab.cp_info[p] ^= lk_tab.S_ZP
   if into then
-    lk_tab.set_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k]) + lk_tab.cp_size[p])
+    lk_tab.add_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.cp_size[p])
   else
-    lk_tab.set_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k]) - lk_tab.cp_size[p])
+    lk_tab.sub_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.cp_size[p])
   end
 end
 
@@ -554,41 +563,6 @@ end
 func var_is_candidate(d: word, weight: byte): bool
   return lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_CLASS) == 1 and
       lk_tab.def_w(d) == weight and lk_tab.def_b[d] <= zp_cap
-end
-
-; Move every candidate of this weight into zero page, or all of them out again.
-func move_weight(weight: byte, into: bool)
-  var f: word
-  var i: byte
-  var s: word
-  var k: byte
-  var p: byte
-  var d: word
-  for f = 0 until lk_tab.fn_count do
-    if lk_tab.fn_ctx[f] != 0 then
-      for i = 0 until lo(lk_tab.fn_nslots(f)) do
-        s = lk_tab.fn_slot[f] + i
-        if lk_tab.slot_weight_of(s) == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
-          move_slot(f, i, into)
-        end
-      end
-    end
-  end
-  for k = 0 until lk_tab.cls_count do
-    if lk_tab.cls_reach[k] != 0 then
-      for p = lo(lk_tab.cls_par[k]) until lo(lk_tab.cls_par[k]) + lk_tab.cls_np[k] do
-        if lk_tab.cp_weight[p] == weight and
-            is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]) then
-          move_cparam(k, p, into)
-        end
-      end
-    end
-  end
-  for d = 0 until lk_tab.def_count do
-    if var_is_candidate(d, weight) then
-      move_var(d, into)
-    end
-  end
 end
 
 ; Promotion decides most items without laying the program out again. After a layout L, what was
@@ -634,6 +608,7 @@ func deepest(ctx: byte, extra: word): word
   var used: bool
   var i: word
   var t: word
+  var entry: word
   deep = ctx_depth[ctx]
   total = 0
   used = extra == lk_tab.NONE
@@ -642,22 +617,17 @@ func deepest(ctx: byte, extra: word): word
     if not used and through(extra) >= t then
       total = lk_tab.add16(total, cand_size)
       used = true
-      if lk_tab.add16(through(extra), total) > deep then
-        deep = lk_tab.add16(through(extra), total)
-      end
+      deep = larger(deep, lk_tab.add16(through(extra), total))
     end
-    if byte(lk_tab.wk(LIST + 2 * i + 1) >> 12) == ctx then
-      total = lk_tab.add16(total, lk_tab.wk(LIST + 2 * i + 1) & $FFF)
-      if lk_tab.add16(t, total) > deep then
-        deep = lk_tab.add16(t, total)
-      end
+    entry = lk_tab.wk(LIST + 2 * i + 1)
+    if byte(entry >> 12) == ctx then
+      total = lk_tab.add16(total, entry & $FFF)
+      deep = larger(deep, lk_tab.add16(t, total))
     end
   end
   if not used then
     total = lk_tab.add16(total, cand_size)
-    if lk_tab.add16(through(extra), total) > deep then
-      deep = lk_tab.add16(through(extra), total)
-    end
+    deep = larger(deep, lk_tab.add16(through(extra), total))
   end
   return deep
 end
@@ -770,52 +740,65 @@ func try_var(d: word)
   end
 end
 
-func try_slots(weight: byte)
+; What each_candidate() does with a candidate.
+const MOVE_OUT = 0                      ; takes it out of zero page
+const MOVE_IN = 1                       ; puts it in
+const TRY = 2                           ; puts it in if the deepest chain still fits (judge)
+
+; Each candidate of this weight, its slots, then its class parameters, then its variables: moved
+; into zero page or out of it, or tried.
+func each_candidate(weight: byte, how: byte)
   var f: word
   var i: byte
   var s: word
+  var k: byte
+  var p: byte
+  var d: word
   for f = 0 until lk_tab.fn_count do
     if lk_tab.fn_ctx[f] != 0 then
       for i = 0 until lo(lk_tab.fn_nslots(f)) do
         s = lk_tab.fn_slot[f] + i
         if lk_tab.slot_weight_of(s) == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
-          try_slot(f, i)
+          if how == TRY then
+            try_slot(f, i)
+          else
+            move_slot(f, i, how == MOVE_IN)
+          end
         end
       end
     end
   end
-end
-
-func try_cparams(weight: byte)
-  var k: byte
-  var p: byte
   for k = 0 until lk_tab.cls_count do
     if lk_tab.cls_reach[k] != 0 then
       for p = lo(lk_tab.cls_par[k]) until lo(lk_tab.cls_par[k]) + lk_tab.cls_np[k] do
         if lk_tab.cp_weight[p] == weight and
             is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]) then
-          try_cparam(k, p)
+          if how == TRY then
+            try_cparam(k, p)
+          else
+            move_cparam(k, p, how == MOVE_IN)
+          end
         end
+      end
+    end
+  end
+  for d = 0 until lk_tab.def_count do
+    if var_is_candidate(d, weight) then
+      if how == TRY then
+        try_var(d)
+      else
+        move_var(d, how == MOVE_IN)
       end
     end
   end
 end
 
-func try_vars(weight: byte)
-  var d: word
-  for d = 0 until lk_tab.def_count do
-    if var_is_candidate(d, weight) then
-      try_var(d)
-    end
-  end
-end
-
-; Move every candidate of weight 1 or more into zero page, or out again.
-func move_all(into: bool)
+; Move every candidate of weight 1 or more into zero page (MOVE_IN), or out again (MOVE_OUT).
+func move_all(how: byte)
   var weight: byte
   for weight = 1 to WEIGHTS - 1 do
     if lk_tab.wk(WEIGHT_COUNT + weight) != 0 then
-      move_weight(weight, into)
+      each_candidate(weight, how)
     end
   end
 end
@@ -829,17 +812,15 @@ end
 ; each is judged in turn (judge).
 func promote()
   var weight: byte
-  move_all(true)
+  move_all(MOVE_IN)
   if layout_zp() then
     return
   end
-  move_all(false)
+  move_all(MOVE_OUT)
   lay_out()
   for weight = WEIGHTS - 1 downto 1 do
     if lk_tab.wk(WEIGHT_COUNT + weight) != 0 then
-      try_slots(weight)
-      try_cparams(weight)
-      try_vars(weight)
+      each_candidate(weight, TRY)
     end
   end
 end

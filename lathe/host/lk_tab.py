@@ -171,6 +171,16 @@ def wk(i):
 def set_wk(i, v):
     work[i] = v
 
+
+def add_wk(i, v):
+    """Add v to work word i."""
+    set_wk(i, wk(i) + v)
+
+
+def sub_wk(i, v):
+    """Take v from work word i."""
+    set_wk(i, wk(i) - v)
+
 overflow = False                    # set when add16 could not hold its result
 
 
