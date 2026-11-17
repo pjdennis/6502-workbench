@@ -48,6 +48,56 @@ class CommandLineAndFiles(ErrorTest):
         r = link([simple()], args=['/nonexistent/x.env', 't', '/tmp/x.bin', '/tmp/x.map', '/nonexistent/t.lo'])
         self.assertError(r, 2, 'cannot open file', '/nonexistent/x.env')
 
+    def test_the_arguments_from_a_command_file(self):
+        # `link @FILE`: the arguments are the words of FILE, between spaces, tabs and line ends.
+        o = Obj('t')
+        o.var('x', 2)
+        o.func('main', b'\x60')
+        plain = link([o], ENV)
+        self.assertEqual(plain.status, 0, plain.errors)
+        for layout in (lambda args: ' '.join(args).encode() + b'\n',
+                       lambda args: b'\r\n'.join(a.encode() for a in args),
+                       lambda args: b'  \t' + b' \t \n\n'.join(a.encode() for a in args) + b'   '):
+            r = link([o], ENV, command_file=layout)
+            self.assertEqual((r.status, r.errors, r.image, r.map), (0, '', plain.image, plain.map))
+
+    def test_a_command_file_that_cannot_be_opened(self):
+        r = link([simple()], args=['@/nonexistent/args'])
+        self.assertError(r, 2, 'cannot open file', '@/nonexistent/args')
+
+    def test_only_a_single_argument_is_a_command_file(self):
+        r = link([simple()], args=['@a', 'b'])
+        self.assertError(r, 1, 'usage: link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...')
+        r = link([simple()], args=['@'])
+        self.assertError(r, 1, 'usage')
+
+    def test_a_command_file_with_too_few_arguments(self):
+        r = link([simple()], command_file=lambda args: b' '.join(a.encode() for a in args[:4]))
+        self.assertError(r, 1, 'usage')
+        r = link([simple()], command_file=lambda args: b'')
+        self.assertError(r, 1, 'usage')
+
+    def test_the_command_files_limits(self):
+        # 48 arguments, 512 bytes with a zero after each, 255 bytes an argument. Within them the
+        # arguments are taken: too many object files (error 8), or one that is no file (error 2).
+        def words(extra):
+            return lambda args: ' '.join(args + extra(sum(len(a) + 1 for a in args), len(args))).encode()
+        r = link([simple()], command_file=words(lambda size, n: ['x'] * (48 - n)))
+        self.assertError(r, 8, 'too many object files')
+        r = link([simple()], command_file=words(lambda size, n: ['x'] * (49 - n)))
+        self.assertError(r, 61, 'command file: too many arguments, or too long')
+        r = link([simple()], command_file=words(lambda size, n: ['x' * 255]))
+        self.assertError(r, 2, 'cannot open file', 'x' * 255)
+        r = link([simple()], command_file=words(lambda size, n: ['x' * 256]))
+        self.assertError(r, 61, 'command file')
+
+        def filling(left):      # words of at most 200 bytes, `left` bytes with their zeros
+            return ['x' * (min(left, 201) - 1)] + (filling(left - 201) if left > 201 else [])
+        r = link([simple()], command_file=words(lambda size, n: filling(512 - size)))
+        self.assertError(r, 2, 'cannot open file')
+        r = link([simple()], command_file=words(lambda size, n: filling(513 - size)))
+        self.assertError(r, 61, 'command file')
+
     def test_no_main(self):
         r = link([simple()], ENV, main='other')
         self.assertEqual(r.errors, 'link error 20: no main function: other.main\n')

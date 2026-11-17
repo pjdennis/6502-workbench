@@ -54,19 +54,15 @@ import lk_rec (advance, close, get_byte, get_word, open_object, open_quiet, R_DA
                R_MOD, R_SYM, R_VAR, VERSION)
 import lk_sym (CLASS, count, edge_bits, FUNCTION, kind_of, new_number, ref, row_of, UNDEF)
 import lk_tab (ctx_of, edge_at, edge_count, edge_sym, is_extra_copy, MAX_EDGES, memb_class,
-               memb_count, memb_func, node_sym, NONE, set_edge_at, SYM_BITS, waiting, work,
+               memb_count, memb_func, node_sym, NONE, set_edge_at, set_wk, SYM_BITS, waiting, wk,
                WORK_SIZE)
 import sys (write)
 
 pub const MAX_OBJECTS = 40
-#if LKSMALL == 2
-pub const MAX_LOCALS = 2000     ; the BBC's (lk_tab.lth)
-#else
 #if LKSMALL
 pub const MAX_LOCALS = 1400
 #else
 pub const MAX_LOCALS = 4000     ; SYM records in all object files together
-#end
 #end
 
 pub var object_count: byte = 0
@@ -123,28 +119,28 @@ forward func ref_at(s: word): word
 ; The byte at byte offset `pos` of the work area.
 pub func get_b(pos: word): byte
   if (pos & 1) != 0 then
-    return hi(lk_tab.work[pos >> 1])
+    return hi(lk_tab.wk(pos >> 1))
   end
-  return lo(lk_tab.work[pos >> 1])
+  return lo(lk_tab.wk(pos >> 1))
 end
 
 pub func put_b(pos: word, value8: byte)
   var i: word
   i = pos >> 1
   if (pos & 1) != 0 then
-    lk_tab.work[i] = (lk_tab.work[i] & $FF) | (word(value8) << 8)
+    lk_tab.set_wk(i, (lk_tab.wk(i) & $FF) | (word(value8) << 8))
   else
-    lk_tab.work[i] = (lk_tab.work[i] & $FF00) | value8
+    lk_tab.set_wk(i, (lk_tab.wk(i) & $FF00) | value8)
   end
 end
 
 ; Bit n of the bit table at word `table` of the work area.
 func get_bit(table: word, n: word): bool
-  return (lk_tab.work[table + (n >> 4)] & (word(1) << (lo(n) & 15))) != 0
+  return (lk_tab.wk(table + (n >> 4)) & (word(1) << (lo(n) & 15))) != 0
 end
 
 func set_bit(table: word, n: word)
-  lk_tab.work[table + (n >> 4)] |= word(1) << (lo(n) & 15)
+  lk_tab.set_wk(table + (n >> 4), lk_tab.wk(table + (n >> 4)) | (word(1) << (lo(n) & 15)))
 end
 
 ; The hash of a name so far, h, and its next character c.
@@ -269,10 +265,10 @@ pub func mark_all()
   var i: word
   var obj: byte
   for i = 0 until 512 do
-    lk_tab.work[MARKS + i] = 0
+    lk_tab.set_wk(MARKS + i, 0)
   end
   for i = 0 until 2048 do
-    lk_tab.work[DEFS + i] = 0
+    lk_tab.set_wk(DEFS + i, 0)
   end
   for obj = 0 until object_count do
     mark_object(obj)
@@ -284,7 +280,7 @@ pub func begin()
   var i: word
   var c: byte
   for i = 0 until 512 do
-    lk_tab.work[HEADS + i] = 0
+    lk_tab.set_wk(HEADS + i, 0)
   end
   main_length = lk_file.arg_length(lk_file.ARG_MAIN)
   for i = 0 until main_length do
@@ -409,7 +405,7 @@ end
 ; The kept symbol with the pending name, and whether there is one.
 func find(): word, bool
   var e: word
-  e = lk_tab.work[HEADS + chain()]
+  e = lk_tab.wk(HEADS + chain())
   while e != 0 do
     if name_is(e - 1) then
       return word(get_b(e + 1)) | (word(get_b(e + 2)) << 8), true
@@ -501,17 +497,17 @@ pub func symbol(kind: byte): word
   if heap_top + ENTRY + pending > heap_limit() then
     lk_err.fail(lk_err.E_NAMES)
   end
-  lk_tab.work[ref_at(s)] = s
-  lk_tab.work[ref_at(s) - 1] = flags
+  lk_tab.set_wk(ref_at(s), s)
+  lk_tab.set_wk(ref_at(s) - 1, flags)
   if keep then
     pos = heap_top
     h = chain()
-    put_b(pos, lo(lk_tab.work[HEADS + h]))
-    put_b(pos + 1, hi(lk_tab.work[HEADS + h]))
+    put_b(pos, lo(lk_tab.wk(HEADS + h)))
+    put_b(pos + 1, hi(lk_tab.wk(HEADS + h)))
     put_b(pos + 2, lo(s))
     put_b(pos + 3, hi(s))
     put_b(pos + 4, pending)
-    lk_tab.work[HEADS + h] = pos + 1
+    lk_tab.set_wk(HEADS + h, pos + 1)
     heap_top = pos + ENTRY + pending
   end
   return s
@@ -527,43 +523,43 @@ end
 
 ; What symbol s stands for so far.
 pub func now(s: word): word
-  return lk_tab.work[ref_at(s)]
+  return lk_tab.wk(ref_at(s))
 end
 
 ; Symbol s is defined: it stands for r.
 pub func bind(s: word, r: word)
-  lk_tab.work[ref_at(s)] = r
-  if (lk_tab.work[ref_at(s) - 1] & X_MAIN) != 0 then
+  lk_tab.set_wk(ref_at(s), r)
+  if (lk_tab.wk(ref_at(s) - 1) & X_MAIN) != 0 then
     main_sym = r
   end
-  if (lk_tab.work[ref_at(s) - 1] & X_FCALL) != 0 then
+  if (lk_tab.wk(ref_at(s) - 1) & X_FCALL) != 0 then
     fc_call = r
   end
-  if (lk_tab.work[ref_at(s) - 1] & X_FSTART) != 0 then
+  if (lk_tab.wk(ref_at(s) - 1) & X_FSTART) != 0 then
     fc_start = r
   end
 end
 
 ; The weight given to variable s so far.
 pub func more(s: word): word
-  return lk_tab.work[ref_at(s) - 1] & X_LOW
+  return lk_tab.wk(ref_at(s) - 1) & X_LOW
 end
 
 pub func set_more(s: word, value: word)
-  lk_tab.work[ref_at(s) - 1] = (lk_tab.work[ref_at(s) - 1] & ($FFFF ^ X_LOW)) | value
+  lk_tab.set_wk(ref_at(s) - 1, (lk_tab.wk(ref_at(s) - 1) & ($FFFF ^ X_LOW)) | value)
 end
 
 ; A call inside a `with` block names function or class s (lk_scan.in_block).
 pub func set_block(s: word)
-  lk_tab.work[ref_at(s) - 1] |= X_BLOCK
+  lk_tab.set_wk(ref_at(s) - 1, lk_tab.wk(ref_at(s) - 1) | X_BLOCK)
 end
 
 pub func is_block_sym(s: word): bool
-  return (lk_tab.work[ref_at(s) - 1] & X_BLOCK) != 0
+  return (lk_tab.wk(ref_at(s) - 1) & X_BLOCK) != 0
 end
 
 pub func is_init_sym(s: word): bool
-  return (lk_tab.work[ref_at(s) - 1] & X_INIT) != 0
+  return (lk_tab.wk(ref_at(s) - 1) & X_INIT) != 0
 end
 
 ; Call e calls what the symbol it names stands for.

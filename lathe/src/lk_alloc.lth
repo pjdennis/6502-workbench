@@ -67,8 +67,8 @@ import lk_tab (add16, cls_count, cls_node, cls_np, cls_par, cls_reach, cls_ref, 
                fn_nslots, fn_ref, fn_slot, has_copy, in_block, in_frame, is_kept_var, is_node,
                MAX_CONTEXTS, MAX_NODES, mbase_of, member_class, next_in_order, node_class,
                node_count, node_is_class, NONE, overflow, own_of, S_CLASS, S_ZP, set_slot_zp,
-               set_zbase, slot_bytes, slot_class, slot_in_zp, slot_weight_of, W_MBASE, W_ZSIZE,
-               work, zbase_of)
+               set_wk, set_zbase, slot_bytes, slot_class, slot_in_zp, slot_weight_of, W_MBASE,
+               W_ZSIZE, wk, work, zbase_of)
 import lk_win (bank_def)
 
 const POOL_ZP = 0
@@ -170,31 +170,40 @@ end
 
 func node_end(pool: byte, n: word, pos: word): word
   if pool == POOL_ZP then
-    return lk_tab.add16(pos, lk_tab.work[lk_tab.W_ZSIZE + n])
+    return lk_tab.add16(pos, lk_tab.wk(lk_tab.W_ZSIZE + n))
   end
   return main_end(n, pos)
 end
 
-; ---- laying out one pool
+; ---- laying out one pool: the layout's columns, each read in a block of its own (kept in fixed
+; memory; they are below lk_tab.W_SPLIT)
 
 ; Where node n starts (LAY_BASE).
 pub func base_of(n: word): word
-  return lk_tab.work[LAY_BASE + n]
+  with LKWORK do
+    return lk_tab.work[LAY_BASE + n]
+  end
 end
 
 ; Where node n's set ends (LAY_END).
 pub func end_of(n: word): word
-  return lk_tab.work[LAY_END + n]
+  with LKWORK do
+    return lk_tab.work[LAY_END + n]
+  end
 end
 
 ; The size of node n's set (LAY_SIZE).
 pub func size_of(n: word): word
-  return lk_tab.work[LAY_SIZE + n]
+  with LKWORK do
+    return lk_tab.work[LAY_SIZE + n]
+  end
 end
 
 ; The most storage a chain of calls needs above node n's set (LAY_DOWN).
 pub func down_of(n: word): word
-  return lk_tab.work[LAY_DOWN + n]
+  with LKWORK do
+    return lk_tab.work[LAY_DOWN + n]
+  end
 end
 
 ; Nothing node n calls outside its set may start below `top`.
@@ -207,7 +216,7 @@ func raise_callees(n: word, top: word)
     target, applies = lk_graph.edge_node(n, e)
     if applies and lk_graph.scc_of(target) != lk_graph.scc_of(n) and
         base_of(target) < top then
-      lk_tab.work[LAY_BASE + target] = top
+      lk_tab.set_wk(LAY_BASE + target, top)
     end
     e = lk_graph.next_edge(n, e)
   end
@@ -226,12 +235,12 @@ func layout_set(pool: byte, first: word, limit: word): word
   end
   pos = start
   for i = first until limit do
-    lk_tab.work[LAY_BASE + lk_graph.order_at(i)] = pos
+    lk_tab.set_wk(LAY_BASE + lk_graph.order_at(i), pos)
     pos = node_end(pool, lk_graph.order_at(i), pos)
   end
   for i = first until limit do
-    lk_tab.work[LAY_END + lk_graph.order_at(i)] = pos
-    lk_tab.work[LAY_SIZE + lk_graph.order_at(i)] = pos - start
+    lk_tab.set_wk(LAY_END + lk_graph.order_at(i), pos)
+    lk_tab.set_wk(LAY_SIZE + lk_graph.order_at(i), pos - start)
     raise_callees(lk_graph.order_at(i), pos)
   end
   return pos
@@ -251,7 +260,7 @@ func layout(pool: byte, ctx: byte): word
   top = ctx_bottom[ctx]
   for n = 0 until lk_tab.node_count do
     if lk_tab.is_node(n) and lk_tab.ctx_of(n) == ctx then
-      lk_tab.work[LAY_BASE + n] = ctx_bottom[ctx]
+      lk_tab.set_wk(LAY_BASE + n, ctx_bottom[ctx])
     end
   end
   limit = lk_graph.order_count
@@ -308,7 +317,7 @@ func deepen()
       end
     end
     for i = first until limit do
-      lk_tab.work[LAY_DOWN + lk_graph.order_at(i)] = down
+      lk_tab.set_wk(LAY_DOWN + lk_graph.order_at(i), down)
     end
     first = limit
   end
@@ -398,7 +407,7 @@ func fail_full(error: byte, amount: word, wrapped: bool)
     member = lk_tab.first_in_order()
     while member != lk_tab.NONE do
       if lk_graph.scc_of(member) == lk_graph.scc_of(n) then
-        lk_tab.work[CHAIN + count] = member
+        lk_tab.set_wk(CHAIN + count, member)
         count += 1
       end
       member = lk_tab.next_in_order(member)
@@ -415,7 +424,7 @@ func fail_full(error: byte, amount: word, wrapped: bool)
     else
       lk_err.arrow()
     end
-    lk_name.error_node(lk_tab.work[CHAIN + i])
+    lk_name.error_node(lk_tab.wk(CHAIN + i))
   end
   lk_err.finish()
 end
@@ -451,7 +460,7 @@ func start_choices()
   var p: byte
   var d: word
   for w = 0 until WEIGHTS do
-    lk_tab.work[WEIGHT_COUNT + w] = 0
+    lk_tab.set_wk(WEIGHT_COUNT + w, 0)
   end
   for f = 0 until lk_tab.fn_count do
     if lk_tab.fn_ctx[f] != 0 then
@@ -460,7 +469,7 @@ func start_choices()
           must_fit(lk_tab.slot_bytes(s), lk_tab.fn_ref(f))
           lk_tab.set_slot_zp(s)
         elif is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
-          lk_tab.work[WEIGHT_COUNT + lk_tab.slot_weight_of(s)] += 1
+          lk_tab.set_wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s), lk_tab.wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s)) + 1)
         end
       end
     end
@@ -472,7 +481,7 @@ func start_choices()
           must_fit(lk_tab.cp_size[p], lk_tab.cls_ref(k))
           lk_tab.cp_info[p] |= lk_tab.S_ZP
         elif is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]) then
-          lk_tab.work[WEIGHT_COUNT + lk_tab.cp_weight[p]] += 1
+          lk_tab.set_wk(WEIGHT_COUNT + lk_tab.cp_weight[p], lk_tab.wk(WEIGHT_COUNT + lk_tab.cp_weight[p]) + 1)
         end
       end
     end
@@ -485,7 +494,7 @@ func start_choices()
         lk_tab.def_f[d] |= lk_tab.D_ZP
         zp_vars += lk_tab.def_b[d]
       elif (lk_tab.def_f[d] & lk_tab.D_CLASS) == 1 and lk_tab.def_b[d] <= zp_cap then
-        lk_tab.work[WEIGHT_COUNT + lk_tab.def_w(d)] += 1
+        lk_tab.set_wk(WEIGHT_COUNT + lk_tab.def_w(d), lk_tab.wk(WEIGHT_COUNT + lk_tab.def_w(d)) + 1)
       end
     end
   end
@@ -516,9 +525,9 @@ func move_slot(f: word, i: byte, into: bool)
     if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)) then
       n = lk_tab.copy_node(f, ctx)
       if into then
-        lk_tab.work[lk_tab.W_ZSIZE + n] += lk_tab.slot_bytes(s)
+        lk_tab.set_wk(lk_tab.W_ZSIZE + n, lk_tab.wk(lk_tab.W_ZSIZE + n) + lk_tab.slot_bytes(s))
       else
-        lk_tab.work[lk_tab.W_ZSIZE + n] -= lk_tab.slot_bytes(s)
+        lk_tab.set_wk(lk_tab.W_ZSIZE + n, lk_tab.wk(lk_tab.W_ZSIZE + n) - lk_tab.slot_bytes(s))
       end
     end
   end
@@ -527,9 +536,9 @@ end
 func move_cparam(k: byte, p: byte, into: bool)
   lk_tab.cp_info[p] ^= lk_tab.S_ZP
   if into then
-    lk_tab.work[lk_tab.W_ZSIZE + lk_tab.cls_node[k]] += lk_tab.cp_size[p]
+    lk_tab.set_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k]) + lk_tab.cp_size[p])
   else
-    lk_tab.work[lk_tab.W_ZSIZE + lk_tab.cls_node[k]] -= lk_tab.cp_size[p]
+    lk_tab.set_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k]) - lk_tab.cp_size[p])
   end
 end
 
@@ -595,15 +604,11 @@ end
 const CAND = WEIGHT_COUNT + WEIGHTS     ; while promote() works: the copies of the item judged,
 const LIST = CAND + lk_tab.MAX_CONTEXTS ; then the list, two words a copy (through; size, and
                                         ; context << 12), throughs largest first
-#if LKSMALL == 2
-const MAX_TAKEN = 64            ; the BBC's: 9 * MAX_NODES + 264 + 2 * MAX_TAKEN <= 10 * MAX_NODES
-#else
 #if LKSMALL
 const MAX_TAKEN = 32
 #else
 const MAX_TAKEN = 128           ; a list longer than this takes a layout instead: judging an item
                                 ; reads it, and longer lists saved no layouts on the corpus
-#end
 #end
 var taken: word = 0
 var taken_vars: word = 0        ; bytes of variables accepted since L
@@ -633,7 +638,7 @@ func deepest(ctx: byte, extra: word): word
   total = 0
   used = extra == lk_tab.NONE
   for i = 0 until taken do
-    t = lk_tab.work[LIST + 2 * i]
+    t = lk_tab.wk(LIST + 2 * i)
     if not used and through(extra) >= t then
       total = lk_tab.add16(total, cand_size)
       used = true
@@ -641,8 +646,8 @@ func deepest(ctx: byte, extra: word): word
         deep = lk_tab.add16(through(extra), total)
       end
     end
-    if byte(lk_tab.work[LIST + 2 * i + 1] >> 12) == ctx then
-      total = lk_tab.add16(total, lk_tab.work[LIST + 2 * i + 1] & $FFF)
+    if byte(lk_tab.wk(LIST + 2 * i + 1) >> 12) == ctx then
+      total = lk_tab.add16(total, lk_tab.wk(LIST + 2 * i + 1) & $FFF)
       if lk_tab.add16(t, total) > deep then
         deep = lk_tab.add16(t, total)
       end
@@ -667,8 +672,8 @@ func bound(var_size: word): word
   for ctx = 0 until lk_tab.ctx_count do
     extra = lk_tab.NONE
     for c = 0 until cand_count do
-      if lk_tab.ctx_of(lk_tab.work[CAND + c]) == ctx then
-        extra = lk_tab.work[CAND + c]
+      if lk_tab.ctx_of(lk_tab.wk(CAND + c)) == ctx then
+        extra = lk_tab.wk(CAND + c)
       end
     end
     used = lk_tab.add16(used, deepest(ctx, extra) - ctx_depth[ctx])
@@ -686,16 +691,16 @@ func take(): bool
     return false
   end
   for c = 0 until cand_count do
-    n = lk_tab.work[CAND + c]
+    n = lk_tab.wk(CAND + c)
     t = through(n)
     i = taken
-    while i > 0 and lk_tab.work[LIST + 2 * (i - 1)] < t do
-      lk_tab.work[LIST + 2 * i] = lk_tab.work[LIST + 2 * (i - 1)]
-      lk_tab.work[LIST + 2 * i + 1] = lk_tab.work[LIST + 2 * (i - 1) + 1]
+    while i > 0 and lk_tab.wk(LIST + 2 * (i - 1)) < t do
+      lk_tab.set_wk(LIST + 2 * i, lk_tab.wk(LIST + 2 * (i - 1)))
+      lk_tab.set_wk(LIST + 2 * i + 1, lk_tab.wk(LIST + 2 * (i - 1) + 1))
       i -= 1
     end
-    lk_tab.work[LIST + 2 * i] = t
-    lk_tab.work[LIST + 2 * i + 1] = cand_size | (word(lk_tab.ctx_of(n)) << 12)
+    lk_tab.set_wk(LIST + 2 * i, t)
+    lk_tab.set_wk(LIST + 2 * i + 1, cand_size | (word(lk_tab.ctx_of(n)) << 12))
     taken += 1
   end
   return true
@@ -707,7 +712,7 @@ func least(): word
   var c: byte
   need = 0
   for c = 0 until cand_count do
-    need = lk_tab.add16(need, growth(lk_tab.work[CAND + c], cand_size))
+    need = lk_tab.add16(need, growth(lk_tab.wk(CAND + c), cand_size))
   end
   return need
 end
@@ -740,7 +745,7 @@ func try_slot(f: word, i: byte)
   cand_size = lk_tab.slot_bytes(lk_tab.fn_slot[f] + i)
   for ctx = 0 until lk_tab.ctx_count do
     if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)) then
-      lk_tab.work[CAND + cand_count] = lk_tab.copy_node(f, ctx)
+      lk_tab.set_wk(CAND + cand_count, lk_tab.copy_node(f, ctx))
       cand_count += 1
     end
   end
@@ -751,7 +756,7 @@ end
 
 func try_cparam(k: byte, p: byte)
   cand_count = 1
-  lk_tab.work[CAND + 0] = lk_tab.cls_node[k]
+  lk_tab.set_wk(CAND + 0, lk_tab.cls_node[k])
   cand_size = lk_tab.cp_size[p]
   if judge(0) then
     move_cparam(k, p, true)
@@ -809,7 +814,7 @@ end
 func move_all(into: bool)
   var weight: byte
   for weight = 1 to WEIGHTS - 1 do
-    if lk_tab.work[WEIGHT_COUNT + weight] != 0 then
+    if lk_tab.wk(WEIGHT_COUNT + weight) != 0 then
       move_weight(weight, into)
     end
   end
@@ -831,7 +836,7 @@ func promote()
   move_all(false)
   lay_out()
   for weight = WEIGHTS - 1 downto 1 do
-    if lk_tab.work[WEIGHT_COUNT + weight] != 0 then
+    if lk_tab.wk(WEIGHT_COUNT + weight) != 0 then
       try_slots(weight)
       try_cparams(weight)
       try_vars(weight)
@@ -964,7 +969,7 @@ func assign_main()
   end
   for n = 0 until lk_tab.node_count do
     if lk_tab.is_node(n) then
-      lk_tab.work[lk_tab.W_MBASE + n] = lk_envf.data_lo + base_of(n)
+      lk_tab.set_wk(lk_tab.W_MBASE + n, lk_envf.data_lo + base_of(n))
     end
   end
   if lk_envf.has_more then
@@ -1043,7 +1048,7 @@ pub func allocate()
   start_choices()
   for n = 0 until lk_tab.node_count do
     if lk_tab.is_node(n) then
-      lk_tab.work[lk_tab.W_ZSIZE + n] = zp_size(n)
+      lk_tab.set_wk(lk_tab.W_ZSIZE + n, zp_size(n))
     end
   end
   if not layout_zp() then

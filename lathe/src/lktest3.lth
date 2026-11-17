@@ -27,7 +27,7 @@ import lk_scan (scan_all)
 import lk_sym (FUNCTION, is_defined, kind_of, row_of)
 import lk_tab (cls_count, cls_ctx, cls_node, cls_reach, cp_count, cp_info, cp_weight, ctx_count,
                ctx_of, def_count, def_f, extra_end, fn_count, fn_ctx, fn_flags, is_node, node_count,
-               node_is_class, NONE, own_of, W_ADDR, W_ORDER, W_SCC, work)
+               node_is_class, NONE, own_of, set_wk, W_ADDR, W_ORDER, W_SCC, wk)
 import lk_win (check_interrupts, copies, has_stub, mark_stubs, obj_stub, stub_addr, stub_base,
                stub_count, table_bank, table_count)
 import lkshow (end_line, label, show_byte, show_word)
@@ -108,7 +108,7 @@ func show_graph()
       lkshow.show_word(n)
       lkshow.show_word(lk_tab.own_of(n))
       lkshow.show_byte(lk_tab.ctx_of(n))
-      lkshow.show_word(lk_tab.work[lk_tab.W_SCC + n])
+      lkshow.show_word(lk_tab.wk(lk_tab.W_SCC + n))
       lkshow.label(':')
       e = lk_graph.first_edge(n)
       while e != 0 do
@@ -125,7 +125,7 @@ func show_graph()
   end
   lkshow.label('o')
   for n = 0 until lk_graph.order_count do
-    lkshow.show_word(lk_tab.work[lk_tab.W_ORDER + n])
+    lkshow.show_word(lk_tab.wk(lk_tab.W_ORDER + n))
   end
   lkshow.end_line()
 end
@@ -153,7 +153,7 @@ func show_boot(main_fn: word)
   var n: word
   var i: byte
   for n = 0 until lk_tab.node_count do
-    lk_tab.work[lk_tab.W_ADDR + n] = lk_envf.code_lo + $100 + 7 * n
+    lk_tab.set_wk(lk_tab.W_ADDR + n, lk_envf.code_lo + $100 + 7 * n)
   end
   lkshow.label('b')
   lkshow.show_word(lk_boot.plan())

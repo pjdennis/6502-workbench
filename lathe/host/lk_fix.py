@@ -119,14 +119,14 @@ def hold(obj, in_code):
                 lk_name.fail(lk_err.E_FIXES, cur_sym)
             lk_err.fail(lk_err.E_FIXES)
         read_entry(obj)
-        lk_tab.work[FX_AT + fix_count] = e_at
-        lk_tab.work[FX_KIND + fix_count] = e_kind
-        lk_tab.work[FX_SYM + fix_count] = e_sym
-        lk_tab.work[FX_SLOT + fix_count] = e_slot
-        lk_tab.work[FX_ADD + fix_count] = e_add
-        lk_tab.work[FX_ZP + fix_count] = 0
+        lk_tab.set_wk(FX_AT + fix_count, e_at)
+        lk_tab.set_wk(FX_KIND + fix_count, e_kind)
+        lk_tab.set_wk(FX_SYM + fix_count, e_sym)
+        lk_tab.set_wk(FX_SLOT + fix_count, e_slot)
+        lk_tab.set_wk(FX_ADD + fix_count, e_add)
+        lk_tab.set_wk(FX_ZP + fix_count, 0)
         if in_code and e_kind == K_SHRINK:
-            lk_tab.work[FX_ZP + fix_count] = zp_contexts(e_sym, e_slot, e_add)
+            lk_tab.set_wk(FX_ZP + fix_count, zp_contexts(e_sym, e_slot, e_add))
         fix_count += 1
 
 
@@ -145,15 +145,15 @@ def more():
 def next_fix():
     """The fix-up at the cursor is applied: go on to the next."""
     global cursor
-    if lk_tab.work[FX_KIND + cursor] < K_WORD or lk_tab.work[FX_KIND + cursor] > K_REACH_HIGH:
+    if lk_tab.wk(FX_KIND + cursor) < K_WORD or lk_tab.wk(FX_KIND + cursor) > K_REACH_HIGH:
         bad()
     cursor += 1
     if cursor < fix_count:
         # Fix-ups are sorted by offset, and do not overlap.
-        after = lk_tab.work[FX_AT + cursor - 1] + 1
-        if is_word(lk_tab.work[FX_KIND + cursor - 1]):
+        after = lk_tab.wk(FX_AT + cursor - 1) + 1
+        if is_word(lk_tab.wk(FX_KIND + cursor - 1)):
             after += 1
-        if lk_tab.work[FX_AT + cursor] < after:
+        if lk_tab.wk(FX_AT + cursor) < after:
             bad()
 
 
@@ -208,14 +208,14 @@ def target(ctx, sym, slot, is_call):
             n = lk_tab.copy_node(f, ctx)
             if lk_win.has_stub(f) and lk_scan.fn_bank(f) != lk_scan.fn_bank(cur_fn):
                 return lk_win.stub_addr(n)
-            return lk_tab.work[lk_tab.W_ADDR + n]
+            return lk_tab.wk(lk_tab.W_ADDR + n)
         n, kept = address_copy(f)
         if not kept:
             return 0
         # `@f` of a function in a window is its stub, wherever it is taken.
         if lk_win.has_stub(f):
             return lk_win.stub_addr(n)
-        return lk_tab.work[lk_tab.W_ADDR + n]
+        return lk_tab.wk(lk_tab.W_ADDR + n)
     if slot >= lk_tab.fn_nslots(f):
         bad()
     if ctx != NO_CONTEXT and lk_tab.has_copy(f, ctx):
@@ -244,7 +244,7 @@ def part(value, kind):
         return value >> 8
     if kind == K_ZP and value > 0xFF:
         # Only a class 0 slot is always in zero page; the compiler must not ask this of others.
-        lk_name.fail_in(lk_err.E_NOT_ZP, lk_tab.work[FX_SYM + cursor], cur_sym)
+        lk_name.fail_in(lk_err.E_NOT_ZP, lk_tab.wk(FX_SYM + cursor), cur_sym)
     return value & 0xFF
 
 
@@ -272,7 +272,7 @@ def zp_contexts(sym, slot, addend):
 
 def shrinks(i, ctx):
     """True if the instruction of held fix-up i shrinks in the copy for context ctx."""
-    return (lk_tab.work[FX_ZP + i] & (1 << ctx)) != 0
+    return (lk_tab.wk(FX_ZP + i) & (1 << ctx)) != 0
 
 
 def shrunk(ctx):
@@ -290,7 +290,7 @@ def removed_before(pos, ctx):
     A fix-up is at the offset of an operand's low byte; the byte removed is the one after it."""
     count = 0
     for i in range(0, fix_count):
-        if lk_tab.work[FX_AT + i] >= pos:
+        if lk_tab.wk(FX_AT + i) >= pos:
             return count
         if shrinks(i, ctx):
             count += 1

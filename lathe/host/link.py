@@ -53,6 +53,7 @@ def find_main():
 
 
 def main():
+    lk_file.start()
     if lk_file.arg_count() <= lk_file.ARG_OBJECT:
         lk_err.fail(lk_err.E_USAGE)
     lk_envf.read()

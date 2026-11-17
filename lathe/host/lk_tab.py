@@ -156,6 +156,20 @@ W_CTXZ = W_OWN + MAX_NODES          # its context in the high byte; in the low b
 W_MBASE = W_CTXZ + MAX_NODES        # where its main memory bytes start
 WORK_SIZE = W_MBASE + MAX_NODES
 work = [0] * WORK_SIZE
+# The work area is two tables in the twin, each in a region of its own (they need not fit one
+# bank together): the words below W_SPLIT, and the node columns from it (W_CTXZ, W_MBASE). Every
+# module reads and writes it through wk and set_wk; the twin's node column functions (ctx_of,
+# zbase_of, set_zbase, mbase_of, own_of) reach their table directly.
+W_SPLIT = W_CTXZ
+
+
+def wk(i):
+    """Word i of the work area."""
+    return work[i]
+
+
+def set_wk(i, v):
+    work[i] = v
 
 overflow = False                    # set when add16 could not hold its result
 
@@ -371,7 +385,7 @@ W_RUNS = 256                        # chains_to_runs: the calls in their new pla
 
 
 def chain_next(e):
-    return work[W_NEXT + e - 1]
+    return wk(W_NEXT + e - 1)
 
 
 def head_of(r):
@@ -389,7 +403,7 @@ def set_head(r, e):
 
 def prepend(r, e):
     """Call e becomes the newest of r's chain."""
-    work[W_NEXT + e] = head_of(r)
+    set_wk(W_NEXT + e, head_of(r))
     set_head(r, e + 1)
 
 
@@ -400,29 +414,29 @@ def build_chains():
     global edge_count, waiting
     own_end = edge_count
     for i in range(0, waiting):
-        work[W_WCALLER + i] = edge_word[MAX_EDGES - 1 - 2 * i]
-        work[W_WCALL + i] = edge_word[MAX_EDGES - 2 - 2 * i]
+        set_wk(W_WCALLER + i, edge_word[MAX_EDGES - 1 - 2 * i])
+        set_wk(W_WCALL + i, edge_word[MAX_EDGES - 2 - 2 * i])
     for f in range(0, fn_count):
-        work[W_START + f] = fn_edge[f]
+        set_wk(W_START + f, fn_edge[f])
         fn_edge[f] = 0
     for k in range(0, cls_count):
         cls_edge[k] = 0
     for i in range(0, waiting):
-        edge_word[own_end + i] = work[W_WCALL + i] & (0xFFFF ^ (E_VIA << FLAG_SHIFT))
+        edge_word[own_end + i] = wk(W_WCALL + i) & (0xFFFF ^ (E_VIA << FLAG_SHIFT))
     edge_count = own_end + waiting
     # Waiting calls read before their caller's own calls, then the own calls, then the rest.
     for i in range(0, waiting):
-        if (work[W_WCALL + i] & (E_VIA << FLAG_SHIFT)) == 0 and lk_sym.is_defined(work[W_WCALLER + i]):
-            prepend(work[W_WCALLER + i], own_end + i)
+        if (wk(W_WCALL + i) & (E_VIA << FLAG_SHIFT)) == 0 and lk_sym.is_defined(wk(W_WCALLER + i)):
+            prepend(wk(W_WCALLER + i), own_end + i)
     for f in range(0, fn_count):
         limit = own_end
         if f + 1 < fn_count:
-            limit = work[W_START + f + 1]
-        for e in range(work[W_START + f], limit):
+            limit = wk(W_START + f + 1)
+        for e in range(wk(W_START + f), limit):
             prepend(fn_ref(f), e)
     for i in range(0, waiting):
-        if (work[W_WCALL + i] & (E_VIA << FLAG_SHIFT)) != 0 and lk_sym.is_defined(work[W_WCALLER + i]):
-            prepend(work[W_WCALLER + i], own_end + i)
+        if (wk(W_WCALL + i) & (E_VIA << FLAG_SHIFT)) != 0 and lk_sym.is_defined(wk(W_WCALLER + i)):
+            prepend(wk(W_WCALLER + i), own_end + i)
     waiting = 0
 
 
@@ -455,18 +469,18 @@ def chains_to_runs():
         e = fn_edge[f]
         fn_edge[f] = pos
         while e != 0:
-            work[W_RUNS + pos] = edge_word[e - 1]
+            set_wk(W_RUNS + pos, edge_word[e - 1])
             pos += 1
             e = chain_next(e)
     for k in range(0, cls_count):
         e = cls_edge[k]
         cls_edge[k] = pos
         while e != 0:
-            work[W_RUNS + pos] = edge_word[e - 1]
+            set_wk(W_RUNS + pos, edge_word[e - 1])
             pos += 1
             e = chain_next(e)
     for i in range(0, pos):
-        edge_word[i] = work[W_RUNS + i]
+        edge_word[i] = wk(W_RUNS + i)
     edge_count = pos
 
 
@@ -540,8 +554,8 @@ def new_node(own, ctx):
     global node_count
     if node_count == MAX_NODES:
         lk_err.fail(lk_err.E_COPIES)
-    work[W_OWN + node_count] = own
-    work[W_CTXZ + node_count] = ctx << 8
+    set_wk(W_OWN + node_count, own)
+    set_wk(W_CTXZ + node_count, ctx << 8)
     node_count += 1
 
 
@@ -549,7 +563,7 @@ def own_of(n):
     """The function, or CLASS_NODE + the class, that node n is a copy or block of."""
     if n < fn_count:
         return n
-    return work[W_OWN + n]
+    return wk(W_OWN + n)
 
 
 def is_node(n):
@@ -558,21 +572,21 @@ def is_node(n):
 
 
 def ctx_of(n):
-    return work[W_CTXZ + n] >> 8
+    return wk(W_CTXZ + n) >> 8
 
 
 def zbase_of(n):
     """Where node n's zero page bytes start: the low byte of the address."""
-    return work[W_CTXZ + n] & 0xFF
+    return wk(W_CTXZ + n) & 0xFF
 
 
 def set_zbase(n, value8):
-    work[W_CTXZ + n] = (work[W_CTXZ + n] & 0xFF00) | value8
+    set_wk(W_CTXZ + n, (wk(W_CTXZ + n) & 0xFF00) | value8)
 
 
 def mbase_of(n):
     """Where node n's main memory bytes start."""
-    return work[W_MBASE + n]
+    return wk(W_MBASE + n)
 
 
 def first_node(f):
@@ -586,11 +600,11 @@ def first_extra(f):
     high = extra_end
     while low < high:
         mid = (low + high) >> 1
-        if work[W_OWN + mid] < f:
+        if wk(W_OWN + mid) < f:
             low = mid + 1
         else:
             high = mid
-    if low < extra_end and work[W_OWN + low] == f:
+    if low < extra_end and wk(W_OWN + low) == f:
         return low
     return NONE
 
@@ -619,9 +633,9 @@ def next_in_order(n):
             return x
         return next_kept(n + 1)
     if n < extra_end:
-        if n + 1 < extra_end and work[W_OWN + n + 1] == work[W_OWN + n]:
+        if n + 1 < extra_end and wk(W_OWN + n + 1) == wk(W_OWN + n):
             return n + 1
-        return next_kept(work[W_OWN + n] + 1)
+        return next_kept(wk(W_OWN + n) + 1)
     if n + 1 < node_count:
         return n + 1
     return NONE

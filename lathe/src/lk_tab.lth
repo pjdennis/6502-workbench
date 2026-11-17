@@ -58,20 +58,13 @@ import lk_sym (CLASS, CONSTANT, edge_bits, edge_ref, FUNCTION, is_defined, kind_
                VARIABLE)
 
 ; Capacities: sized for linking the compiler itself (architecture.md, "Memory in the linker").
-; LKSMALL 1 is the small build of the test programs, LKSMALL 2 the BBC's (lathe/src/linker-bbc.env),
-; whose tables in main RAM fill what the BBC has beside the linker's resident part, and those in
-; regions take a sideways RAM slot. The work area must hold what each phase puts there: below
+; LKSMALL 1 is the small build of the test programs; the BBC (lathe/src/linker-bbc.env) and the
+; banked build of Wendy 2 at full size (linker-full.env) have the full capacities, with the large
+; tables in regions. (The BBC's own capacities, LKSMALL 2, were dropped on 2026-11-16, when the work
+; area went into regions.) The work area must hold what each phase puts there: below
 ; W_OWN the fix-ups held, then the names of one file while the image is written (lk_map.W_HELD:
 ; 6 * (MAX_NODES - MAX_FIXES) - 128 words, 496 in the small build), and the calls' chains (256 +
 ; 2 * MAX_EDGES + MAX_FUNCS <= 10 * MAX_NODES); test_src_lk.py checks both.
-#if LKSMALL == 2
-pub const MAX_FUNCS = 448
-pub const MAX_SLOTS = 2400
-pub const MAX_EDGES = 2000
-pub const MAX_NODES = 472
-pub const MAX_DEFS = 320
-pub const MAX_FIXES = 360
-#else
 #if LKSMALL
 pub const MAX_FUNCS = 320
 pub const MAX_SLOTS = 1280
@@ -86,7 +79,6 @@ pub const MAX_EDGES = 3600
 pub const MAX_NODES = 900
 pub const MAX_DEFS = 800
 pub const MAX_FIXES = 512       ; fix-ups of one function or one piece of constant data
-#end
 #end
 const MAX_BIG_SLOTS = 64        ; slots of 15 bytes or more
 pub const MAX_CLASSES = 32
@@ -205,7 +197,38 @@ pub const W_CTXZ = W_OWN + MAX_NODES    ; its context in the high byte; in the l
                                         ; node with none)
 pub const W_MBASE = W_CTXZ + MAX_NODES  ; where its main memory bytes start
 pub const WORK_SIZE = W_MBASE + MAX_NODES
-pub var work: [WORK_SIZE]word rows
+; The work area is two tables, each in a region of its own, so that the two need not fit one
+; bank together: `work`, the words below W_SPLIT, in LKWORK, and `nodes`, the node columns from
+; it (W_CTXZ, W_MBASE), in LKNODES. Every other module reads and writes it only through wk and
+; set_wk, which choose the table; the node column functions below (ctx_of, zbase_of, set_zbase,
+; mbase_of, own_of) reach theirs directly.
+pub const W_SPLIT = W_CTXZ
+pub var work: [W_SPLIT]word rows nozp in LKWORK
+pub var nodes: [WORK_SIZE - W_SPLIT]word rows nozp in LKNODES
+
+; Word i of the work area.
+pub func wk(i: word): word
+  if i < W_SPLIT then
+    with LKWORK do
+      return work[i]
+    end
+  end
+  with LKNODES do
+    return nodes[i - W_SPLIT]
+  end
+end
+
+pub func set_wk(i: word, v: word)
+  if i < W_SPLIT then
+    with LKWORK do
+      work[i] = v
+    end
+    return
+  end
+  with LKNODES do
+    nodes[i - W_SPLIT] = v
+  end
+end
 
 pub var overflow: bool = false  ; set when add16 could not hold its result
 
@@ -460,7 +483,7 @@ pub const W_NEXT = W_START + MAX_FUNCS  ; the next call of the same caller + 1, 
 const W_RUNS = 256                      ; chains_to_runs: the calls in their new places
 
 pub func chain_next(e: word): word
-  return work[W_NEXT + e - 1]
+  return wk(W_NEXT + e - 1)
 end
 
 pub func head_of(r: word): word
@@ -484,7 +507,7 @@ end
 
 ; Call e becomes the newest of r's chain.
 func prepend(r: word, e: word)
-  work[W_NEXT + e] = head_of(r)
+  set_wk(W_NEXT + e, head_of(r))
   set_head(r, e + 1)
 end
 
@@ -501,11 +524,11 @@ pub func build_chains()
   own_end = edge_count
   with LKCALLS do
     for i = 0 until waiting do
-      work[W_WCALLER + i] = edge_word[MAX_EDGES - 1 - 2 * i]
-      work[W_WCALL + i] = edge_word[MAX_EDGES - 2 - 2 * i]
+      set_wk(W_WCALLER + i, edge_word[MAX_EDGES - 1 - 2 * i])
+      set_wk(W_WCALL + i, edge_word[MAX_EDGES - 2 - 2 * i])
     end
     for f = 0 until fn_count do
-      work[W_START + f] = fn_edge[f]
+      set_wk(W_START + f, fn_edge[f])
       fn_edge[f] = 0
     end
   end
@@ -514,28 +537,28 @@ pub func build_chains()
   end
   with LKCALLS do
     for i = 0 until waiting do
-      edge_word[own_end + i] = work[W_WCALL + i] & ($FFFF ^ (E_VIA << FLAG_SHIFT))
+      edge_word[own_end + i] = wk(W_WCALL + i) & ($FFFF ^ (E_VIA << FLAG_SHIFT))
     end
   end
   edge_count = own_end + waiting
   ; Waiting calls read before their caller's own calls, then the own calls, then the rest.
   for i = 0 until waiting do
-    if (work[W_WCALL + i] & (E_VIA << FLAG_SHIFT)) == 0 and lk_sym.is_defined(work[W_WCALLER + i]) then
-      prepend(work[W_WCALLER + i], own_end + i)
+    if (wk(W_WCALL + i) & (E_VIA << FLAG_SHIFT)) == 0 and lk_sym.is_defined(wk(W_WCALLER + i)) then
+      prepend(wk(W_WCALLER + i), own_end + i)
     end
   end
   for f = 0 until fn_count do
     limit = own_end
     if f + 1 < fn_count then
-      limit = work[W_START + f + 1]
+      limit = wk(W_START + f + 1)
     end
-    for e = work[W_START + f] until limit do
+    for e = wk(W_START + f) until limit do
       prepend(fn_ref(f), e)
     end
   end
   for i = 0 until waiting do
-    if (work[W_WCALL + i] & (E_VIA << FLAG_SHIFT)) != 0 and lk_sym.is_defined(work[W_WCALLER + i]) then
-      prepend(work[W_WCALLER + i], own_end + i)
+    if (wk(W_WCALL + i) & (E_VIA << FLAG_SHIFT)) != 0 and lk_sym.is_defined(wk(W_WCALLER + i)) then
+      prepend(wk(W_WCALLER + i), own_end + i)
     end
   end
   waiting = 0
@@ -581,7 +604,7 @@ pub func chains_to_runs()
       e = fn_edge[f]
       fn_edge[f] = pos
       while e != 0 do
-        work[W_RUNS + pos] = edge_word[e - 1]
+        set_wk(W_RUNS + pos, edge_word[e - 1])
         pos += 1
         e = chain_next(e)
       end
@@ -590,13 +613,13 @@ pub func chains_to_runs()
       e = cls_edge[k]
       cls_edge[k] = pos
       while e != 0 do
-        work[W_RUNS + pos] = edge_word[e - 1]
+        set_wk(W_RUNS + pos, edge_word[e - 1])
         pos += 1
         e = chain_next(e)
       end
     end
     for i = 0 until pos do
-      edge_word[i] = work[W_RUNS + i]
+      edge_word[i] = wk(W_RUNS + i)
     end
   end
   edge_count = pos
@@ -698,8 +721,12 @@ pub func new_node(own: word, ctx: byte)
   if node_count == MAX_NODES then
     lk_err.fail(lk_err.E_COPIES)
   end
-  work[W_OWN + node_count] = own
-  work[W_CTXZ + node_count] = word(ctx) << 8
+  with LKWORK do
+    work[W_OWN + node_count] = own
+  end
+  with LKNODES do
+    nodes[node_count] = word(ctx) << 8
+  end
   node_count += 1
 end
 
@@ -708,7 +735,9 @@ pub func own_of(n: word): word
   if n < fn_count then
     return n
   end
-  return work[W_OWN + n]
+  with LKWORK do
+    return work[W_OWN + n]
+  end
 end
 
 ; False for the node of a function that is not kept.
@@ -717,21 +746,29 @@ pub func is_node(n: word): bool
 end
 
 pub func ctx_of(n: word): byte
-  return hi(work[W_CTXZ + n])
+  with LKNODES do
+    return hi(nodes[n])
+  end
 end
 
 ; Where node n's zero page bytes start: the low byte of the address.
 pub func zbase_of(n: word): byte
-  return lo(work[W_CTXZ + n])
+  with LKNODES do
+    return lo(nodes[n])
+  end
 end
 
 pub func set_zbase(n: word, value8: byte)
-  work[W_CTXZ + n] = (work[W_CTXZ + n] & $FF00) | value8
+  with LKNODES do
+    nodes[n] = (nodes[n] & $FF00) | value8
+  end
 end
 
 ; Where node n's main memory bytes start.
 pub func mbase_of(n: word): word
-  return work[W_MBASE + n]
+  with LKNODES do
+    return nodes[MAX_NODES + n]
+  end
 end
 
 ; The node of function f's first copy.
@@ -748,13 +785,13 @@ pub func first_extra(f: word): word
   high = extra_end
   while low < high do
     mid = (low + high) >> 1
-    if work[W_OWN + mid] < f then
+    if wk(W_OWN + mid) < f then
       low = mid + 1
     else
       high = mid
     end
   end
-  if low < extra_end and work[W_OWN + low] == f then
+  if low < extra_end and wk(W_OWN + low) == f then
     return low
   end
   return NONE
@@ -790,10 +827,10 @@ pub func next_in_order(n: word): word
     return next_kept(n + 1)
   end
   if n < extra_end then
-    if n + 1 < extra_end and work[W_OWN + n + 1] == work[W_OWN + n] then
+    if n + 1 < extra_end and wk(W_OWN + n + 1) == wk(W_OWN + n) then
       return n + 1
     end
-    return next_kept(work[W_OWN + n] + 1)
+    return next_kept(wk(W_OWN + n) + 1)
   end
   if n + 1 < node_count then
     return n + 1

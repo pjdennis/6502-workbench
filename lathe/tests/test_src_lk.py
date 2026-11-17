@@ -803,7 +803,10 @@ def recorded_links():
     seen = set()
     real = test_lk_support.link
 
-    def recording(objects, env=test_lk_support.HOST_ENV, main=None, args=None, asm=False):
+    def recording(objects, env=test_lk_support.HOST_ENV, main=None, args=None, asm=False,
+                  command_file=None):
+        if command_file is not None:        # the whole linker's (test_src_link.command_files)
+            return real(objects, env, main, args, asm, command_file)
         data = [o.to_bytes() if isinstance(o, test_lk_support.Obj) else o if isinstance(o, bytes)
                 else o.bytes() for o in objects]
         if main is None:
@@ -1248,18 +1251,8 @@ class LinkerTwins(unittest.TestCase):
             lk_small.load(False)
         self.assertEqual(lk_tab.MAX_FUNCS, 896)
 
-    def test_the_bbc_build_has_the_capacities_of_the_twins(self):
-        lk_small.load('bbc')
-        try:
-            for module, values in lk_small.capacities('bbc').items():
-                for name, value in values.items():
-                    self.assertEqual(getattr(sys.modules[module], name), value)
-            self.assertEqual((lk_tab.MAX_FUNCS, lk_tab.MAX_NODES, lk_name.MAX_LOCALS), (448, 472, 2000))
-        finally:
-            lk_small.load(False)
-
     def test_the_work_columns_of_the_graph_and_storage_do_not_overlap(self):
-        for small in (True, 'bbc', False):
+        for small in (True, False):
             lk_small.load(small)
             n = lk_tab.MAX_NODES
             # The image: the fix-ups held, each copy's address and a slot's name, below the node

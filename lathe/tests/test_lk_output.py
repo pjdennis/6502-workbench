@@ -172,5 +172,51 @@ class Identity(unittest.TestCase):
             self.same([program], HOST_ENV + 'output raw\n')
 
 
+class OneFileWrittenAtATime(unittest.TestCase):
+    """The linker never has two files open for writing at once: on an Acorn DFS a new file is
+    given room up to the next file on the disc, so a map kept open while the image and the bank
+    files are written could not grow (lathe/docs/bbc.md). The image and the bank files are
+    written one after another, then the map."""
+
+    def test_the_outputs_are_written_one_at_a_time(self):
+        import tempfile
+        import test_src_link as whole
+        import env
+        chosen = [p for p in whole.SUBSET if 'e2e-config' in p[0]] + whole.SUBSET[:1]
+        opened = []
+        most = [0]
+        real_open, real_close = env.open_out, env.close
+
+        def open_out(ptr):
+            h = real_open(ptr)
+            if h:
+                opened.append(h)
+                most[0] = max(most[0], len(opened))
+            return h
+
+        def close(h):
+            if h in opened:
+                opened.remove(h)
+            real_close(h)
+        with tempfile.TemporaryDirectory() as work:
+            cases = [whole.program_case(src, e, work) for src, e in chosen]
+            env.open_out, env.close = open_out, close
+            try:
+                for n, case in enumerate(cases):
+                    with self.subTest(case=case.title):
+                        d = os.path.join(work, 'h%d' % n)
+                        os.makedirs(d)
+                        most[0] = 0
+                        status, _, err = whole.host_link(case, d)
+                        self.assertEqual(status, 0, err)
+                        self.assertEqual(most[0], 1)
+                        self.assertEqual(opened, [])
+            finally:
+                env.open_out, env.close = real_open, real_close
+                import lk_small
+                lk_small.load(False)
+        self.assertGreater(len(cases), 4)
+
+
 if __name__ == '__main__':
     unittest.main()

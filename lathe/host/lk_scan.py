@@ -313,10 +313,10 @@ def rec_wgt(obj):
         elif kind == lk_sym.FUNCTION and slot != 0xFF:
             if pend_count == MAX_PENDING:
                 lk_err.fail(lk_err.E_WEIGHTS)
-            lk_tab.work[PEND_SYM + pend_count] = s
-            lk_tab.work[PEND_SLOT + pend_count] = slot
-            lk_tab.work[PEND_WEIGHT + pend_count] = weight
-            lk_tab.work[PEND_OBJ + pend_count] = obj
+            lk_tab.set_wk(PEND_SYM + pend_count, s)
+            lk_tab.set_wk(PEND_SLOT + pend_count, slot)
+            lk_tab.set_wk(PEND_WEIGHT + pend_count, weight)
+            lk_tab.set_wk(PEND_OBJ + pend_count, obj)
             pend_count += 1
         else:
             damaged()
@@ -325,14 +325,14 @@ def rec_wgt(obj):
 def add_pending_weights():
     """The weights given for slots of functions before the functions were read."""
     for i in range(0, pend_count):
-        s = lk_tab.work[PEND_SYM + i]
+        s = lk_tab.wk(PEND_SYM + i)
         # A function nothing defines is reported if something kept calls it (lk_graph).
         if lk_sym.is_defined(s):
             f = lk_sym.row_of(s)
-            if lk_tab.work[PEND_SLOT + i] >= lk_tab.fn_nslots(f):
-                lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + lk_tab.work[PEND_OBJ + i])
-            slot = lk_tab.fn_slot[f] + lk_tab.work[PEND_SLOT + i]
-            lk_tab.set_slot_weight(slot, heavier(lk_tab.slot_weight_of(slot), lk_tab.work[PEND_WEIGHT + i]))
+            if lk_tab.wk(PEND_SLOT + i) >= lk_tab.fn_nslots(f):
+                lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + lk_tab.wk(PEND_OBJ + i))
+            slot = lk_tab.fn_slot[f] + lk_tab.wk(PEND_SLOT + i)
+            lk_tab.set_slot_weight(slot, heavier(lk_tab.slot_weight_of(slot), lk_tab.wk(PEND_WEIGHT + i)))
 
 
 def rec_fixes(obj):
@@ -604,7 +604,7 @@ def move_edges():
         if rep != k and e != 0:
             while lk_tab.chain_next(e) != 0:
                 e = lk_tab.chain_next(e)
-            lk_tab.work[lk_tab.W_NEXT + e - 1] = lk_tab.cls_edge[rep]
+            lk_tab.set_wk(lk_tab.W_NEXT + e - 1, lk_tab.cls_edge[rep])
             lk_tab.cls_edge[rep] = lk_tab.cls_edge[k]
             lk_tab.cls_edge[k] = 0
 
@@ -642,7 +642,7 @@ def finish():
     keep_members()
     lk_name.resolve()
     for i in range(0, pend_count):
-        lk_tab.work[PEND_SYM + i] = lk_name.now(lk_tab.work[PEND_SYM + i])
+        lk_tab.set_wk(PEND_SYM + i, lk_name.now(lk_tab.wk(PEND_SYM + i)))
     lk_tab.build_chains()
     join_members()
     add_class_weights()

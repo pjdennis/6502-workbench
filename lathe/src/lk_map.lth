@@ -50,8 +50,8 @@ import lk_envf (bank_count, bank_file, bank_n, bank_win, is_overlay, is_rom, pla
 import lk_err (E_NAMES, fail)
 import lk_file (ARG_MAP, open_out)
 import lk_fix (begin, count_shrinks, shrink_count)
-import lk_name (buf_begin, buf_keep, buf_top, get_b, global_sym, obj_def, obj_first, obj_fn,
-                object_count, write_held)
+import lk_name (buf_begin, buf_keep, buf_top, get_b, global_sym, keep_at, obj_def, obj_first,
+                obj_fn, object_count, write_held)
 import lk_place (bank_used, region_bank)
 import lk_rec (advance, close, get_byte, get_word, left, open_object, R_CLAS, R_CODE, R_DATA, R_END,
                R_ENDF, R_FIX, R_FUNC, R_SLOT, R_SYM, R_VAR)
@@ -60,7 +60,7 @@ import lk_sym (CLASS, CONSTANT, FUNCTION, is_defined, kind_of, row_of)
 import lk_tab (class_of, cls_count, cls_namer, cls_np, cls_par, cls_reach, copy_node, cp_addr,
                cp_size, ctx_count, ctx_of, D_HELD, def_a, def_b, def_f, def_ref, F_HELD, fn_ctx,
                fn_flags, fn_nslots, fn_slot, has_copy, is_extra_copy, is_kept_def, MAX_CLASSES,
-               MAX_CPARAMS, member_class, NONE, slot_bytes, W_ADDR, W_OWN, W_SNAME, work)
+               MAX_CPARAMS, member_class, NONE, set_wk, slot_bytes, W_ADDR, W_OWN, W_SNAME, wk)
 import lk_win (def_dest, has_stub, stub_addr, STUB_SIZE)
 import sys (close, write)
 
@@ -148,7 +148,7 @@ pub func hold_begin(obj: byte, start: word, limit: word)
     lk_err.fail(lk_err.E_NAMES)
   end
   for i = 0 until count do
-    lk_tab.work[start + i] = 0
+    lk_tab.set_wk(start + i, 0)
   end
   lk_name.buf_begin(2 * (start + count), 2 * limit)
 end
@@ -157,13 +157,13 @@ end
 ; is marked.
 pub func hold(obj: byte, number: word)
   if is_held(lk_name.global_sym(obj, number)) then
-    lk_tab.work[index_at + number] = lk_name.buf_keep() + 1
+    lk_tab.set_wk(index_at + number, lk_name.buf_keep() + 1)
   end
 end
 
 ; The name of the symbol the object being read numbers `number`, held earlier.
 func write_name(number: word)
-  lk_name.write_held(handle, lk_tab.work[index_at + number] - 1)
+  lk_name.write_held(handle, lk_tab.wk(index_at + number) - 1)
 end
 
 ; Mark the kept functions of object file obj, or only those with slots, or unmark them. True if
@@ -268,7 +268,7 @@ func copy_lines(f: word, number: word, written: word)
   for ctx = 0 until lk_tab.ctx_count do
     if lk_tab.has_copy(f, ctx) then
       n = lk_tab.copy_node(f, ctx)
-      begin(70, lk_tab.work[lk_tab.W_ADDR + n], written - lk_fix.shrink_count[ctx])
+      begin(70, lk_tab.wk(lk_tab.W_ADDR + n), written - lk_fix.shrink_count[ctx])
       copy_name(n, number)
       if not lk_tab.is_extra_copy(n) and ctx != 0 then
         put(32)
@@ -428,6 +428,52 @@ pub func slot(f: word, number: word, i: byte, name: word)
   end
 end
 
+; The S lines of object file obj, from a reading of its own: the names of its kept functions that
+; have slots are held as the file is read, and each slot's name is kept at W_SNAME.
+pub func slots(obj: byte)
+  var f: word
+  var number: word
+  var symbols: word
+  var i: byte
+  var kept: bool
+  var kind: byte
+  if not mark_functions(obj, true, true) then
+    return
+  end
+  hold_begin(obj, W_HELD, lk_tab.W_OWN)
+  lk_rec.open_object(obj)
+  f = 0
+  number = 0
+  symbols = 0
+  i = 0
+  kept = false
+  kind = lk_rec.advance()
+  while kind != lk_rec.R_END do
+    if kind == lk_rec.R_SYM then
+      lk_rec.get_byte()
+      hold(obj, symbols)
+      symbols += 1
+    elif kind == lk_rec.R_FUNC then
+      number = lk_rec.get_word()
+      f = lk_sym.row_of(lk_name.global_sym(obj, number))
+      kept = lk_tab.fn_ctx[f] != 0
+      i = 0
+    elif kind == lk_rec.R_SLOT and kept then
+      lk_rec.get_word()
+      lk_rec.get_word()
+      lk_rec.get_byte()
+      lk_name.keep_at(2 * lk_tab.W_SNAME)
+      slot(f, number, i, 2 * lk_tab.W_SNAME)
+      i += 1
+    elif kind == lk_rec.R_ENDF then
+      kept = false
+    end
+    kind = lk_rec.advance()
+  end
+  lk_rec.close()
+  mark_functions(obj, false, true)
+end
+
 ; ---- the C lines, after the image: the names of classes and their parameters are read from the
 ; files again. In lk_tab.work: from CN, where the name of each class is held + 1, or 0; from CPN,
 ; that of each class parameter, the first a CLAS record gives; from NM, that of each parameter of a
@@ -461,8 +507,8 @@ func class_names_object(obj: byte)
       lk_rec.get_byte()
       s = lk_name.global_sym(obj, number)
       if lk_sym.kind_of(s) == lk_sym.CLASS and lk_sym.is_defined(s) and
-          lk_tab.work[CN + lk_sym.row_of(s)] == 0 then
-        lk_tab.work[CN + lk_sym.row_of(s)] = lk_name.buf_keep() + 1
+          lk_tab.wk(CN + lk_sym.row_of(s)) == 0 then
+        lk_tab.set_wk(CN + lk_sym.row_of(s), lk_name.buf_keep() + 1)
       end
       number += 1
     elif kind == lk_rec.R_CLAS then
@@ -473,8 +519,8 @@ func class_names_object(obj: byte)
         lk_rec.get_word()
         p = lk_tab.cls_par[k] + i
         pos = lk_name.buf_keep()
-        if lk_tab.work[CPN + p] == 0 and lk_name.get_b(pos) != 0 then
-          lk_tab.work[CPN + p] = pos + 1
+        if lk_tab.wk(CPN + p) == 0 and lk_name.get_b(pos) != 0 then
+          lk_tab.set_wk(CPN + p, pos + 1)
         else
           lk_name.buf_top = pos         ; not needed: no longer held
         end
@@ -492,7 +538,7 @@ func class_names_object(obj: byte)
         lk_rec.get_word()
         lk_rec.get_word()
         lk_rec.get_byte()
-        lk_tab.work[NM + lk_tab.cls_par[lo(namer)] + slots] = lk_name.buf_keep() + 1
+        lk_tab.set_wk(NM + lk_tab.cls_par[lo(namer)] + slots, lk_name.buf_keep() + 1)
       end
       slots += 1
     end
@@ -508,15 +554,15 @@ func param_name(rep: byte, i: byte): word
   var p: word
   var k: byte
   p = lk_tab.cls_par[rep] + i
-  if lk_tab.work[CPN + p] != 0 then
-    return lk_tab.work[CPN + p]
+  if lk_tab.wk(CPN + p) != 0 then
+    return lk_tab.wk(CPN + p)
   end
   for k = 0 until lk_tab.cls_count do
-    if k != rep and lk_tab.class_of(k) == rep and lk_tab.work[CPN + lk_tab.cls_par[k] + i] != 0 then
-      return lk_tab.work[CPN + lk_tab.cls_par[k] + i]
+    if k != rep and lk_tab.class_of(k) == rep and lk_tab.wk(CPN + lk_tab.cls_par[k] + i) != 0 then
+      return lk_tab.wk(CPN + lk_tab.cls_par[k] + i)
     end
   end
-  return lk_tab.work[NM + p]
+  return lk_tab.wk(NM + p)
 end
 
 ; The C lines: the parameters of every live class, under each name the class has. The names are
@@ -542,7 +588,7 @@ pub func cparams()
     return
   end
   for i = 0 until C_HELD do
-    lk_tab.work[i] = 0
+    lk_tab.set_wk(i, 0)
   end
   lk_name.buf_begin(2 * C_HELD, 2 * lk_tab.W_OWN)
   ; The files that name a class, and those of the functions that name class parameters.
@@ -564,7 +610,7 @@ pub func cparams()
       for j = 0 until lk_tab.cls_np[rep] do
         p = lk_tab.cls_par[rep] + j
         begin(67, lk_tab.cp_addr[lo(p)], lk_tab.cp_size[lo(p)])
-        lk_name.write_held(handle, lk_tab.work[CN + k] - 1)
+        lk_name.write_held(handle, lk_tab.wk(CN + k) - 1)
         put(32)
         decimal(j)
         put(32)

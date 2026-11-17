@@ -85,25 +85,25 @@ C_DOT = 46
 def get_b(pos):
     """The byte at byte offset `pos` of the work area."""
     if (pos & 1) != 0:
-        return lk_tab.work[pos >> 1] >> 8
-    return lk_tab.work[pos >> 1] & 0xFF
+        return lk_tab.wk(pos >> 1) >> 8
+    return lk_tab.wk(pos >> 1) & 0xFF
 
 
 def put_b(pos, value8):
     i = pos >> 1
     if (pos & 1) != 0:
-        lk_tab.work[i] = (lk_tab.work[i] & 0xFF) | (value8 << 8)
+        lk_tab.set_wk(i, (lk_tab.wk(i) & 0xFF) | (value8 << 8))
     else:
-        lk_tab.work[i] = (lk_tab.work[i] & 0xFF00) | value8
+        lk_tab.set_wk(i, (lk_tab.wk(i) & 0xFF00) | value8)
 
 
 def get_bit(table, n):
     """Bit n of the bit table at word `table` of the work area."""
-    return (lk_tab.work[table + (n >> 4)] & (1 << (n & 15))) != 0
+    return (lk_tab.wk(table + (n >> 4)) & (1 << (n & 15))) != 0
 
 
 def set_bit(table, n):
-    lk_tab.work[table + (n >> 4)] |= 1 << (n & 15)
+    lk_tab.set_wk(table + (n >> 4), lk_tab.wk(table + (n >> 4)) | (1 << (n & 15)))
 
 
 def step(h, c):
@@ -192,9 +192,9 @@ def mark_object(obj):
 def mark_all():
     """The first reading of every object file, which marks the names to keep."""
     for i in range(0, 512):
-        lk_tab.work[MARKS + i] = 0
+        lk_tab.set_wk(MARKS + i, 0)
     for i in range(0, 2048):
-        lk_tab.work[DEFS + i] = 0
+        lk_tab.set_wk(DEFS + i, 0)
     for obj in range(0, object_count):
         mark_object(obj)
 
@@ -203,7 +203,7 @@ def begin():
     """Before the tables are read: no name kept yet, and MAINMODULE.main to look out for."""
     global heap_top, main_length, main_sym, fc_call, fc_start
     for i in range(0, 512):
-        lk_tab.work[HEADS + i] = 0
+        lk_tab.set_wk(HEADS + i, 0)
     main_length = lk_file.arg_length(lk_file.ARG_MAIN)
     for i in range(0, main_length):
         c = env.mem[lk_file.PATH + i]
@@ -332,7 +332,7 @@ def chain():
 
 def find():
     """The kept symbol with the pending name, and whether there is one."""
-    e = lk_tab.work[HEADS + chain()]
+    e = lk_tab.wk(HEADS + chain())
     while e != 0:
         if name_is(e - 1):
             return get_b(e + 1) | (get_b(e + 2) << 8), True
@@ -364,17 +364,17 @@ def symbol(kind):
     # The symbol's words come off the top of the heap, which must still hold the name.
     if heap_top + ENTRY + pending > heap_limit():
         lk_err.fail(lk_err.E_NAMES)
-    lk_tab.work[ref_at(s)] = s
-    lk_tab.work[ref_at(s) - 1] = flags
+    lk_tab.set_wk(ref_at(s), s)
+    lk_tab.set_wk(ref_at(s) - 1, flags)
     if keep:
         pos = heap_top
         h = chain()
-        put_b(pos, lk_tab.work[HEADS + h] & 0xFF)
-        put_b(pos + 1, lk_tab.work[HEADS + h] >> 8)
+        put_b(pos, lk_tab.wk(HEADS + h) & 0xFF)
+        put_b(pos + 1, lk_tab.wk(HEADS + h) >> 8)
         put_b(pos + 2, s & 0xFF)
         put_b(pos + 3, s >> 8)
         put_b(pos + 4, pending)
-        lk_tab.work[HEADS + h] = pos + 1
+        lk_tab.set_wk(HEADS + h, pos + 1)
         heap_top = pos + ENTRY + pending
     return s
 
@@ -389,41 +389,41 @@ def ref_at(s):
 
 def now(s):
     """What symbol s stands for so far."""
-    return lk_tab.work[ref_at(s)]
+    return lk_tab.wk(ref_at(s))
 
 
 def bind(s, r):
     """Symbol s is defined: it stands for r."""
     global main_sym, fc_call, fc_start
-    lk_tab.work[ref_at(s)] = r
-    if (lk_tab.work[ref_at(s) - 1] & X_MAIN) != 0:
+    lk_tab.set_wk(ref_at(s), r)
+    if (lk_tab.wk(ref_at(s) - 1) & X_MAIN) != 0:
         main_sym = r
-    if (lk_tab.work[ref_at(s) - 1] & X_FCALL) != 0:
+    if (lk_tab.wk(ref_at(s) - 1) & X_FCALL) != 0:
         fc_call = r
-    if (lk_tab.work[ref_at(s) - 1] & X_FSTART) != 0:
+    if (lk_tab.wk(ref_at(s) - 1) & X_FSTART) != 0:
         fc_start = r
 
 
 def more(s):
     """The weight given to variable s so far."""
-    return lk_tab.work[ref_at(s) - 1] & X_LOW
+    return lk_tab.wk(ref_at(s) - 1) & X_LOW
 
 
 def set_more(s, value):
-    lk_tab.work[ref_at(s) - 1] = (lk_tab.work[ref_at(s) - 1] & (0xFFFF ^ X_LOW)) | value
+    lk_tab.set_wk(ref_at(s) - 1, (lk_tab.wk(ref_at(s) - 1) & (0xFFFF ^ X_LOW)) | value)
 
 
 def set_block(s):
     """A call inside a `with` block names function or class s (lk_scan.in_block)."""
-    lk_tab.work[ref_at(s) - 1] |= X_BLOCK
+    lk_tab.set_wk(ref_at(s) - 1, lk_tab.wk(ref_at(s) - 1) | X_BLOCK)
 
 
 def is_block_sym(s):
-    return (lk_tab.work[ref_at(s) - 1] & X_BLOCK) != 0
+    return (lk_tab.wk(ref_at(s) - 1) & X_BLOCK) != 0
 
 
 def is_init_sym(s):
-    return (lk_tab.work[ref_at(s) - 1] & X_INIT) != 0
+    return (lk_tab.wk(ref_at(s) - 1) & X_INIT) != 0
 
 
 def retarget(e):

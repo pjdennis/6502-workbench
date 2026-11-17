@@ -272,10 +272,12 @@ def _module_name(obj):
     return obj.name if isinstance(obj, Obj) else obj.module_.name
 
 
-def link(objects, env=HOST_ENV, main=None, args=None, asm=False):
+def link(objects, env=HOST_ENV, main=None, args=None, asm=False, command_file=None):
     """Link the objects (Obj, lo.Builder or bytes) and return a Result. main defaults to the
     first module. With asm, the program is also built by the assembler path: lo2asm renders
-    the objects with the linker's map and asm/pyasm.py assembles the text."""
+    the objects with the linker's map and asm/pyasm.py assembles the text. With command_file,
+    a function of the argument list that gives the text of a file, the arguments are written
+    to the file `args` beside the objects by it, and the linker is given only `@args`."""
     with tempfile.TemporaryDirectory() as tmp:
         env_path = os.path.join(tmp, 'test.env')
         with open(env_path, 'w') as f:
@@ -297,6 +299,12 @@ def link(objects, env=HOST_ENV, main=None, args=None, asm=False):
         map_path = os.path.join(tmp, 'out.map')
         if args is None:
             args = [env_path, main, bin_path, map_path] + paths
+        known = {'test.env', 'out.bin', 'out.map'} | {os.path.basename(p) for p in paths}
+        if command_file is not None:
+            with open(os.path.join(tmp, 'args'), 'wb') as f:
+                f.write(command_file(args))
+            args = ['@' + os.path.join(tmp, 'args')]
+            known.add('args')
         run = subprocess.run([sys.executable, LINK] + args, capture_output=True)
         image = b''
         map_text = ''
@@ -311,7 +319,6 @@ def link(objects, env=HOST_ENV, main=None, args=None, asm=False):
             if len(parts) > 1 and parts[0].lower() == 'code' and run.returncode == 0:
                 code_lo = int(parts[1][1:], 16) if parts[1][0] == '$' else int(parts[1])
         result = Result(run.returncode, run.stderr.decode('latin-1'), image, map_text, code_lo)
-        known = {'test.env', 'out.bin', 'out.map'} | {os.path.basename(p) for p in paths}
         for name in sorted(os.listdir(tmp)):
             if name not in known:
                 with open(os.path.join(tmp, name), 'rb') as f:

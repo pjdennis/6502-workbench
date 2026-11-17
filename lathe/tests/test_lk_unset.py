@@ -5,8 +5,8 @@ so it holds whatever memory held when the linker started: on the BBC, what the c
 language left there (the BBC's tool chain, lathe/tests/test_bbc_toolchain.py, fills memory
 first). So a row the host linker reads before writing it would be junk in the twin. This test
 runs the host linker at the small capacities over the links made by hand (test_src_lk.py's,
-test_src_link.py's) and lk_synthetic's program with every table wrapped, and lists every place
-that reads a row nothing wrote.
+test_src_link.py's, and its links by a command file) and lk_synthetic's program with every
+table wrapped, and lists every place that reads a row nothing wrote.
 
 The one exception is half of a word of the work area: lk_name.put_b writes one byte of a word
 and keeps the other, which it reads to do so; the other byte is never used unless written.
@@ -27,6 +27,8 @@ import env  # noqa: E402
 
 # (table, file, function) of reads that keep a byte they do not use.
 BENIGN = {('lk_tab.work', 'lk_name.py', 'put_b')}
+# Every module reads the work area through these; a read is charged to their caller.
+WORK_ACCESS = ('wk', 'set_wk')
 
 
 def tracked(base):
@@ -42,7 +44,10 @@ def tracked(base):
 
         def __getitem__(self, i):
             if i not in self.written:
-                code = sys._getframe(1).f_code
+                frame = sys._getframe(1)
+                if frame.f_code.co_name in WORK_ACCESS and frame.f_code.co_filename.endswith('lk_tab.py'):
+                    frame = frame.f_back        # the place that called lk_tab.wk
+                code = frame.f_code
                 key = (self.name, os.path.basename(code.co_filename), code.co_name)
                 if key not in BENIGN:
                     self.found.add(key)
@@ -92,6 +97,8 @@ class Unset(unittest.TestCase):
         cases.append(lk.synthetic_case(lk.SYNTHETIC_FITS))
         found = set()
         with tempfile.TemporaryDirectory() as work:
+            program = whole.program_case(*whole.COMMAND_FILE_PROGRAM, work)
+            cases += whole.command_files(program)
             for case in cases:
                 run_tracked(case, tempfile.mkdtemp(dir=work), found)
         self.assertEqual(sorted(found), [])

@@ -4,8 +4,7 @@ A twin gives a capacity that sizes a table twice, `#if LKSMALL` the small value 
 full one (lathe/host/README.md, "The linker in Lathe"). The host modules have only the full
 value. load(True) runs each linker module of lathe/host again, in the order of its layers, with
 every constant the twins give under LKSMALL set to that value, so that the tables it makes are
-as small; load('bbc') with the BBC's, the `#if LKSMALL == 2` blocks (lathe/src/linker-bbc.env),
-which stand before the small ones; load(False) runs them again as they are. Either way every
+as small; load(False) runs them again as they are. Either way every
 module starts afresh: no table, count or file of an earlier run is left.
 
 Only this file knows the mechanism: the host modules and the twins hold no trace of it beyond the
@@ -19,7 +18,6 @@ import test_lk_shape
 
 SRC = os.path.join(lathec_support.LATHE, 'src')
 SMALL = re.compile(r'^#if LKSMALL\n(.*?)^#else\n', re.M | re.S)
-BBC = re.compile(r'^#if LKSMALL == 2\n(.*?)^#else\n', re.M | re.S)     # the BBC's build
 CONST = re.compile(r'^(?:pub )?const (\w+) = (\$?[0-9A-Fa-f]+)', re.M)
 
 # The linker's modules, lowest first.
@@ -31,14 +29,13 @@ def number(text):
 
 
 def capacities(level=True):
-    """{module: {NAME: small value}} from the `#if LKSMALL` blocks of lathe/src/lk_*.lth; with
-    level 'bbc', the BBC's values, from the `#if LKSMALL == 2` blocks."""
+    """{module: {NAME: small value}} from the `#if LKSMALL` blocks of lathe/src/lk_*.lth."""
     found = {}
     for path in sorted(glob.glob(os.path.join(SRC, 'lk_*.lth'))):
         with open(path) as f:
             text = f.read()
         values = {}
-        for block in (BBC if level == 'bbc' else SMALL).findall(text):
+        for block in SMALL.findall(text):
             for name, value in CONST.findall(block):
                 values[name] = number(value)
         if values:
@@ -47,7 +44,7 @@ def capacities(level=True):
 
 
 def source(module, small):
-    """The host module's source, with the small capacities if `small` (the BBC's if 'bbc')."""
+    """The host module's source, with the small capacities if `small`."""
     with open(os.path.join(lathec_support.HOST, module + '.py')) as f:
         text = f.read()
     if small:
@@ -61,8 +58,7 @@ _compiled = {}
 
 
 def load(small):
-    """Run every linker module of lathe/host again, at the small capacities (the BBC's, with
-    'bbc') or at full ones."""
+    """Run every linker module of lathe/host again, at the small capacities or at full ones."""
     import importlib
     for module in MODULES:
         key = (module, small)

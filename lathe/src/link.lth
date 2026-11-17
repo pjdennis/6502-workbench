@@ -38,7 +38,7 @@ import lk_alloc (allocate)
 import lk_emit
 import lk_envf (read)
 import lk_err (begin, colon, E_NO_MAIN, E_USAGE, fail, finish, put)
-import lk_file (arg_count, arg_length, ARG_MAIN, ARG_OBJECT, PATH)
+import lk_file (arg_count, arg_length, ARG_MAIN, ARG_OBJECT, PATH, start)
 import lk_graph (build)
 import lk_name (MAIN_SUFFIX, main_sym)
 import lk_place (check_with, place)
@@ -77,6 +77,7 @@ end
 
 pub func main()
   var main_sym: word
+  lk_file.start()
   if lk_file.arg_count() <= lk_file.ARG_OBJECT then
     lk_err.fail(lk_err.E_USAGE)
   end

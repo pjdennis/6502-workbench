@@ -109,6 +109,12 @@ def counting_copies(where, count_argument=2):
     text = text.replace(marker, COUNTING_MAP)
     # The counters are disk's: add them to rt_bank's import list of disk.
     text = re.sub(r'(?m)^import disk \(', 'import disk (farcalls, withs, ', text, count=1)
+    # The counters have no initial value, and every run starts on memory that is not 0 (the
+    # emulator's --fill-ram): start(), which runs before any far call or block, clears them.
+    # Without it each count began with what the fill left, and grew from run to run.
+    old = '  direction = direction | BANK_BITS\n'
+    assert text.count(old) == 1 and 'pub func start(table: ^byte)' in text
+    text = text.replace(old, old + '  for i = 0 until 3 do\n    disk.farcalls[i] = 0\n    disk.withs[i] = 0\n  end\n')
     with open(os.path.join(where, 'rt_bank.lth'), 'w') as f:
         f.write(text.replace('pub asm func call()\n  PHP\n  SEI\n', COUNTING_CALL))
     with open(os.path.join(support.LATHE, 'rt', 'disk.lth')) as f:
@@ -366,6 +372,10 @@ def selfhost_report(out_dir, names, all_placed):
         counted = selfhost.run_lathe(cimage, cdisk, list(options) + [name + '.lth', '.', 'farcalls'])
         data = counted[3].get('farcalls', b'')
         far, withs = int.from_bytes(data[:3], 'big'), int.from_bytes(data[3:6], 'big')
+        # A count the run's cycles cannot hold is not a count: a counter that nothing cleared.
+        if far * FAR_CALL > counted[4] or withs * 32 > counted[4]:
+            raise AssertionError('%s: %d far calls and %d blocks in %d cycles: the counters were not '
+                                 'cleared' % (name, far, withs, counted[4]))
         print('%s: %d cycles banked (%s the host\'s files), %d far calls (%d cycles at %d), '
               '%d with blocks' % (name, got[4], 'gives' if same else 'does NOT give', far,
                                   far * FAR_CALL, FAR_CALL, withs))

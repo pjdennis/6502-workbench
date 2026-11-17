@@ -835,6 +835,10 @@ EXPR and STMT call each other: a statement holds expressions, and an `inline` ca
 
 **Faults found in existing code**: none in the compiler or the linker. `rt_bank.map(0)`, which every block of a fixed region calls, mapped bank 0 for nothing (above: now 32 cycles, `WithBlocks`).
 
+### The same for the linker (2026-11-16)
+
+The linker's large tables went the same way, so that it links the compiler and itself on both machines: its work area is two tables, `lk_tab.work` (region `LKWORK`) and `lk_tab.nodes` (`LKNODES`), beside the regions it already had (`LKLOCAL`, `LKCALLS`, `LKSLOTS`), and every module reads and writes the work area through `lk_tab.wk` and `set_wk`, which choose the table; the hottest column readers have blocks of their own and are kept fixed. On the BBC the regions fill sideways slots 0, 1 and 12; on Wendy 2 at full size (`linker-full.env`) data banks 4 and 5. The design, where each table lives and what it costs are in [`architecture.md`](architecture.md), "The large tables in regions".
+
 ## Decisions for the owner
 
 | Decision | Recommendation |

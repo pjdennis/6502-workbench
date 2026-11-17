@@ -1,8 +1,10 @@
 ; The linker's files, which are all named by program arguments: lathe/host/lk_file.py in Lathe.
 ;
-; The command line is `link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...` (lathe/host/README.md).
-; A file is opened by the number of its argument, so no file name is kept anywhere: an object
-; file that is read again is simply opened again.
+; The command line is `link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...` (lathe/host/README.md),
+; or `link @FILE`: the arguments are then the words of FILE, separated by spaces, tabs or line
+; ends, which a machine whose command line is too short for a large link needs. A file is opened
+; by the number of its argument, so no file name is kept anywhere: an object file that is read
+; again is simply opened again.
 ;
 ; Where the Lathe differs from the Python:
 ;
@@ -13,8 +15,8 @@
 ;   | arg_length: an int                   | a byte: sys.arg_copy gives one    |                 |
 module lk_file
 
-import lk_err (begin, colon, E_OPEN, finish, put)
-import sys (arg_copy, argc, open_in, open_out)
+import lk_err (begin, colon, E_COMMAND_FILE, E_OPEN, fail, finish, put)
+import sys (arg_copy, argc, close, open_in, open_out, read)
 
 pub const ARG_ENV = 0
 pub const ARG_MAIN = 1
@@ -25,13 +27,44 @@ pub const ARG_OBJECT = 4        ; the first object file
 const PATH_SIZE = 256
 pub var path: [PATH_SIZE]byte   ; where an argument is copied to
 
+; The arguments of a command file: each word followed by a 0 in arg_text. MAX_ARGS is the
+; environment, the main module, the image, the map and 44 object files (lk_name.MAX_OBJECTS is 40).
+const ARGS_SIZE = 512
+const MAX_ARGS = 48
+const AT_SIGN = 64              ; @
+var from_file: bool = false
+var file_count: byte = 0
+var arg_text: [ARGS_SIZE]byte
+
 ; Number of program arguments.
 pub func arg_count(): byte
+  if from_file then
+    return file_count
+  end
   return sys.argc()
 end
 
 ; Copy argument i to `path` and return its length.
 pub func arg_length(i: byte): byte
+  var pos: word
+  var k: byte
+  var size: byte
+  if from_file then
+    pos = 0
+    for k = 0 until i do
+      while arg_text[pos] != 0 do
+        pos += 1
+      end
+      pos += 1
+    end
+    size = 0
+    while arg_text[pos + size] != 0 do
+      path[size] = arg_text[pos + size]
+      size += 1
+    end
+    path[size] = 0
+    return size
+  end
   return sys.arg_copy(i, @path)
 end
 
@@ -74,4 +107,68 @@ pub func open_out(i: byte): byte
     fail(lk_err.E_OPEN, i)
   end
   return handle
+end
+
+; If the command line is one argument @FILE, read the arguments from FILE.
+pub func start()
+  var size: byte
+  var i: byte
+  var handle: byte
+  var count: byte
+  var pos: word
+  var first: word
+  var inside: bool
+  var c: byte
+  var at_end: bool
+  if sys.argc() != 1 then
+    return
+  end
+  size = sys.arg_copy(0, @path)
+  if size < 2 or path[0] != AT_SIGN then
+    return
+  end
+  for i = 0 until size do
+    path[i] = path[i + 1]
+  end
+  handle = sys.open_in(@path)
+  if handle == 0 then
+    fail(lk_err.E_OPEN, 0)
+  end
+  count = 0
+  pos = 0
+  first = 0
+  inside = false
+  loop
+    c, at_end = sys.read(handle)
+    if at_end or c <= 32 then
+      if inside then
+        if pos == ARGS_SIZE then
+          lk_err.fail(lk_err.E_COMMAND_FILE)
+        end
+        arg_text[pos] = 0
+        pos += 1
+        inside = false
+      end
+      if at_end then
+        break
+      end
+    else
+      if not inside then
+        if count == MAX_ARGS then
+          lk_err.fail(lk_err.E_COMMAND_FILE)
+        end
+        first = pos
+        count += 1
+        inside = true
+      end
+      if pos == ARGS_SIZE or pos - first == 255 then
+        lk_err.fail(lk_err.E_COMMAND_FILE)
+      end
+      arg_text[pos] = c
+      pos += 1
+    end
+  end
+  sys.close(handle)
+  file_count = count
+  from_file = true
 end

@@ -25,10 +25,11 @@ the same way (the host's own runs of lathec.py and link.py, by base name). A ban
 RAM form: the image is put there by `*RUN LOADMOD MODULE` first, and the program's start-up
 code loads its own banks over the tools'.
 
-A program the linker's capacities on the BBC do not take (BEYOND) must be refused by the linker
-on the BBC with the error the host linker gives at the same capacities (lk_small.load('bbc')).
-The compiler's test programs outtest and regtest (LARGE), compiled by the host, are linked on the
-BBC: outtest as the host links it, regtest refused (with LATHE_BBC_TOOLCHAIN only).
+The linker on the BBC has the full capacities (since 2026-11-16, when its work area went into
+sideways RAM: lathe/docs/bbc.md, "The linker links the compiler"), so it links every program of
+the corpus. The compiler's test programs outtest and regtest (LARGE), compiled by the host, are
+linked on the BBC as the host links them (regtest with LATHE_BBC_TOOLCHAIN only). The compiler and
+the linker themselves are linked there by test_bbc_selflink.py.
 
 By default (about 15 s) a few programs (QUICK), one of them banked, and outtest. With
 LATHE_BBC_TOOLCHAIN=1 every program of the corpus the BBC runs (66 of e2e and 3 of e2e-config,
@@ -37,7 +38,6 @@ calls and `with` blocks (a counting copy of the linker), files opened and bytes 
 (the emulator's exit report; its MOS charges about nothing for a file call), the cycles of the
 whole run, and the start-up's.
 """
-import io
 import os
 import re
 import shutil
@@ -187,42 +187,15 @@ CASES = os.path.join(support.LATHE, 'tests', 'cases')
 QUICK = ('hello', 'calls', 'rec_tree')      # run by default, with BANKED_QUICK
 BANKED_QUICK = ('farcall',)
 
-# Programs the linker on the BBC cannot link at its capacities (LKSMALL 2), with the link error:
-# the host linker at the same capacities gives the same, and at full ones links them. for_ranges
-# has 220 functions in one file, whose names the image pass holds in the work area at once, in
-# the words between the fix-ups held and the node columns (lk_map.W_HELD to lk_tab.W_OWN, 544
-# words; the file needs about 1,500).
-BEYOND = {'for_ranges': 10}
-
-
-def host_link_at_bbc(link, disk):
-    """The host linker at the BBC's capacities on the link in a copy of disk: (status, error
-    output)."""
-    import env as host_env
-    import lathec_support
-    import lk_small
-    import link as host_link
-    here = os.getcwd()
+def host_link(link, disk):
+    """The host linker on the link in a copy of disk's object and environment files: (status,
+    output and error output joined, as the BBC has one stream)."""
     with tempfile.TemporaryDirectory() as d:
         for f in os.listdir(disk):
             if f.endswith(('.lo', '.env')):
                 shutil.copy(os.path.join(disk, f), d)
-        lathec_support.fresh()
-        lk_small.load('bbc')
-        host_env._out = host_env._err = io.BytesIO()
-        host_env.start(link)
-        status = 0
-        os.chdir(d)
-        try:
-            host_link.main()
-        except SystemExit as e:
-            status = e.code
-        finally:
-            os.chdir(here)
-            said = host_env._out.getvalue()
-            host_env._err = io.BytesIO()
-            lk_small.load(False)
-    return status, said
+        r = subprocess.run([sys.executable, HOST_LINKER] + link, cwd=d, capture_output=True)
+    return r.returncode, r.stdout + r.stderr
 
 
 def corpus():
@@ -284,13 +257,14 @@ class Toolchain(unittest.TestCase):
         self.assertIn('*LLINK: LLINK', listing)
         self.assertEqual(re.findall(r'\*LLINK: .*; banks ([0-9, ]+);', listing), ['6, 7, 8, 9, 10'])
         # The linker's tables in main RAM fit $1900-$7BFF and $0401-$06FF beside its resident
-        # part; those in regions are in sideways slot 0.
+        # part; those in regions are in sideways slots 0, 1 and 12 (banks 20 to 22).
         entries = mapenv.read_map(self.linker_map)
-        regions = [e for e in entries if e.kind == 'V' and e.bank == 20]
-        self.assertEqual(sorted(e.name for e in regions if e.size > 256),
-                         ['lk_name.local', 'lk_tab.edge_word', 'lk_tab.fn_edge', 'lk_tab.slot_sz',
-                          'lk_tab.slot_weight'])
-        self.assertFalse([e for e in entries if e.kind == 'V' and e.bank is not None and e.bank != 20])
+        slots = {bank: sorted(e.name for e in entries if e.kind == 'V' and e.bank == bank and e.size > 256)
+                 for bank in (20, 21, 22)}
+        self.assertEqual(slots, {20: ['lk_name.local', 'lk_tab.slot_sz', 'lk_tab.slot_weight'],
+                                 21: ['lk_tab.edge_word', 'lk_tab.fn_edge', 'lk_tab.nodes'],
+                                 22: ['lk_tab.work']})
+        self.assertFalse([e for e in entries if e.kind == 'V' and e.bank is not None and e.bank not in slots])
 
     def test_programs_are_compiled_linked_and_run_on_the_bbc(self):
         for case in chosen():
@@ -298,15 +272,6 @@ class Toolchain(unittest.TestCase):
             with self.subTest(program=name):
                 disk, compiles, link, files, said, load = prepare(case, os.path.join(self.dir, name))
                 self.assertEqual(said, [(0, b'')] * len(said))
-                if name in BEYOND:
-                    lines = bbc_lines(compiles, link, load, 0, run=False)
-                    status, out, mos, written, cycles, traffic = bbc_run(self.module, disk, lines)
-                    self.assertEqual((status, out, mos), host_link_at_bbc(link, disk) + (b'',))
-                    self.assertTrue(out.startswith(b'link error %d:' % BEYOND[name]), out)
-                    for f in written:
-                        if f.endswith(('.lo', '.li')):
-                            self.assertTrue(written[f] == files[f], f + ' differs')
-                    continue
                 lines = bbc_lines(compiles, link, load, len(files[link[2]]))
                 status, out, mos, written, cycles, traffic = bbc_run(self.module, disk, lines, ram=banked)
                 self.assertEqual((status, mos), (0, b''))
@@ -319,17 +284,14 @@ class Toolchain(unittest.TestCase):
 
     def test_the_largest_programs_of_lathe_src(self):
         """The compiler's test programs as test_bbc_bank_src.py builds them (banked, the small
-        build), compiled by the host and linked on the BBC: outtest is the largest the linker's
-        capacities take, regtest the smallest they do not (one file's names in the image pass)."""
-        for name, error in LARGE if ALL or REPORT else LARGE[:1]:
+        build), compiled by the host and linked on the BBC as the host links them: outtest, and
+        regtest, which the BBC's capacities of before 2026-11-16 refused (one file's names in the
+        image pass)."""
+        for name in LARGE if ALL or REPORT else LARGE[:1]:
             with self.subTest(program=name):
                 files, link, disk = link_alone(name, os.path.join(self.dir, name))
                 lines = [boards.module_command('LLINK', link)]
                 status, out, mos, written, cycles, traffic = bbc_run(self.module, disk, lines)
-                if error:
-                    self.assertEqual((status, out, mos), host_link_at_bbc(link, disk) + (b'',))
-                    self.assertTrue(out.startswith(b'link error %d:' % error), out)
-                    continue
                 self.assertEqual((status, out, mos), (0, b'', b''))
                 linked = {f: d for f, d in files.items() if not f.endswith(('.lo', '.li'))}
                 self.assertEqual(sorted(written), sorted(linked))
@@ -361,9 +323,8 @@ class Toolchain(unittest.TestCase):
             (name, cycles, cycles / 2e6 / 60, far, withs) + traffic + (chain,)))
 
 
-# The compiler's test programs linked on the BBC: (name, the link error at the BBC's capacities,
-# or 0 for none).
-LARGE = (('outtest', 0), ('regtest', 10))
+# The compiler's test programs linked on the BBC.
+LARGE = ('outtest', 'regtest')
 
 
 def link_alone(name, work):

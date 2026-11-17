@@ -67,8 +67,8 @@ import lk_tab (CLASS_NODE, class_of, cls_count, cls_ctx, cls_node, cls_np, cls_p
                fn_count, fn_ctx, fn_flags, fn_nslots, fn_ref, fn_slot, has_copy, is_kept_def,
                MAX_CONTEXTS, MAX_FIXES, MAX_NODES, memb_class, memb_count, memb_func, new_node,
                next_call, next_in_order, node_class, node_count, node_is_class, node_sym, NONE,
-               own_of, slot_bytes, slot_class, slot_is_param, slot_weight_of, W_CTXZ, W_ORDER,
-               W_SCC, work)
+               own_of, set_wk, slot_bytes, slot_class, slot_is_param, slot_weight_of, W_CTXZ,
+               W_ORDER, W_SCC, wk, work)
 
 ; lk_tab.work[lk_tab.W_ORDER...]: the nodes, callees before their callers
 pub var order_count: word = 0
@@ -112,24 +112,34 @@ pub func edge_target(e: word): word
   return target
 end
 
-; ---- the work columns, read through a function each: a call is shorter than the access
+; ---- the work columns, read through a function each: a call is shorter than the access. Each
+; reads lk_tab.work in a block of its own, and so is kept in fixed memory (the columns are below
+; lk_tab.W_SPLIT).
 
 ; The set node n is in (lk_tab.W_SCC).
 pub func scc_of(n: word): word
-  return lk_tab.work[lk_tab.W_SCC + n]
+  with LKWORK do
+    return lk_tab.work[lk_tab.W_SCC + n]
+  end
 end
 
 ; Entry i of `order` (lk_tab.W_ORDER).
 pub func order_at(i: word): word
-  return lk_tab.work[lk_tab.W_ORDER + i]
+  with LKWORK do
+    return lk_tab.work[lk_tab.W_ORDER + i]
+  end
 end
 
 func seen_of(n: word): word
-  return lk_tab.work[SEEN + n]
+  with LKWORK do
+    return lk_tab.work[SEEN + n]
+  end
 end
 
 func low_of(n: word): word
-  return lk_tab.work[LOW + n]
+  with LKWORK do
+    return lk_tab.work[LOW + n]
+  end
 end
 
 ; ---- contexts and reachability
@@ -174,10 +184,10 @@ func reach(root: word, ctx: byte)
     return
   end
   top = 1
-  lk_tab.work[STACK + 0] = root
+  lk_tab.set_wk(STACK + 0, root)
   while top > 0 do
     top -= 1
-    source = lk_tab.work[STACK + top]
+    source = lk_tab.wk(STACK + top)
     e = lk_tab.first_call(source)
     while e != 0 do
       if (lk_tab.edge_flag(e - 1) & (lk_tab.E_PENDING | lk_tab.E_VIA)) == 0 then
@@ -190,7 +200,7 @@ func reach(root: word, ctx: byte)
           if top == lk_tab.MAX_NODES then
             lk_err.fail(lk_err.E_COPIES)
           end
-          lk_tab.work[STACK + top] = target
+          lk_tab.set_wk(STACK + top, target)
           top += 1
         end
       end
@@ -334,7 +344,7 @@ func keep_in_object(obj: byte)
         if keeps(obj, lk_tab.NONE, e_kind, e_sym, e_slot) then
           ; More than a table may have: an error if the table is kept (lk_emit).
           if named_count < lk_tab.MAX_FIXES then
-            lk_tab.work[NAMED + named_count] = e_sym
+            lk_tab.set_wk(NAMED + named_count, e_sym)
           end
           named_count += 1
         end
@@ -346,9 +356,9 @@ func keep_in_object(obj: byte)
           lk_err.fail(lk_err.E_FIXES)
         end
         for i = 0 until named_count do
-          keep_target(data, lk_tab.work[NAMED + i])
-          note_address(lk_tab.NONE, 1, lk_tab.work[NAMED + i], $FF, 0)
-          note_named(lk_tab.NONE, 1, lk_tab.work[NAMED + i])
+          keep_target(data, lk_tab.wk(NAMED + i))
+          note_address(lk_tab.NONE, 1, lk_tab.wk(NAMED + i), $FF, 0)
+          note_named(lk_tab.NONE, 1, lk_tab.wk(NAMED + i))
         end
       end
       lk_tab.def_f[lk_sym.row_of(data)] |= lk_tab.D_PASSED
@@ -362,9 +372,9 @@ end
 ; Something in object file obj was kept during a reading, which has passed it (`behind`) or not.
 func to_read(obj: byte, behind: bool)
   if obj < cur_obj or behind then
-    lk_tab.work[LATER + obj] = 1
+    lk_tab.set_wk(LATER + obj, 1)
   elif obj > cur_obj then
-    lk_tab.work[NOW + obj] = 1
+    lk_tab.set_wk(NOW + obj, 1)
   end
 end
 
@@ -389,8 +399,8 @@ func keep_referenced()
   var obj: byte
   var more: bool
   for obj = 0 until lk_name.object_count do
-    lk_tab.work[NOW + obj] = 1
-    lk_tab.work[LATER + obj] = 0
+    lk_tab.set_wk(NOW + obj, 1)
+    lk_tab.set_wk(LATER + obj, 0)
   end
   more = true
   while more do
@@ -399,16 +409,16 @@ func keep_referenced()
     for obj = 0 until lk_name.object_count do
       cur_obj = obj
       fn_passed = 0
-      if lk_tab.work[NOW + obj] != 0 then
+      if lk_tab.wk(NOW + obj) != 0 then
         keep_in_object(obj)
       end
     end
     reading = false
     more = false
     for obj = 0 until lk_name.object_count do
-      lk_tab.work[NOW + obj] = lk_tab.work[LATER + obj]
-      lk_tab.work[LATER + obj] = 0
-      if lk_tab.work[NOW + obj] != 0 then
+      lk_tab.set_wk(NOW + obj, lk_tab.wk(LATER + obj))
+      lk_tab.set_wk(LATER + obj, 0)
+      if lk_tab.wk(NOW + obj) != 0 then
         more = true
       end
     end
@@ -561,7 +571,7 @@ func make_nodes()
   for f = 0 until lk_tab.fn_count do
     for ctx = lk_tab.ctx_count - 1 downto 0 do
       if lk_tab.has_copy(f, ctx) then
-        lk_tab.work[lk_tab.W_CTXZ + f] = word(ctx) << 8
+        lk_tab.set_wk(lk_tab.W_CTXZ + f, word(ctx) << 8)
       end
     end
   end
@@ -631,13 +641,13 @@ end
 ; Tarjan: node n is discovered.
 func push(n: word)
   discovered += 1
-  lk_tab.work[lk_tab.W_SCC + n] = ON_STACK
-  lk_tab.work[SEEN + n] = discovered
-  lk_tab.work[LOW + n] = discovered
-  lk_tab.work[FOUND + found_top] = n
+  lk_tab.set_wk(lk_tab.W_SCC + n, ON_STACK)
+  lk_tab.set_wk(SEEN + n, discovered)
+  lk_tab.set_wk(LOW + n, discovered)
+  lk_tab.set_wk(FOUND + found_top, n)
   found_top += 1
-  lk_tab.work[STACK + stack_top] = n
-  lk_tab.work[STACK_EDGE + stack_top] = first_edge(n)
+  lk_tab.set_wk(STACK + stack_top, n)
+  lk_tab.set_wk(STACK_EDGE + stack_top, first_edge(n))
   stack_top += 1
 end
 
@@ -647,9 +657,9 @@ func close_set(n: word)
   member = lk_tab.NONE
   while member != n do
     found_top -= 1
-    member = lk_tab.work[FOUND + found_top]
-    lk_tab.work[lk_tab.W_SCC + member] = scc_count
-    lk_tab.work[lk_tab.W_ORDER + order_count] = member
+    member = lk_tab.wk(FOUND + found_top)
+    lk_tab.set_wk(lk_tab.W_SCC + member, scc_count)
+    lk_tab.set_wk(lk_tab.W_ORDER + order_count, member)
     order_count += 1
   end
   scc_count += 1
@@ -664,17 +674,17 @@ func search(root: word)
   var caller: word
   push(root)
   while stack_top > 0 do
-    n = lk_tab.work[STACK + stack_top - 1]
-    e = lk_tab.work[STACK_EDGE + stack_top - 1]
+    n = lk_tab.wk(STACK + stack_top - 1)
+    e = lk_tab.wk(STACK_EDGE + stack_top - 1)
     if e != 0 then
-      lk_tab.work[STACK_EDGE + stack_top - 1] = next_edge(n, e)
+      lk_tab.set_wk(STACK_EDGE + stack_top - 1, next_edge(n, e))
       target, applies = edge_node(n, e)
       if applies then
         if seen_of(target) == 0 then
           push(target)
         elif scc_of(target) == ON_STACK and
             seen_of(target) < low_of(n) then
-          lk_tab.work[LOW + n] = seen_of(target)
+          lk_tab.set_wk(LOW + n, seen_of(target))
         end
       end
     else
@@ -683,9 +693,9 @@ func search(root: word)
         close_set(n)
       end
       if stack_top > 0 then
-        caller = lk_tab.work[STACK + stack_top - 1]
+        caller = lk_tab.wk(STACK + stack_top - 1)
         if low_of(n) < low_of(caller) then
-          lk_tab.work[LOW + caller] = low_of(n)
+          lk_tab.set_wk(LOW + caller, low_of(n))
         end
       end
     end
@@ -695,7 +705,7 @@ end
 func find_sets()
   var n: word
   for n = 0 until lk_tab.node_count do
-    lk_tab.work[SEEN + n] = 0
+    lk_tab.set_wk(SEEN + n, 0)
   end
   n = lk_tab.first_in_order()
   while n != lk_tab.NONE do
@@ -727,22 +737,22 @@ func fail_cycle(source: word, target: word)
   ; Find a way back from target to source inside their set, breadth first; seen_of()
   ; holds the node each node was reached from, + 1.
   for n = 0 until lk_tab.node_count do
-    lk_tab.work[SEEN + n] = 0
+    lk_tab.set_wk(SEEN + n, 0)
   end
   head = 0
   tail = 1
-  lk_tab.work[STACK + 0] = target
-  lk_tab.work[SEEN + target] = target + 1
+  lk_tab.set_wk(STACK + 0, target)
+  lk_tab.set_wk(SEEN + target, target + 1)
   while head < tail and seen_of(source) == 0 do
-    n = lk_tab.work[STACK + head]
+    n = lk_tab.wk(STACK + head)
     head += 1
     e = first_edge(n)
     while e != 0 do
       reached, applies = edge_node(n, e)
       if applies and seen_of(reached) == 0 and
           scc_of(reached) == scc_of(n) then
-        lk_tab.work[SEEN + reached] = n + 1
-        lk_tab.work[STACK + tail] = reached
+        lk_tab.set_wk(SEEN + reached, n + 1)
+        lk_tab.set_wk(STACK + tail, reached)
         tail += 1
       end
       e = next_edge(n, e)
@@ -752,7 +762,7 @@ func fail_cycle(source: word, target: word)
   count = 0
   n = source
   while n != target do
-    lk_tab.work[FOUND + count] = n
+    lk_tab.set_wk(FOUND + count, n)
     count += 1
     n = seen_of(n) - 1
   end
@@ -765,7 +775,7 @@ func fail_cycle(source: word, target: word)
   while i > 0 do
     i -= 1
     lk_err.arrow()
-    lk_name.error_node(lk_tab.work[FOUND + i])
+    lk_name.error_node(lk_tab.wk(FOUND + i))
   end
   lk_err.finish()
 end

@@ -27,6 +27,7 @@ sys.path.insert(0, HERE)
 import bbcfs  # noqa: E402
 import boards  # noqa: E402
 import build  # noqa: E402
+import mapenv  # noqa: E402
 
 LATHE = os.path.join(ROOT, 'lathe')
 BBC_ENV = os.path.join(LATHE, 'env', 'bbc.env')
@@ -39,10 +40,9 @@ SELFHOST = os.environ.get('LATHE_BBC_SELFHOST') == '1'
 REPORT = os.environ.get('LATHE_BBC_DFS_REPORT') == '1'
 COMPILER_ENV = os.path.join(LATHE, 'src', 'lathec-bbc.env')
 LINKER_ENV = os.path.join(LATHE, 'src', 'linker-bbc.env')
-# The linker on the BBC has 6 bytes of fixed code to spare in its developer form, whose split
-# sets the ROM form's (linker-bbc.env); BBCFS 1 adds 22 (bbc.open_mode's call of bbcfs.map, and
-# its stub): its DFS build moves the split up by LINKER_ROOM (bbc.md, "File names on the BBC").
-LINKER_ROOM = 0x10
+# BBCFS 1 adds 22 bytes of fixed code to the linker (bbc.open_mode's call of bbcfs.map, and its
+# stub); since its work area went into sideways RAM (2026-11-16) the split of linker-bbc.env has
+# room for them in both forms, and the DFS build no longer moves it (it moved by 16 bytes).
 CAP = 4_000_000_000
 DFS_RE = re.compile(r'dfs: most-open=(\d+)\s+most-writing=(\d+)')
 
@@ -104,9 +104,10 @@ def catalogue(disk):
     return drives
 
 
-def run_dfs(module, disk, lines, ram=False):
+def run_dfs(module, disk, lines, ram=False, loaded=False):
     """Runs the * commands on the BBC under --bbc-fs dfs with the module image (in its RAM form
-    through LOADMOD with ram), in disk, on memory that starts filled with bytes that are not 0
+    through LOADMOD with ram; with loaded, the module's RAM form filled by the lines themselves),
+    in disk, on memory that starts filled with bytes that are not 0
     (the emulator's --fill-ram, which boards.run_module passes): (status, output, what the MOS
     said, {file: bytes} written, CPU cycles, (most files open, most open for output))."""
     before = set(files_of(disk))
@@ -122,7 +123,7 @@ def run_dfs(module, disk, lines, ram=False):
         first = ['RUN LOADMOD MODULE'] + first
     copied = set(files_of(disk)) - before
     command, _, tail = lines[-1].partition(' ')
-    code, out, err, cycles = boards.run_module(DFS_BOARD, module, disk, command, tail=tail, ram=ram,
+    code, out, err, cycles = boards.run_module(DFS_BOARD, module, disk, command, tail=tail, ram=ram or loaded,
                                                before=first + lines[:-1], raw=True, cap=CAP)
     text = err.decode('latin-1')
     status, said, cycles = boards.bbc_status(code, text)
@@ -142,7 +143,7 @@ def build_image(out_dir):
     tools = []
     first = 1
     for command, source, env, room in (('LATHE', 'lathec.lth', COMPILER_ENV, 0),
-                                       ('LLINK', 'link.lth', LINKER_ENV, LINKER_ROOM)):
+                                       ('LLINK', 'link.lth', LINKER_ENV, 0)):
         d = os.path.join(out_dir, command.lower())
         os.makedirs(d)
         dev = dfs_env(env, os.path.join(d, 'dev.env'), room)
@@ -371,14 +372,14 @@ class Toolchain(unittest.TestCase):
         import test_bbc_toolchain as toolchain
         for case in toolchain.corpus():
             name, source, _, _, banked = case
-            if name in toolchain.BEYOND or not (ALL or name in (BANKED_QUICK if banked else QUICK)):
+            if not (ALL or name in (BANKED_QUICK if banked else QUICK)):
                 continue
             with self.subTest(program=name):
                 out, written, most, cat, compiles, link = self.chain(case, '1' if banked else None)
                 with open(os.path.splitext(source)[0] + '.expected.out', 'rb') as f:
                     self.assertEqual(out, f.read())
                 self.assertIn('M.' + link[2], written)          # the map: IMAGE.map
-                self.assertEqual(most[0], 3)                    # the link's (the compiles' are 2)
+                self.assertEqual(most, (2, 1))      # the compiles' and the link's (one file written at a time)
                 if REPORT:
                     print('\n%-10s most open %d, writing %d; the disc: %s' % (
                         name, most[0], most[1], ', '.join('drive %d %d files %d bytes' % (d, n, s)
@@ -401,7 +402,17 @@ class Toolchain(unittest.TestCase):
         self.assertEqual(sorted(written), sorted(want))
         for f in want:
             self.assertTrue(written[f] == want[f], f + ' differs')
-        self.assertEqual(most, (3, 2))          # the map, the image and an object file; the first two written
+        # The image or a bank file and an object file; then the map and an object file. One is
+        # written at a time: the map after the image and the bank files (lk_emit.write).
+        self.assertEqual(most, (2, 1))
+        # By a command file: it is read and closed before any other file is opened.
+        for f in written:
+            os.unlink(os.path.join(disk, f))
+        put(disk, 'LINKARG', ''.join(a + '\n' for a in link).encode())
+        status, out, mos, by_file, cycles, most_file = run_dfs(self.module, disk, [boards.module_command('LLINK', ['@LINKARG'])])
+        self.assertEqual((status, out, mos), (0, b'', b''))
+        self.assertEqual(by_file, written)
+        self.assertEqual(most_file, (2, 1))
         if REPORT:
             print('\nouttest link: most open %d, writing %d; the disc: %s; written %s' % (
                 most + (', '.join('drive %d %d files %d bytes' % (d, n, s) for d, (n, s) in sorted(catalogue(disk).items())),
@@ -446,7 +457,7 @@ class Toolchain(unittest.TestCase):
         calls the next one's, so that reading d1.li brings in d2.li and so on, six interfaces
         deep. Until 2026-11-16 the compiler kept each open while it read the next, and the
         compile of deep failed on a DFS with Too many open (error 50). The compiles are 2 files
-        open at most, and the link 3."""
+        open at most, and so has the link."""
         import test_compile
         sources = dict(test_compile.deep_chain(6))
         sources['deep.lth'] = ('module deep\nimport host\nimport d1\npub func main()\n'
@@ -458,7 +469,7 @@ class Toolchain(unittest.TestCase):
                 f.write(text)
         out, written, most, cat, compiles, link = self.chain(('deep', os.path.join(d, 'deep.lth'), None, [], False), '1')
         self.assertEqual(out, b'6\n')
-        self.assertEqual(most[0], 3)
+        self.assertEqual(most, (2, 1))
         self.assertIn(':1/O.D6', written)
         # The compiles alone, again on the disc the chain left.
         disk = os.path.join(self.dir, 'deep', 'w', 'bbc')
@@ -536,7 +547,7 @@ class Toolchain(unittest.TestCase):
         # The link reads averylongone's object for both.
         status, out, mos, written, _, _ = bbc('LLINK', link)
         twice = host_copy('twice', [('averylongtwo.lo', 'averylongone.lo')])
-        self.assertEqual((status, out), toolchain.host_link_at_bbc(link, twice))
+        self.assertEqual((status, out), toolchain.host_link(link, twice))
         self.assertTrue(out.startswith(b'link error 17: symbol defined twice'), out)
         # meeting.lth imports averylongtwo, whose interface is averylongone's.
         status, out, mos, written, _, _ = bbc('LATHE', main)
@@ -597,6 +608,165 @@ class SelfHost(unittest.TestCase):
             for f in sorted(disc, key=lambda f: -len(disc[f]))[:6]:
                 print('  %-10s %6d' % (f, len(disc[f])))
 
+
+LOOP = os.environ.get('LATHE_BBC_DFS_LOOP') == '1'
+SIDE = 800 * 256 - 2 * 256      # bytes of an 80-track side beside its catalogue's two sectors
+CATALOGUE = 31                  # files a DFS catalogue holds
+
+
+@unittest.skipUnless(HAVE_TOOLS and (LOOP or REPORT), 'LATHE_BBC_DFS_LOOP=1 runs it')
+class Loop(unittest.TestCase):
+    """test_bbc_selflink.py's loop under the DFS's names, both tools and the compiler they make
+    built with BBCFS 1 from the environments as committed: in one run of the emulator with
+    --bbc-fs dfs, `*LATHE` compiles the compiler's modules from their sources, `*LLINK @LINKARG`
+    links them, and the compiler just made, `*RUN LATHEC` from the module's RAM form (filled by
+    LOADMOD from the short image), compiles two of them again. Every file written is the host
+    tools' of the same arguments, under its DFS name; one file is written at a time.
+
+    The four drives, as near to an 80-track side each as the files allow (a catalogue holds 31):
+    drive 0 the environment, the command file, LOADMOD, the image and its bank files (the
+    developer's form loads its banks from the drive it runs on), which fits a side; drives 1 and 2
+    the objects and interfaces (a compile writes both in one directory and names the other drive
+    as its directory of interfaces), 413 KB, more than two sides: one of them fits; drive 3 the
+    sources, the map and the short image, which cannot fit (the sources alone are 570 KB)."""
+
+    def test_the_compiler_rebuilds_itself_under_dfs_names(self):
+        import subprocess
+        import test_bbc_selflink as selflink
+        import test_bbc_toolchain as toolchain
+        work = tempfile.mkdtemp(prefix='lathe-bbc-dfs-loop-')
+        self.addCleanup(shutil.rmtree, work, True)
+        module, _ = build_image(os.path.join(work, 'image'))
+        env = dfs_env(COMPILER_ENV, os.path.join(work, 'lathec.env'))
+        steps = toolchain.recorded(os.path.join(LATHE, 'src', 'lathec.lth'), env, os.path.join(work, 'build'))
+        flat = os.path.join(work, 'flat')
+        os.makedirs(flat)
+        compiles, link = toolchain.lay_out(steps, flat)
+        # The sizes of each module's object and interface, from a host run on one directory.
+        sized = os.path.join(work, 'sized')
+        shutil.copytree(flat, sized)
+        flat_files, said = toolchain.host_files(compiles, link, sized)
+        self.assertEqual(said, [(0, b'')] * len(said))
+        # The objects and interfaces are more than two sides hold, so drive 1 takes, largest
+        # first, the modules that fit a side and its catalogue, and drive 2 the rest, but no more
+        # than its catalogue holds: once it is full, the rest (the smallest) go to drive 1.
+        sizes = {}
+        for args in compiles:
+            stem = os.path.splitext(args[-2])[0]
+            sizes[stem] = len(flat_files[stem + '.lo']) + len(flat_files.get(stem + '.li', b''))
+        drive = {}
+        used = 0
+        for stem in sorted(sizes, key=lambda m: -sizes[m]):
+            fits = used + sizes[stem] <= SIDE and 2 * (list(drive.values()).count('1') + 1) <= CATALOGUE
+            if not fits and 2 * (list(drive.values()).count('2') + 1) > CATALOGUE:
+                fits = True
+            drive[stem] = '1' if fits else '2'
+            used += sizes[stem] if fits else 0
+        disk = os.path.join(work, 'host')
+        for d in ('1', '2', '3'):
+            os.makedirs(os.path.join(disk, d))
+        shutil.copy(os.path.join(flat, os.path.basename(env)), disk)
+        moved = []
+        for args in compiles:
+            name = args[-2]
+            d = drive[os.path.splitext(name)[0]]
+            shutil.copy(os.path.join(flat, name), os.path.join(disk, '3', name))
+            moved.append(args[:-2] + ['3/' + name, d, '2' if d == '1' else '1'])
+        compiles = moved
+        link = link[:3] + ['3/' + link[3]] + ['%s/%s' % (drive[os.path.splitext(o)[0]], o) for o in link[4:]]
+        with open(os.path.join(disk, selflink.COMMAND_FILE), 'w') as f:
+            f.write(''.join(a + '\n' for a in link))
+        again = [args for args in compiles if os.path.splitext(os.path.basename(args[-3]))[0] in selflink.LOOP_AGAIN]
+        self.assertEqual(len(again), len(selflink.LOOP_AGAIN))
+        # The host's tools on a copy, with the same arguments.
+        host = os.path.join(work, 'hostrun')
+        shutil.copytree(disk, host)
+        before = set(files_of(host))
+        for args in compiles:
+            r = subprocess.run([sys.executable, build.COMPILER] + args, cwd=host, capture_output=True)
+            self.assertEqual((r.returncode, r.stdout + r.stderr), (0, b''), args)
+        r = subprocess.run([sys.executable, build.LINKER] + link, cwd=host, capture_output=True)
+        self.assertEqual((r.returncode, r.stdout + r.stderr), (0, b''))
+        files = {f: d for f, d in files_of(host).items() if f not in before}
+        want = {bbcfs.host_file(bbcfs.dfs_name(f)): d for f, d in files.items()}
+        # The BBC's disc: each file under its DFS name; LOADMOD on drive 0, the short image on 3.
+        bbc = os.path.join(work, 'bbc')
+        os.makedirs(bbc)
+        for f, d in files_of(disk).items():
+            put(bbc, f, d)
+        with open(os.path.join(os.path.dirname(module), 'LOADMOD'), 'rb') as f:
+            put(bbc, 'LOADMOD', f.read())
+        with open(bbcfs.host_path(bbc, 'LOADMOD') + '.inf', 'w') as f:
+            f.write(boards.inf_text('$.LOADMOD', 0x1900, os.path.getsize(bbcfs.host_path(bbc, 'LOADMOD'))))
+        with open(module + '.disc', 'rb') as f:
+            put(bbc, '3/MODULE', f.read())
+        image = link[2]
+        load = mapenv.read_env(env).code[0]
+        lines = ['RUN LOADMOD :3.MODULE']
+        lines += [boards.module_command('LATHE', args) for args in compiles]
+        lines.append(boards.module_command('LLINK', ['@' + selflink.COMMAND_FILE]))
+        lines += ['LOAD %s %X' % (image, load), 'SAVE %s %X +%X %X' % (image, load, len(files[image]), load)]
+        lines += [boards.module_command('RUN', [image] + args) for args in again]
+        saved = globals()['CAP']
+        globals()['CAP'] = selflink.CAP
+        try:
+            status, out, mos, written, cycles, most = run_dfs(module, bbc, lines, loaded=True)
+        finally:
+            globals()['CAP'] = saved
+        self.assertEqual((status, out, mos), (0, b'', b''))
+        self.assertEqual(sorted(written), sorted(want))
+        for f in want:
+            self.assertTrue(written[f] == want[f], f + ' differs')
+        # The compiler has two files open at most (a source or an interface, and the object);
+        # the linker two (an object file, and the image, a bank file or the map).
+        self.assertEqual(most, (2, 1))
+        cat = catalogue(bbc)
+        self.assertLessEqual(max(n for n, _ in cat.values()), CATALOGUE)
+        self.assertLessEqual(cat[0][1], SIDE)
+        self.assertLessEqual(min(cat[1][1], cat[2][1]), SIDE)    # together they are more than two sides
+        if REPORT or LOOP:
+            print('\nthe loop under DFS names: %d cycles, %.1f minutes at 2 MHz; most open %d, writing %d;'
+                  ' the disc: %s' % ((cycles, cycles / 2e6 / 60) + most + (
+                      ', '.join('drive %d %d files %d bytes' % (d, n, sz) for d, (n, sz) in sorted(cat.items())),)))
+
+
+@unittest.skipUnless(HAVE_TOOLS and (ALL or REPORT), 'LATHE_BBC_DFS=1 runs it')
+class DeveloperForms(unittest.TestCase):
+    """Both tools in the developer's form (`*RUN`), built with BBCFS 1 from lathec-bbc.env and
+    linker-bbc.env as committed, start under --bbc-fs dfs: their start-up loads the banks through
+    bbc.open and bbcfs.map, which must be in fixed memory there (bbcrom.rom_env puts bbcfs in a
+    bank only in the ROM form). The compiler compiles a small module and the linker links hello,
+    as the host's tools do."""
+
+    def test_both_tools_start_in_the_developers_form(self):
+        import test_bbc_toolchain as toolchain
+        work = tempfile.mkdtemp(prefix='lathe-bbc-dfs-dev-')
+        self.addCleanup(shutil.rmtree, work, True)
+        module, _ = build_image(os.path.join(work, 'image'))
+        case = [c for c in toolchain.corpus() if c[0] == 'hello'][0]
+        disk, compiles, link, files, said, load = toolchain.prepare(dfs_case(case, os.path.join(work, 'case')),
+                                                                     os.path.join(work, 'w'))
+        self.assertEqual(said, [(0, b'')] * len(said))
+        to_dfs(disk)
+        for tool, source, env in (('LATHEC', 'lathec.lth', COMPILER_ENV), ('LLINK', 'link.lth', LINKER_ENV)):
+            d = os.path.join(work, tool)
+            os.makedirs(d)
+            dev = dfs_env(env, os.path.join(d, os.path.basename(env)))
+            build.build(os.path.join(LATHE, 'src', source), os.path.join(d, tool), env=dev, keep=os.path.join(d, 'work'))
+            for f in os.listdir(d):
+                if f == tool or f.upper().endswith('.BIN'):
+                    with open(os.path.join(d, f), 'rb') as fh:
+                        put(disk, f, fh.read())
+            with open(bbcfs.host_path(disk, tool) + '.inf', 'w') as fh:
+                fh.write(boards.inf_text('$.' + tool, 0x1900, os.path.getsize(os.path.join(d, tool))))
+        lines = [boards.module_command('RUN', ['LATHEC'] + args) for args in compiles]
+        lines.append(boards.module_command('RUN', ['LLINK'] + link))
+        status, out, mos, written, cycles, most = run_dfs(module, disk, lines, ram=True)
+        self.assertEqual((status, out, mos), (0, b'', b''))
+        want = {bbcfs.host_file(bbcfs.dfs_name(f)): data for f, data in files.items()}
+        self.assertEqual(sorted(written), sorted(want))
+        for f in want:
+            self.assertTrue(written[f] == want[f], f + ' differs')
 
 if __name__ == '__main__':
     unittest.main()

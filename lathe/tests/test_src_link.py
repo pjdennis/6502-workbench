@@ -12,12 +12,13 @@ overlay files) must be identical, byte for byte. The cases:
                     each configuration of e2e-config (banks, overlays, regions, interrupts),
                     lathe/src/lextest.lth, and the link errors of tests/cases/linkerr
     links           every link the linker's own tests make (test_src_lk.recorded_links), good and
-                    bad: test_lk_errors, test_lk_windows and the others; but for the two whose
-                    command line the board cannot give (cannot_be_given): one names files in
-                    directories, one has 41 object files, more than disk.lth's 256 bytes of
-                    arguments hold
+                    bad: test_lk_errors, test_lk_windows and the others; but for the one whose
+                    command line the board cannot give (cannot_be_given), which names files in
+                    directories; one has 41 object files, more than disk.lth's 256 bytes of
+                    arguments hold, and is given by a command file (`link @cmd`)
     by hand         test_src_lk's links made by hand and its graph links, and edge_links below, for
-                    what the others do not reach of placement, fix-ups, the map and the image
+                    what the others do not reach of placement, fix-ups, the map and the image;
+                    command_files below, for the command file and its limits
     synthetic       lk_synthetic's program at the largest size the small build links, and one
                     size larger, which both must refuse alike
 
@@ -313,16 +314,53 @@ def edge_links():
     return found
 
 
+# The program the command file's links are made on: small, so that they are quick.
+COMMAND_FILE_PROGRAM = ('tests/cases/e2e/hello.lth', 'host')
+
 ARGS_SIZE = 256         # lathe/rt/disk.lth: bytes of the arguments, each one's zero included
 MAX_ARGS = 48
 
 
+def too_long(case):
+    """True if the case's command line is longer than disk.lth holds, which drops the rest."""
+    return len(case.args) > MAX_ARGS or sum(len(str(a)) + 1 for a in case.args) > ARGS_SIZE
+
+
 def cannot_be_given(case):
     """True if the case's command line cannot be given on the board: it names a file in a
-    directory, which the file ports do not have (every file is in the one directory of --disk), or
-    it is longer than disk.lth holds, which drops the rest."""
-    return (any('/' in str(a) for a in case.args) or len(case.args) > MAX_ARGS
-            or sum(len(str(a)) + 1 for a in case.args) > ARGS_SIZE)
+    directory, which the file ports do not have (every file is in the one directory of --disk)."""
+    return any('/' in str(a) for a in case.args)
+
+
+def by_command_file(case, text=None):
+    """The case with its arguments in the command file `cmd` (lathe/host/lk_file.py), given as
+    `@cmd`: text, or the arguments a line each."""
+    files = dict(case.files)
+    files['cmd'] = text if text is not None else ''.join('%s\n' % a for a in case.args).encode()
+    return lk.Case(case.title + ', by a command file', files, ['@cmd'])
+
+
+def command_files(case):
+    """Links of the command file itself, on the link of a program: the link given by a command
+    file in two layouts, the file's limits (512 bytes and 48 arguments), and a command file that is
+    missing."""
+    import lk_file
+    words = [str(a) for a in case.args]
+    size = sum(len(a) + 1 for a in words)
+    found = [by_command_file(case), by_command_file(case, ' \t'.join(words).encode() + b'\r\n'),
+             by_command_file(case, ' '.join(words + ['x'] * (lk_file.MAX_ARGS - len(words))).encode()),
+             by_command_file(case, ' '.join(words + ['x'] * (lk_file.MAX_ARGS + 1 - len(words))).encode()),
+             by_command_file(case, ' '.join(words + ['x' * 255]).encode()),
+             by_command_file(case, ' '.join(words + ['x' * 256]).encode())]
+    left = lk_file.ARGS_SIZE - size
+    fill = []
+    while left > 0:
+        fill.append('y' * (min(left, 201) - 1))
+        left -= 201
+    found.append(by_command_file(case, ' '.join(words + fill).encode()))
+    found.append(by_command_file(case, ' '.join(words + fill + ['z']).encode()))
+    found.append(lk.Case('a command file that is missing', dict(case.files), ['@none']))
+    return found
 
 
 class WholeLinker(unittest.TestCase):
@@ -358,6 +396,13 @@ class WholeLinker(unittest.TestCase):
             cases = list(pool.map(lambda p: program_case(p[0], p[1], work), chosen))
         self.assertEqual(compare(self, self.image, cases, self.work()), len(chosen))
 
+    def test_the_command_file(self):
+        case = program_case(*COMMAND_FILE_PROGRAM, self.work())
+        cases = command_files(case)
+        results = []
+        self.assertEqual(compare(self, self.image, cases, self.work(), results), len(cases))
+        self.assertEqual([r[1] for r in results], [0, 0, 1, 1, 1, 1, 1, 1, 1])
+
     def test_the_limits_of_the_command_line_are_disks(self):
         import re
         with open(os.path.join(support.LATHE, 'rt', 'disk.lth')) as f:
@@ -369,7 +414,7 @@ class WholeLinker(unittest.TestCase):
         links = lk.recorded_links()
         cases = [lk.link_case('link %d' % i, e, objects, main, args)
                  for i, (e, objects, main, args) in enumerate(links) if ALL or i % 10 == 0]
-        cases = [c for c in cases if not cannot_be_given(c)]
+        cases = [by_command_file(c) if too_long(c) else c for c in cases if not cannot_be_given(c)]
         self.assertGreater(compare(self, self.image, cases, self.work()), 200 if ALL else 20)
 
     def test_links_made_by_hand(self):

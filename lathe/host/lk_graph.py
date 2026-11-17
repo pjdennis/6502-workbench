@@ -73,20 +73,20 @@ def edge_target(e):
 
 def scc_of(n):
     """The set node n is in (lk_tab.W_SCC)."""
-    return lk_tab.work[lk_tab.W_SCC + n]
+    return lk_tab.wk(lk_tab.W_SCC + n)
 
 
 def order_at(i):
     """Entry i of `order` (lk_tab.W_ORDER)."""
-    return lk_tab.work[lk_tab.W_ORDER + i]
+    return lk_tab.wk(lk_tab.W_ORDER + i)
 
 
 def seen_of(n):
-    return lk_tab.work[SEEN + n]
+    return lk_tab.wk(SEEN + n)
 
 
 def low_of(n):
-    return lk_tab.work[LOW + n]
+    return lk_tab.wk(LOW + n)
 
 
 # ---- contexts and reachability
@@ -117,10 +117,10 @@ def reach(root, ctx):
     if not mark(root, ctx):
         return
     top = 1
-    lk_tab.work[STACK + 0] = root
+    lk_tab.set_wk(STACK + 0, root)
     while top > 0:
         top -= 1
-        source = lk_tab.work[STACK + top]
+        source = lk_tab.wk(STACK + top)
         e = lk_tab.first_call(source)
         while e != 0:
             if (lk_tab.edge_flag(e - 1) & (lk_tab.E_PENDING | lk_tab.E_VIA)) == 0:
@@ -131,7 +131,7 @@ def reach(root, ctx):
                 if mark(target, ctx):
                     if top == lk_tab.MAX_NODES:
                         lk_err.fail(lk_err.E_COPIES)
-                    lk_tab.work[STACK + top] = target
+                    lk_tab.set_wk(STACK + top, target)
                     top += 1
             e = lk_tab.next_call(source, e)
 
@@ -251,7 +251,7 @@ def keep_in_object(obj):
                 if keeps(obj, lk_tab.NONE, e_kind, e_sym, e_slot):
                     # More than a table may have: an error if the table is kept (lk_emit).
                     if named_count < lk_tab.MAX_FIXES:
-                        lk_tab.work[NAMED + named_count] = e_sym
+                        lk_tab.set_wk(NAMED + named_count, e_sym)
                     named_count += 1
         elif kind == lk_rec.R_DATA:
             data = lk_name.global_sym(obj, lk_rec.get_word())
@@ -259,9 +259,9 @@ def keep_in_object(obj):
                 if named_count > lk_tab.MAX_FIXES:
                     lk_err.fail(lk_err.E_FIXES)
                 for i in range(0, named_count):
-                    keep_target(data, lk_tab.work[NAMED + i])
-                    note_address(lk_tab.NONE, 1, lk_tab.work[NAMED + i], 0xFF, 0)
-                    note_named(lk_tab.NONE, 1, lk_tab.work[NAMED + i])
+                    keep_target(data, lk_tab.wk(NAMED + i))
+                    note_address(lk_tab.NONE, 1, lk_tab.wk(NAMED + i), 0xFF, 0)
+                    note_named(lk_tab.NONE, 1, lk_tab.wk(NAMED + i))
             lk_tab.def_f[lk_sym.row_of(data)] |= lk_tab.D_PASSED
             named_count = 0
         kind = lk_rec.advance()
@@ -272,9 +272,9 @@ def to_read(obj, behind):
     """Something in object file obj was kept during a reading, which has passed it (`behind`)
     or not."""
     if obj < cur_obj or behind:
-        lk_tab.work[LATER + obj] = 1
+        lk_tab.set_wk(LATER + obj, 1)
     elif obj > cur_obj:
-        lk_tab.work[NOW + obj] = 1
+        lk_tab.set_wk(NOW + obj, 1)
 
 
 def keep_referenced():
@@ -290,8 +290,8 @@ def keep_referenced():
     be defined: one that nothing kept refers to may be missing."""
     global reading, cur_obj, fn_passed
     for obj in range(0, lk_name.object_count):
-        lk_tab.work[NOW + obj] = 1
-        lk_tab.work[LATER + obj] = 0
+        lk_tab.set_wk(NOW + obj, 1)
+        lk_tab.set_wk(LATER + obj, 0)
     more = True
     while more:
         reading = True
@@ -299,14 +299,14 @@ def keep_referenced():
         for obj in range(0, lk_name.object_count):
             cur_obj = obj
             fn_passed = 0
-            if lk_tab.work[NOW + obj] != 0:
+            if lk_tab.wk(NOW + obj) != 0:
                 keep_in_object(obj)
         reading = False
         more = False
         for obj in range(0, lk_name.object_count):
-            lk_tab.work[NOW + obj] = lk_tab.work[LATER + obj]
-            lk_tab.work[LATER + obj] = 0
-            if lk_tab.work[NOW + obj] != 0:
+            lk_tab.set_wk(NOW + obj, lk_tab.wk(LATER + obj))
+            lk_tab.set_wk(LATER + obj, 0)
+            if lk_tab.wk(NOW + obj) != 0:
                 more = True
     unpass()
 
@@ -419,7 +419,7 @@ def make_nodes():
     for f in range(0, lk_tab.fn_count):
         for ctx in range(lk_tab.ctx_count - 1, -1, -1):
             if lk_tab.has_copy(f, ctx):
-                lk_tab.work[lk_tab.W_CTXZ + f] = ctx << 8
+                lk_tab.set_wk(lk_tab.W_CTXZ + f, ctx << 8)
     for f in range(0, lk_tab.fn_count):
         first = True
         for ctx in range(0, lk_tab.ctx_count):
@@ -473,13 +473,13 @@ def push(n):
     """Tarjan: node n is discovered."""
     global stack_top, found_top, discovered
     discovered += 1
-    lk_tab.work[lk_tab.W_SCC + n] = ON_STACK
-    lk_tab.work[SEEN + n] = discovered
-    lk_tab.work[LOW + n] = discovered
-    lk_tab.work[FOUND + found_top] = n
+    lk_tab.set_wk(lk_tab.W_SCC + n, ON_STACK)
+    lk_tab.set_wk(SEEN + n, discovered)
+    lk_tab.set_wk(LOW + n, discovered)
+    lk_tab.set_wk(FOUND + found_top, n)
     found_top += 1
-    lk_tab.work[STACK + stack_top] = n
-    lk_tab.work[STACK_EDGE + stack_top] = first_edge(n)
+    lk_tab.set_wk(STACK + stack_top, n)
+    lk_tab.set_wk(STACK_EDGE + stack_top, first_edge(n))
     stack_top += 1
 
 
@@ -489,9 +489,9 @@ def close_set(n):
     member = lk_tab.NONE
     while member != n:
         found_top -= 1
-        member = lk_tab.work[FOUND + found_top]
-        lk_tab.work[lk_tab.W_SCC + member] = scc_count
-        lk_tab.work[lk_tab.W_ORDER + order_count] = member
+        member = lk_tab.wk(FOUND + found_top)
+        lk_tab.set_wk(lk_tab.W_SCC + member, scc_count)
+        lk_tab.set_wk(lk_tab.W_ORDER + order_count, member)
         order_count += 1
     scc_count += 1
 
@@ -501,29 +501,29 @@ def search(root):
     global stack_top
     push(root)
     while stack_top > 0:
-        n = lk_tab.work[STACK + stack_top - 1]
-        e = lk_tab.work[STACK_EDGE + stack_top - 1]
+        n = lk_tab.wk(STACK + stack_top - 1)
+        e = lk_tab.wk(STACK_EDGE + stack_top - 1)
         if e != 0:
-            lk_tab.work[STACK_EDGE + stack_top - 1] = next_edge(n, e)
+            lk_tab.set_wk(STACK_EDGE + stack_top - 1, next_edge(n, e))
             target, applies = edge_node(n, e)
             if applies:
                 if seen_of(target) == 0:
                     push(target)
                 elif scc_of(target) == ON_STACK and seen_of(target) < low_of(n):
-                    lk_tab.work[LOW + n] = seen_of(target)
+                    lk_tab.set_wk(LOW + n, seen_of(target))
         else:
             stack_top -= 1
             if low_of(n) == seen_of(n):
                 close_set(n)
             if stack_top > 0:
-                caller = lk_tab.work[STACK + stack_top - 1]
+                caller = lk_tab.wk(STACK + stack_top - 1)
                 if low_of(n) < low_of(caller):
-                    lk_tab.work[LOW + caller] = low_of(n)
+                    lk_tab.set_wk(LOW + caller, low_of(n))
 
 
 def find_sets():
     for n in range(0, lk_tab.node_count):
-        lk_tab.work[SEEN + n] = 0
+        lk_tab.set_wk(SEEN + n, 0)
     n = lk_tab.first_in_order()
     while n != lk_tab.NONE:
         if seen_of(n) == 0:
@@ -543,27 +543,27 @@ def fail_cycle(source, target):
     # Find a way back from target to source inside their set, breadth first; seen_of() holds the
     # node each node was reached from, + 1.
     for n in range(0, lk_tab.node_count):
-        lk_tab.work[SEEN + n] = 0
+        lk_tab.set_wk(SEEN + n, 0)
     head = 0
     tail = 1
-    lk_tab.work[STACK + 0] = target
-    lk_tab.work[SEEN + target] = target + 1
+    lk_tab.set_wk(STACK + 0, target)
+    lk_tab.set_wk(SEEN + target, target + 1)
     while head < tail and seen_of(source) == 0:
-        n = lk_tab.work[STACK + head]
+        n = lk_tab.wk(STACK + head)
         head += 1
         e = first_edge(n)
         while e != 0:
             reached, applies = edge_node(n, e)
             if applies and seen_of(reached) == 0 and scc_of(reached) == scc_of(n):
-                lk_tab.work[SEEN + reached] = n + 1
-                lk_tab.work[STACK + tail] = reached
+                lk_tab.set_wk(SEEN + reached, n + 1)
+                lk_tab.set_wk(STACK + tail, reached)
                 tail += 1
             e = next_edge(n, e)
     # Walk back from source to target, then print it forwards.
     count = 0
     n = source
     while n != target:
-        lk_tab.work[FOUND + count] = n
+        lk_tab.set_wk(FOUND + count, n)
         count += 1
         n = seen_of(n) - 1
     lk_err.begin(lk_err.E_CYCLE)
@@ -573,7 +573,7 @@ def fail_cycle(source, target):
     lk_name.error_node(target)
     for i in range(count - 1, -1, -1):
         lk_err.arrow()
-        lk_name.error_node(lk_tab.work[FOUND + i])
+        lk_name.error_node(lk_tab.wk(FOUND + i))
     lk_err.finish()
 
 

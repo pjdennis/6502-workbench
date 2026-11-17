@@ -106,7 +106,7 @@ def hold_begin(obj, start, limit):
     if start + count > limit:
         lk_err.fail(lk_err.E_NAMES)
     for i in range(0, count):
-        lk_tab.work[start + i] = 0
+        lk_tab.set_wk(start + i, 0)
     lk_name.buf_begin(2 * (start + count), 2 * limit)
 
 
@@ -114,12 +114,12 @@ def hold(obj, number):
     """MAIN is at SYM record `number` of object file obj, after its kind: hold its name if the
     symbol is marked."""
     if is_held(lk_name.global_sym(obj, number)):
-        lk_tab.work[index_at + number] = lk_name.buf_keep() + 1
+        lk_tab.set_wk(index_at + number, lk_name.buf_keep() + 1)
 
 
 def write_name(number):
     """The name of the symbol the object being read numbers `number`, held earlier."""
-    lk_name.write_held(handle, lk_tab.work[index_at + number] - 1)
+    lk_name.write_held(handle, lk_tab.wk(index_at + number) - 1)
 
 
 def mark_functions(obj, on, slotted):
@@ -193,7 +193,7 @@ def copy_lines(f, number, written):
     for ctx in range(0, lk_tab.ctx_count):
         if lk_tab.has_copy(f, ctx):
             n = lk_tab.copy_node(f, ctx)
-            begin(70, lk_tab.work[lk_tab.W_ADDR + n], written - lk_fix.shrink_count[ctx])
+            begin(70, lk_tab.wk(lk_tab.W_ADDR + n), written - lk_fix.shrink_count[ctx])
             copy_name(n, number)
             if not lk_tab.is_extra_copy(n) and ctx != 0:
                 put(32)
@@ -322,6 +322,43 @@ def slot(f, number, i, name):
             put(10)
 
 
+def slots(obj):
+    """The S lines of object file obj, from a reading of its own: the names of its kept functions
+    that have slots are held as the file is read, and each slot's name is kept at W_SNAME."""
+    if not mark_functions(obj, True, True):
+        return
+    hold_begin(obj, W_HELD, lk_tab.W_OWN)
+    lk_rec.open_object(obj)
+    f = 0
+    number = 0
+    symbols = 0
+    i = 0
+    kept = False
+    kind = lk_rec.advance()
+    while kind != lk_rec.R_END:
+        if kind == lk_rec.R_SYM:
+            lk_rec.get_byte()
+            hold(obj, symbols)
+            symbols += 1
+        elif kind == lk_rec.R_FUNC:
+            number = lk_rec.get_word()
+            f = lk_sym.row_of(lk_name.global_sym(obj, number))
+            kept = lk_tab.fn_ctx[f] != 0
+            i = 0
+        elif kind == lk_rec.R_SLOT and kept:
+            lk_rec.get_word()
+            lk_rec.get_word()
+            lk_rec.get_byte()
+            lk_name.keep_at(2 * lk_tab.W_SNAME)
+            slot(f, number, i, 2 * lk_tab.W_SNAME)
+            i += 1
+        elif kind == lk_rec.R_ENDF:
+            kept = False
+        kind = lk_rec.advance()
+    lk_rec.close()
+    mark_functions(obj, False, True)
+
+
 # ---- the C lines, after the image: the names of classes and their parameters are read from
 # the files again. In lk_tab.work: from CN, where the name of each class is held + 1, or 0; from
 # CPN, that of each class parameter, the first a CLAS record gives; from NM, that of each
@@ -344,8 +381,8 @@ def class_names_object(obj):
             lk_rec.get_byte()
             s = lk_name.global_sym(obj, number)
             if lk_sym.kind_of(s) == lk_sym.CLASS and lk_sym.is_defined(s) \
-                    and lk_tab.work[CN + lk_sym.row_of(s)] == 0:
-                lk_tab.work[CN + lk_sym.row_of(s)] = lk_name.buf_keep() + 1
+                    and lk_tab.wk(CN + lk_sym.row_of(s)) == 0:
+                lk_tab.set_wk(CN + lk_sym.row_of(s), lk_name.buf_keep() + 1)
             number += 1
         elif kind == lk_rec.R_CLAS:
             k = lk_sym.row_of(lk_name.global_sym(obj, lk_rec.get_word()))
@@ -355,8 +392,8 @@ def class_names_object(obj):
                 lk_rec.get_word()
                 p = lk_tab.cls_par[k] + i
                 pos = lk_name.buf_keep()
-                if lk_tab.work[CPN + p] == 0 and lk_name.get_b(pos) != 0:
-                    lk_tab.work[CPN + p] = pos + 1
+                if lk_tab.wk(CPN + p) == 0 and lk_name.get_b(pos) != 0:
+                    lk_tab.set_wk(CPN + p, pos + 1)
                 else:
                     lk_name.buf_top = pos       # not needed: no longer held
         elif kind == lk_rec.R_FUNC:
@@ -371,7 +408,7 @@ def class_names_object(obj):
                 lk_rec.get_word()
                 lk_rec.get_word()
                 lk_rec.get_byte()
-                lk_tab.work[NM + lk_tab.cls_par[namer] + slots] = lk_name.buf_keep() + 1
+                lk_tab.set_wk(NM + lk_tab.cls_par[namer] + slots, lk_name.buf_keep() + 1)
             slots += 1
         kind = lk_rec.advance()
     lk_rec.close()
@@ -382,12 +419,12 @@ def param_name(rep, i):
     record of the class gives, else the first of a class merged into it (lk_scan.merge), else
     that of the namer's slot."""
     p = lk_tab.cls_par[rep] + i
-    if lk_tab.work[CPN + p] != 0:
-        return lk_tab.work[CPN + p]
+    if lk_tab.wk(CPN + p) != 0:
+        return lk_tab.wk(CPN + p)
     for k in range(0, lk_tab.cls_count):
-        if k != rep and lk_tab.class_of(k) == rep and lk_tab.work[CPN + lk_tab.cls_par[k] + i] != 0:
-            return lk_tab.work[CPN + lk_tab.cls_par[k] + i]
-    return lk_tab.work[NM + p]
+        if k != rep and lk_tab.class_of(k) == rep and lk_tab.wk(CPN + lk_tab.cls_par[k] + i) != 0:
+            return lk_tab.wk(CPN + lk_tab.cls_par[k] + i)
+    return lk_tab.wk(NM + p)
 
 
 def cparams():
@@ -400,7 +437,7 @@ def cparams():
     if not live:
         return
     for i in range(0, C_HELD):
-        lk_tab.work[i] = 0
+        lk_tab.set_wk(i, 0)
     lk_name.buf_begin(2 * C_HELD, 2 * lk_tab.W_OWN)
     # The files that name a class, and those of the functions that name class parameters.
     for obj in range(0, lk_name.object_count):
@@ -417,7 +454,7 @@ def cparams():
             for i in range(0, lk_tab.cls_np[rep]):
                 p = lk_tab.cls_par[rep] + i
                 begin(67, lk_tab.cp_addr[p], lk_tab.cp_size[p])
-                lk_name.write_held(handle, lk_tab.work[CN + k] - 1)
+                lk_name.write_held(handle, lk_tab.wk(CN + k) - 1)
                 put(32)
                 decimal(i)
                 put(32)

@@ -93,9 +93,9 @@ def place_copies(f, written, bank):
             n = lk_tab.copy_node(f, ctx)
             size = written - lk_fix.shrink_count[ctx]
             if bank != 0:
-                lk_tab.work[lk_tab.W_ADDR + n] = take_bank(bank - 1, size, written)
+                lk_tab.set_wk(lk_tab.W_ADDR + n, take_bank(bank - 1, size, written))
             else:
-                lk_tab.work[lk_tab.W_ADDR + n] = take(size)
+                lk_tab.set_wk(lk_tab.W_ADDR + n, take(size))
 
 
 def place_object(obj):

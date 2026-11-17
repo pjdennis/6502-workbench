@@ -34,9 +34,9 @@ import lk_tab (add16, big_count, big_size, big_slot, CLASS_NODE, class_of, cls_c
                fn_ctx, fn_edge, fn_flags, fn_nslots, fn_ref, fn_slot, has_copy, in_block, in_frame,
                is_extra_copy, is_kept_def, is_kept_var, is_node, mbase_of, memb_class, memb_count,
                memb_func, member_class, new_node, next_call, next_in_order, node_class, node_count,
-               node_is_class, node_sym, NONE, overflow, own_of, set_zbase, slot_bytes, slot_class,
-               slot_count, slot_in_zp, slot_is_param, slot_sz, slot_weight_of, W_CTXZ, W_MBASE,
-               W_SCC, waiting, work, zbase_of)
+               node_is_class, node_sym, NONE, overflow, own_of, set_wk, set_zbase, slot_bytes,
+               slot_class, slot_count, slot_in_zp, slot_is_param, slot_sz, slot_weight_of, W_CTXZ,
+               W_MBASE, W_SCC, waiting, zbase_of)
 import lkshow
 import sys (close, exit, write)
 
@@ -254,7 +254,7 @@ func make_nodes()
   for f = 0 until lk_tab.fn_count do
     for ctx = lk_tab.ctx_count - 1 downto 0 do
       if lk_tab.has_copy(f, ctx) then
-        lk_tab.work[lk_tab.W_CTXZ + f] = word(ctx) << 8
+        lk_tab.set_wk(lk_tab.W_CTXZ + f, word(ctx) << 8)
       end
     end
   end
@@ -290,7 +290,7 @@ func show_nodes()
   n = lk_tab.first_in_order()
   while n != lk_tab.NONE do
     lk_tab.set_zbase(n, lo(n * 3))
-    lk_tab.work[lk_tab.W_MBASE + n] = n * 5
+    lk_tab.set_wk(lk_tab.W_MBASE + n, n * 5)
     lkshow.label('v')
     lkshow.show_word(n)
     lkshow.show_word(lk_tab.own_of(n))

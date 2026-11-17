@@ -82,7 +82,7 @@ def entry(f, ctx):
     n = lk_tab.copy_node(f, ctx)
     if lk_win.has_stub(f):
         return lk_win.stub_addr(n)
-    return lk_tab.work[lk_tab.W_ADDR + n]
+    return lk_tab.wk(lk_tab.W_ADDR + n)
 
 
 def call_copy(ctx):
@@ -90,8 +90,8 @@ def call_copy(ctx):
     ctx, or the first if the context makes no far call itself."""
     f = lk_sym.row_of(lk_name.fc_call)
     if lk_tab.has_copy(f, ctx):
-        return lk_tab.work[lk_tab.W_ADDR + lk_tab.copy_node(f, ctx)]
-    return lk_tab.work[lk_tab.W_ADDR + lk_tab.first_node(f)]
+        return lk_tab.wk(lk_tab.W_ADDR + lk_tab.copy_node(f, ctx))
+    return lk_tab.wk(lk_tab.W_ADDR + lk_tab.first_node(f))
 
 
 def write_stubs():
@@ -104,7 +104,7 @@ def write_stubs():
                     n = lk_tab.copy_node(f, ctx)
                     jsr(call_copy(ctx))
                     lk_out.put(lk_envf.bank_value[bank])
-                    lk_out.put_word((lk_tab.work[lk_tab.W_ADDR + n] - 1) & 0xFFFF)
+                    lk_out.put_word((lk_tab.wk(lk_tab.W_ADDR + n) - 1) & 0xFFFF)
     w = lk_envf.window()
     lk_out.put_word(lk_envf.win_lo[w])
     lk_out.put(lk_win.table_count)
@@ -142,7 +142,7 @@ def write(main_fn):
         lk_out.put(table_addr & 0xFF)
         lk_out.put(0xA2)            # LDX #>table
         lk_out.put(table_addr >> 8)
-        jsr(lk_tab.work[lk_tab.W_ADDR + lk_tab.first_node(lk_sym.row_of(lk_name.fc_start))])
+        jsr(lk_tab.wk(lk_tab.W_ADDR + lk_tab.first_node(lk_sym.row_of(lk_name.fc_start))))
     if init_len != 0:
         jsr(init_addr)
     jsr(entry(main_fn, 0))

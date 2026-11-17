@@ -391,10 +391,28 @@ def rom_env(source, out, first=1):
     """Writes to `out` the ROM form of the environment `source` (a program's *RUN environment,
     such as lathe/env/bbc-bank.env with the program's lines): the window $8050-$BFDF, each bank
     of the module ($8n) renumbered, in the order of the `bank` lines, as banks first, first + 1,
-    ... of the image, and `rom` for each. Returns the next bank number free."""
+    ... of the image, and `rom` for each. Returns the next bank number free.
+
+    A line `;rom ENTRY` is an entry of the ROM form only (a comment to every other reader): a
+    `code` or `data` entry replaces the source's own, any other is added. The tools use it for
+    what the developer's form must keep fixed only because its start-up loads the banks, such as
+    `bbcfs`, which `bbc.open` calls (lathe/docs/bbc.md, "File names on the BBC")."""
     lines, roms, n = [], [], first
     with open(source) as fh:
         for line in fh:
+            m = re.match(r';rom\s+(\S.*)$', line.rstrip('\n'))
+            if m:
+                entry = m.group(1)
+                key = entry.split()[0].lower()
+                same = [i for i, old in enumerate(lines)
+                        if old.split(';', 1)[0].split()[:1] == [key]] if key in ('code', 'data') else []
+                if len(same) > 1:
+                    raise ImageError(f'{source}: {key} is given twice')
+                if same:
+                    lines[same[0]] = entry + '\n'
+                else:
+                    lines.append(entry + '\n')
+                continue
             words = line.split(';', 1)[0].split()
             if words and words[0].lower() == 'window' and len(words) == 4:
                 line = f'window    {words[1]} ${FIRST:04X} ${LAST:04X}\n'

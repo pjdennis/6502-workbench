@@ -7,12 +7,12 @@
 ; written once for each, its code read again for each copy after the first. Constant data is
 ; written with the fix-ups held from the DFIX record before it.
 ;
-; The map's slot lines are written on the way, because slot names are only in the files.
-;
 ; With code placed in a window, the image is written by the first reading of the files, and the
 ; file of each bank or overlay by a reading of its own, of the files of the modules placed there:
-; one file is written at a time, in address order (lk_out). The slot lines are written by the
-; first.
+; one file is written at a time, in address order (lk_out). The map is written last, once the
+; image and the bank files are closed, so that only one file is ever open for writing (an Acorn
+; DFS cannot grow a file into the one after it); its slot lines take a reading of their own
+; (lk_map.slots), because slot names are only in the files.
 ;
 ; Where the Lathe differs from the Python:
 ;
@@ -37,17 +37,16 @@ import lk_err (E_SIZE)
 import lk_fix (bad, bank_value, begin, begin_data, cur_sym, cursor, drop, FX_ADD, FX_AT, FX_KIND,
                FX_SLOT, FX_SYM, hold, is_word, K_BANK, K_SHRINK, K_WORD, more, next_fix, NO_CONTEXT,
                part, removed_before, rewind, shrinks, shrunk, target)
-import lk_map
-import lk_name (fail, global_sym, keep_at, object_count)
+import lk_map (close_map, cparams, functions, open_map, slots, symbols)
+import lk_name (fail, global_sym, object_count)
 import lk_op (can_shrink, is_branch, length, OP_JMP, OP_JSR, zp_opcode)
 import lk_out
 import lk_place (holds_region_data)
 import lk_rec (advance, close, damaged, get_byte, get_word, goto, left, open_object, R_CODE, R_DATA,
-               R_DFIX, R_END, R_ENDF, R_FIX, R_FUNC, R_SLOT, R_SYM, recno)
+               R_DFIX, R_END, R_ENDF, R_FIX, R_FUNC, recno)
 import lk_scan (bank_in, cpu_of, obj_bank)
 import lk_sym (CONSTANT, row_of, VARIABLE)
-import lk_tab (copy_node, ctx_count, ctx_of, def_a, fn_ctx, has_copy, is_kept_def, W_ADDR, W_OWN,
-               W_SNAME, work)
+import lk_tab (copy_node, ctx_count, ctx_of, def_a, fn_ctx, has_copy, is_kept_def, W_ADDR, wk)
 import lk_win (def_dest)
 
 ; The address the fix-up at lk_fix's cursor stands for in the copy that is node n, addend
@@ -62,17 +61,17 @@ func value(n: word, op: byte): word
   var is_call: bool
   i = lk_fix.cursor
   ctx = lk_tab.ctx_of(n)
-  kind = lo(lk_tab.work[lk_fix.FX_KIND + i])
-  add = lk_tab.work[lk_fix.FX_ADD + i]
-  own = lk_tab.work[lk_fix.FX_SLOT + i] == $FF and lk_tab.work[lk_fix.FX_SYM + i] == lk_fix.cur_sym
+  kind = lo(lk_tab.wk(lk_fix.FX_KIND + i))
+  add = lk_tab.wk(lk_fix.FX_ADD + i)
+  own = lk_tab.wk(lk_fix.FX_SLOT + i) == $FF and lk_tab.wk(lk_fix.FX_SYM + i) == lk_fix.cur_sym
   ; A fix-up to the function's own symbol is a label: an offset into the code as written. The one
   ; exception is `@f` inside f, which like any `@f` may mean another context's copy.
   if own and (lk_fix.is_word(kind) or add != 0) then
     moved = add - lk_fix.removed_before(add, ctx)
-    return lk_tab.work[lk_tab.W_ADDR + n] + moved
+    return lk_tab.wk(lk_tab.W_ADDR + n) + moved
   end
   is_call = kind == lk_fix.K_WORD and (op == lk_op.OP_JSR or op == lk_op.OP_JMP)
-  return lk_fix.target(ctx, lk_tab.work[lk_fix.FX_SYM + i], lo(lk_tab.work[lk_fix.FX_SLOT + i]), is_call) + add
+  return lk_fix.target(ctx, lk_tab.wk(lk_fix.FX_SYM + i), lo(lk_tab.wk(lk_fix.FX_SLOT + i)), is_call) + add
 end
 
 ; The displacement of a branch once the bytes between it and its target are removed.
@@ -109,12 +108,12 @@ func instruction(obj: byte, n: word, pos: word): word
   end
   more = lk_fix.more()
   i = lk_fix.cursor
-  if more and lk_tab.work[lk_fix.FX_AT + i] <= pos then
+  if more and lk_tab.wk(lk_fix.FX_AT + i) <= pos then
     lk_fix.bad()
   end
-  if more and lk_tab.work[lk_fix.FX_AT + i] == pos + 1 and lk_fix.is_word(lo(lk_tab.work[lk_fix.FX_KIND + i])) then
+  if more and lk_tab.wk(lk_fix.FX_AT + i) == pos + 1 and lk_fix.is_word(lo(lk_tab.wk(lk_fix.FX_KIND + i))) then
     ; Kind 5 exactly where the instruction has a zero page form (object-format.md).
-    if size != 3 or lk_op.can_shrink(op) != (lk_tab.work[lk_fix.FX_KIND + i] == lk_fix.K_SHRINK) then
+    if size != 3 or lk_op.can_shrink(op) != (lk_tab.wk(lk_fix.FX_KIND + i) == lk_fix.K_SHRINK) then
       lk_fix.bad()
     end
     lk_rec.get_word()
@@ -132,13 +131,13 @@ func instruction(obj: byte, n: word, pos: word): word
   lk_out.put(op)
   for k = 1 until size do
     b = lk_rec.get_byte()
-    if lk_fix.more() and lk_tab.work[lk_fix.FX_AT + lk_fix.cursor] == pos + k then
-      kind = lo(lk_tab.work[lk_fix.FX_KIND + lk_fix.cursor])
+    if lk_fix.more() and lk_tab.wk(lk_fix.FX_AT + lk_fix.cursor) == pos + k then
+      kind = lo(lk_tab.wk(lk_fix.FX_KIND + lk_fix.cursor))
       if lk_fix.is_word(kind) then
         lk_fix.bad()
       end
       if kind == lk_fix.K_BANK then
-        v = lk_fix.bank_value(lk_tab.work[lk_fix.FX_SYM + lk_fix.cursor])
+        v = lk_fix.bank_value(lk_tab.wk(lk_fix.FX_SYM + lk_fix.cursor))
         if v > $FF then
           lk_fix.bad()
         end
@@ -160,7 +159,7 @@ func emit_copy(obj: byte, n: word)
   var before: word
   var planned: word
   var pos: word
-  lk_out.seek(lk_tab.work[lk_tab.W_ADDR + n])
+  lk_out.seek(lk_tab.wk(lk_tab.W_ADDR + n))
   before = lk_out.written
   planned = lk_rec.left() - lk_fix.shrunk(lk_tab.ctx_of(n))
   lk_fix.rewind()
@@ -213,27 +212,27 @@ func emit_data(obj: byte, dest: byte)
   while lk_rec.left() > 0 do
     b = lk_rec.get_byte()
     i = lk_fix.cursor
-    if lk_fix.more() and lk_tab.work[lk_fix.FX_AT + i] < pos then
+    if lk_fix.more() and lk_tab.wk(lk_fix.FX_AT + i) < pos then
       lk_fix.bad()
     end
-    if lk_fix.more() and lk_tab.work[lk_fix.FX_AT + i] == pos then
-      address = lk_fix.target(lk_fix.NO_CONTEXT, lk_tab.work[lk_fix.FX_SYM + i], lo(lk_tab.work[lk_fix.FX_SLOT + i]), false)
-      address = address + lk_tab.work[lk_fix.FX_ADD + i]
-      if lk_tab.work[lk_fix.FX_KIND + i] >= lk_fix.K_BANK then
+    if lk_fix.more() and lk_tab.wk(lk_fix.FX_AT + i) == pos then
+      address = lk_fix.target(lk_fix.NO_CONTEXT, lk_tab.wk(lk_fix.FX_SYM + i), lo(lk_tab.wk(lk_fix.FX_SLOT + i)), false)
+      address = address + lk_tab.wk(lk_fix.FX_ADD + i)
+      if lk_tab.wk(lk_fix.FX_KIND + i) >= lk_fix.K_BANK then
         lk_fix.bad()                    ; the bank of a region is for `with` blocks, and an
                                         ; address only reached is formed by code
       end
-      if lk_tab.work[lk_fix.FX_KIND + i] == lk_fix.K_WORD then
+      if lk_tab.wk(lk_fix.FX_KIND + i) == lk_fix.K_WORD then
         if lk_rec.left() == 0 then
           lk_fix.bad()
         end
         lk_rec.get_byte()
         lk_out.put_word(address)
         pos += 2
-      elif lk_tab.work[lk_fix.FX_KIND + i] == lk_fix.K_SHRINK then
+      elif lk_tab.wk(lk_fix.FX_KIND + i) == lk_fix.K_SHRINK then
         lk_fix.bad()                    ; only an instruction can shrink
       else
-        lk_out.put(lk_fix.part(address, lo(lk_tab.work[lk_fix.FX_KIND + i])))
+        lk_out.put(lk_fix.part(address, lo(lk_tab.wk(lk_fix.FX_KIND + i))))
         pos += 1
       end
       lk_fix.next_fix()
@@ -249,55 +248,26 @@ func emit_data(obj: byte, dest: byte)
 end
 
 ; MAIN is at SLOT record i of kept function f, whose symbol has this number: write its map lines.
-func slot_line(f: word, number: word, i: byte)
-  lk_rec.get_word()
-  lk_rec.get_word()
-  lk_rec.get_byte()
-  lk_name.keep_at(2 * lk_tab.W_SNAME)
-  lk_map.slot(f, number, i, 2 * lk_tab.W_SNAME)
-end
-
-; Write what object file obj has kept in file dest: 0 the image, or a bank + 1. With the image, the
-; S lines: the names of its kept functions that have slots are held as the file is read (lk_map).
+; Write what object file obj has kept in file dest: 0 the image, or a bank + 1.
 func emit_object(obj: byte, dest: byte)
-  var some: bool
   var here: bool
   var f: word
-  var number: word
-  var symbols: word
-  var slots: byte
   var kept: bool
   var kind: byte
-  some = dest == 0 and lk_map.mark_functions(obj, true, true)
   here = false                  ; the function being read is in this file
-  if some then
-    lk_map.hold_begin(obj, lk_map.W_HELD, lk_tab.W_OWN)
-  end
   lk_rec.open_object(obj)
   f = 0
-  number = 0
-  symbols = 0
-  slots = 0
   kept = false
   kind = lk_rec.advance()
   while kind != lk_rec.R_END do
-    if kind == lk_rec.R_SYM and some then
-      lk_rec.get_byte()
-      lk_map.hold(obj, symbols)
-      symbols += 1
-    elif kind == lk_rec.R_FUNC then
-      number = lk_rec.get_word()
-      f = lk_sym.row_of(lk_name.global_sym(obj, number))
+    if kind == lk_rec.R_FUNC then
+      f = lk_sym.row_of(lk_name.global_sym(obj, lk_rec.get_word()))
       kept = lk_tab.fn_ctx[f] != 0
       here = dest == lk_scan.bank_in(f, obj)
-      slots = 0
       lk_fix.drop()
       if kept then
         lk_fix.begin(f)
       end
-    elif kind == lk_rec.R_SLOT and kept and dest == 0 then
-      slot_line(f, number, slots)
-      slots += 1
     elif kind == lk_rec.R_FIX and kept and here then
       lk_fix.hold(obj, true)
     elif kind == lk_rec.R_CODE and kept and here then
@@ -312,19 +282,14 @@ func emit_object(obj: byte, dest: byte)
     kind = lk_rec.advance()
   end
   lk_rec.close()
-  if some then
-    lk_map.mark_functions(obj, false, true)
-  end
 end
 
-; Write the image and the map file. main_fn is the program's main function.
+; Write the image, the bank files and the map file, one after another: only one file is open for
+; writing at a time (on an Acorn DFS a file being written cannot grow past the next file on the
+; disc). main_fn is the program's main function.
 pub func write(main_fn: word)
   var obj: byte
   var b: byte
-  lk_map.open_map()
-  lk_map.functions()
-  lk_map.symbols(lk_sym.CONSTANT, 68)
-  lk_map.symbols(lk_sym.VARIABLE, 86)
   lk_out.open_image()
   lk_boot.write(main_fn)
   for obj = 0 until lk_name.object_count do
@@ -343,6 +308,13 @@ pub func write(main_fn: word)
         lk_out.close_image(0)
       end
     end
+  end
+  lk_map.open_map()
+  lk_map.functions()
+  lk_map.symbols(lk_sym.CONSTANT, 68)
+  lk_map.symbols(lk_sym.VARIABLE, 86)
+  for obj = 0 until lk_name.object_count do
+    lk_map.slots(obj)
   end
   lk_map.cparams()
   lk_map.close_map()

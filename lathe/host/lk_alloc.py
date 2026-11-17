@@ -109,7 +109,7 @@ def main_end(n, pos):
 
 def node_end(pool, n, pos):
     if pool == POOL_ZP:
-        return lk_tab.add16(pos, lk_tab.work[lk_tab.W_ZSIZE + n])
+        return lk_tab.add16(pos, lk_tab.wk(lk_tab.W_ZSIZE + n))
     return main_end(n, pos)
 
 
@@ -117,22 +117,22 @@ def node_end(pool, n, pos):
 
 def base_of(n):
     """Where node n starts (LAY_BASE)."""
-    return lk_tab.work[LAY_BASE + n]
+    return lk_tab.wk(LAY_BASE + n)
 
 
 def end_of(n):
     """Where node n's set ends (LAY_END)."""
-    return lk_tab.work[LAY_END + n]
+    return lk_tab.wk(LAY_END + n)
 
 
 def size_of(n):
     """The size of node n's set (LAY_SIZE)."""
-    return lk_tab.work[LAY_SIZE + n]
+    return lk_tab.wk(LAY_SIZE + n)
 
 
 def down_of(n):
     """The most storage a chain of calls needs above node n's set (LAY_DOWN)."""
-    return lk_tab.work[LAY_DOWN + n]
+    return lk_tab.wk(LAY_DOWN + n)
 
 
 def raise_callees(n, top):
@@ -141,7 +141,7 @@ def raise_callees(n, top):
     while e != 0:
         target, applies = lk_graph.edge_node(n, e)
         if applies and lk_graph.scc_of(target) != lk_graph.scc_of(n) and base_of(target) < top:
-            lk_tab.work[LAY_BASE + target] = top
+            lk_tab.set_wk(LAY_BASE + target, top)
         e = lk_graph.next_edge(n, e)
 
 
@@ -153,11 +153,11 @@ def layout_set(pool, first, limit):
             start = base_of(lk_graph.order_at(i))
     pos = start
     for i in range(first, limit):
-        lk_tab.work[LAY_BASE + lk_graph.order_at(i)] = pos
+        lk_tab.set_wk(LAY_BASE + lk_graph.order_at(i), pos)
         pos = node_end(pool, lk_graph.order_at(i), pos)
     for i in range(first, limit):
-        lk_tab.work[LAY_END + lk_graph.order_at(i)] = pos
-        lk_tab.work[LAY_SIZE + lk_graph.order_at(i)] = pos - start
+        lk_tab.set_wk(LAY_END + lk_graph.order_at(i), pos)
+        lk_tab.set_wk(LAY_SIZE + lk_graph.order_at(i), pos - start)
         raise_callees(lk_graph.order_at(i), pos)
     return pos
 
@@ -170,7 +170,7 @@ def layout(pool, ctx):
     top = ctx_bottom[ctx]
     for n in range(0, lk_tab.node_count):
         if lk_tab.is_node(n) and lk_tab.ctx_of(n) == ctx:
-            lk_tab.work[LAY_BASE + n] = ctx_bottom[ctx]
+            lk_tab.set_wk(LAY_BASE + n, ctx_bottom[ctx])
     limit = lk_graph.order_count
     while limit > 0:
         first = limit - 1
@@ -205,7 +205,7 @@ def deepen():
                         down = below
                 e = lk_graph.next_edge(n, e)
         for i in range(first, limit):
-            lk_tab.work[LAY_DOWN + lk_graph.order_at(i)] = down
+            lk_tab.set_wk(LAY_DOWN + lk_graph.order_at(i), down)
         first = limit
 
 
@@ -271,7 +271,7 @@ def fail_full(error, amount, wrapped):
         member = lk_tab.first_in_order()
         while member != lk_tab.NONE:
             if lk_graph.scc_of(member) == lk_graph.scc_of(n):
-                lk_tab.work[CHAIN + count] = member
+                lk_tab.set_wk(CHAIN + count, member)
                 count += 1
             member = lk_tab.next_in_order(member)
         n, more = caller_below(n)
@@ -282,7 +282,7 @@ def fail_full(error, amount, wrapped):
             lk_err.colon()
         else:
             lk_err.arrow()
-        lk_name.error_node(lk_tab.work[CHAIN + i])
+        lk_name.error_node(lk_tab.wk(CHAIN + i))
     lk_err.finish()
 
 
@@ -311,7 +311,7 @@ def start_choices():
     """Class 0 goes in zero page. Count the class 1 candidates by weight."""
     global zp_vars
     for w in range(0, WEIGHTS):
-        lk_tab.work[WEIGHT_COUNT + w] = 0
+        lk_tab.set_wk(WEIGHT_COUNT + w, 0)
     for f in range(0, lk_tab.fn_count):
         if lk_tab.fn_ctx[f] != 0:
             for s in range(lk_tab.fn_slot[f], lk_tab.fn_slot[f] + lk_tab.fn_nslots(f)):
@@ -319,7 +319,7 @@ def start_choices():
                     must_fit(lk_tab.slot_bytes(s), lk_tab.fn_ref(f))
                     lk_tab.set_slot_zp(s)
                 elif is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)):
-                    lk_tab.work[WEIGHT_COUNT + lk_tab.slot_weight_of(s)] += 1
+                    lk_tab.set_wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s), lk_tab.wk(WEIGHT_COUNT + lk_tab.slot_weight_of(s)) + 1)
     for k in range(0, lk_tab.cls_count):
         if lk_tab.cls_reach[k] != 0:
             for p in range(lk_tab.cls_par[k], lk_tab.cls_par[k] + lk_tab.cls_np[k]):
@@ -327,7 +327,7 @@ def start_choices():
                     must_fit(lk_tab.cp_size[p], lk_tab.cls_ref(k))
                     lk_tab.cp_info[p] |= lk_tab.S_ZP
                 elif is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]):
-                    lk_tab.work[WEIGHT_COUNT + lk_tab.cp_weight[p]] += 1
+                    lk_tab.set_wk(WEIGHT_COUNT + lk_tab.cp_weight[p], lk_tab.wk(WEIGHT_COUNT + lk_tab.cp_weight[p]) + 1)
     zp_vars = 0
     for d in range(0, lk_tab.def_count):
         if lk_tab.is_kept_var(d):
@@ -336,7 +336,7 @@ def start_choices():
                 lk_tab.def_f[d] |= lk_tab.D_ZP
                 zp_vars += lk_tab.def_b[d]
             elif (lk_tab.def_f[d] & lk_tab.D_CLASS) == 1 and lk_tab.def_b[d] <= zp_cap:
-                lk_tab.work[WEIGHT_COUNT + lk_tab.def_w(d)] += 1
+                lk_tab.set_wk(WEIGHT_COUNT + lk_tab.def_w(d), lk_tab.wk(WEIGHT_COUNT + lk_tab.def_w(d)) + 1)
 
 
 def growth(n, size):
@@ -359,17 +359,17 @@ def move_slot(f, i, into):
         if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)):
             n = lk_tab.copy_node(f, ctx)
             if into:
-                lk_tab.work[lk_tab.W_ZSIZE + n] += lk_tab.slot_bytes(s)
+                lk_tab.set_wk(lk_tab.W_ZSIZE + n, lk_tab.wk(lk_tab.W_ZSIZE + n) + lk_tab.slot_bytes(s))
             else:
-                lk_tab.work[lk_tab.W_ZSIZE + n] -= lk_tab.slot_bytes(s)
+                lk_tab.set_wk(lk_tab.W_ZSIZE + n, lk_tab.wk(lk_tab.W_ZSIZE + n) - lk_tab.slot_bytes(s))
 
 
 def move_cparam(k, p, into):
     lk_tab.cp_info[p] ^= lk_tab.S_ZP
     if into:
-        lk_tab.work[lk_tab.W_ZSIZE + lk_tab.cls_node[k]] += lk_tab.cp_size[p]
+        lk_tab.set_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k]) + lk_tab.cp_size[p])
     else:
-        lk_tab.work[lk_tab.W_ZSIZE + lk_tab.cls_node[k]] -= lk_tab.cp_size[p]
+        lk_tab.set_wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k], lk_tab.wk(lk_tab.W_ZSIZE + lk_tab.cls_node[k]) - lk_tab.cp_size[p])
 
 
 def move_var(d, into):
@@ -444,14 +444,14 @@ def deepest(ctx, extra):
     total = 0
     used = extra == lk_tab.NONE
     for i in range(0, taken):
-        t = lk_tab.work[LIST + 2 * i]
+        t = lk_tab.wk(LIST + 2 * i)
         if not used and through(extra) >= t:
             total = lk_tab.add16(total, cand_size)
             used = True
             if lk_tab.add16(through(extra), total) > deep:
                 deep = lk_tab.add16(through(extra), total)
-        if (lk_tab.work[LIST + 2 * i + 1] >> 12) == ctx:
-            total = lk_tab.add16(total, lk_tab.work[LIST + 2 * i + 1] & 0xFFF)
+        if (lk_tab.wk(LIST + 2 * i + 1) >> 12) == ctx:
+            total = lk_tab.add16(total, lk_tab.wk(LIST + 2 * i + 1) & 0xFFF)
             if lk_tab.add16(t, total) > deep:
                 deep = lk_tab.add16(t, total)
     if not used:
@@ -467,8 +467,8 @@ def bound(var_size):
     for ctx in range(0, lk_tab.ctx_count):
         extra = lk_tab.NONE
         for c in range(0, cand_count):
-            if lk_tab.ctx_of(lk_tab.work[CAND + c]) == ctx:
-                extra = lk_tab.work[CAND + c]
+            if lk_tab.ctx_of(lk_tab.wk(CAND + c)) == ctx:
+                extra = lk_tab.wk(CAND + c)
         used = lk_tab.add16(used, deepest(ctx, extra) - ctx_depth[ctx])
     return used
 
@@ -479,15 +479,15 @@ def take():
     if taken + cand_count > MAX_TAKEN:
         return False
     for c in range(0, cand_count):
-        n = lk_tab.work[CAND + c]
+        n = lk_tab.wk(CAND + c)
         t = through(n)
         i = taken
-        while i > 0 and lk_tab.work[LIST + 2 * (i - 1)] < t:
-            lk_tab.work[LIST + 2 * i] = lk_tab.work[LIST + 2 * (i - 1)]
-            lk_tab.work[LIST + 2 * i + 1] = lk_tab.work[LIST + 2 * (i - 1) + 1]
+        while i > 0 and lk_tab.wk(LIST + 2 * (i - 1)) < t:
+            lk_tab.set_wk(LIST + 2 * i, lk_tab.wk(LIST + 2 * (i - 1)))
+            lk_tab.set_wk(LIST + 2 * i + 1, lk_tab.wk(LIST + 2 * (i - 1) + 1))
             i -= 1
-        lk_tab.work[LIST + 2 * i] = t
-        lk_tab.work[LIST + 2 * i + 1] = cand_size | (lk_tab.ctx_of(n) << 12)
+        lk_tab.set_wk(LIST + 2 * i, t)
+        lk_tab.set_wk(LIST + 2 * i + 1, cand_size | (lk_tab.ctx_of(n) << 12))
         taken += 1
     return True
 
@@ -496,7 +496,7 @@ def least():
     """At least how much more zero page the item judged needs: as much as with L alone."""
     need = 0
     for c in range(0, cand_count):
-        need = lk_tab.add16(need, growth(lk_tab.work[CAND + c], cand_size))
+        need = lk_tab.add16(need, growth(lk_tab.wk(CAND + c), cand_size))
     return need
 
 
@@ -525,7 +525,7 @@ def try_slot(f, i):
     cand_size = lk_tab.slot_bytes(lk_tab.fn_slot[f] + i)
     for ctx in range(0, lk_tab.ctx_count):
         if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)):
-            lk_tab.work[CAND + cand_count] = lk_tab.copy_node(f, ctx)
+            lk_tab.set_wk(CAND + cand_count, lk_tab.copy_node(f, ctx))
             cand_count += 1
     if judge(0):
         move_slot(f, i, True)
@@ -534,7 +534,7 @@ def try_slot(f, i):
 def try_cparam(k, p):
     global cand_count, cand_size
     cand_count = 1
-    lk_tab.work[CAND + 0] = lk_tab.cls_node[k]
+    lk_tab.set_wk(CAND + 0, lk_tab.cls_node[k])
     cand_size = lk_tab.cp_size[p]
     if judge(0):
         move_cparam(k, p, True)
@@ -573,7 +573,7 @@ def try_vars(weight):
 def move_all(into):
     """Move every candidate of weight 1 or more into zero page, or out again."""
     for weight in range(1, WEIGHTS):
-        if lk_tab.work[WEIGHT_COUNT + weight] != 0:
+        if lk_tab.wk(WEIGHT_COUNT + weight) != 0:
             move_weight(weight, into)
 
 
@@ -591,7 +591,7 @@ def promote():
     move_all(False)
     lay_out()
     for weight in range(WEIGHTS - 1, 0, -1):
-        if lk_tab.work[WEIGHT_COUNT + weight] != 0:
+        if lk_tab.wk(WEIGHT_COUNT + weight) != 0:
             try_slots(weight)
             try_cparams(weight)
             try_vars(weight)
@@ -687,7 +687,7 @@ def assign_main():
         fail_full(lk_err.E_DATA_FULL, pos - room, lk_tab.overflow)
     for n in range(0, lk_tab.node_count):
         if lk_tab.is_node(n):
-            lk_tab.work[lk_tab.W_MBASE + n] = (lk_envf.data_lo + base_of(n)) & 0xFFFF
+            lk_tab.set_wk(lk_tab.W_MBASE + n, (lk_envf.data_lo + base_of(n)) & 0xFFFF)
     if lk_envf.has_more:
         place_vars_more(pos)
 
@@ -740,7 +740,7 @@ def allocate():
     start_choices()
     for n in range(0, lk_tab.node_count):
         if lk_tab.is_node(n):
-            lk_tab.work[lk_tab.W_ZSIZE + n] = zp_size(n)
+            lk_tab.set_wk(lk_tab.W_ZSIZE + n, zp_size(n))
     if not layout_zp():
         fail_zp()
     promote()

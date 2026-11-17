@@ -66,6 +66,7 @@ E_WITH_IRQ = 57
 E_REGION_WINDOW = 58
 E_REGION_NO_FILE = 59
 E_REGION_ROM = 60
+E_COMMAND_FILE = 61
 
 # One message per line, in the order of the numbers above.
 MESSAGES = (
@@ -129,6 +130,7 @@ MESSAGES = (
     b"environment file: a region is in an overlay, or in another window than code is\n"
     b"constant data in a region is in a bank that has no file\n"
     b"a variable in a region is in a read-only bank\n"
+    b"command file: too many arguments, or too long\n"
 )
 
 PREFIX = b"link error "
