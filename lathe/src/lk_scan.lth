@@ -52,7 +52,11 @@ import lk_tab (add_edge, add_own, add_waiting, build_chains, chain_next, chains_
                memb_count, memb_func, new_class, new_cparam, new_def, new_func, new_member,
                new_slot, NONE, set_slot_weight, set_wk, slot_weight_of, W_NEXT, wk)
 
+#if LKSMALL == 2
+const MAX_PENDING = 16          ; the 32K build (lk_name.MARKS)
+#else
 const MAX_PENDING = 64          ; weights for slots of functions not read yet
+#end
 
 pub var obj_cpu: [lk_name.MAX_OBJECTS]byte      ; its CPU, and OBJ_CLASSES
 pub var obj_bank: [lk_name.MAX_OBJECTS]byte     ; the bank its code is placed in + 1, or 0
@@ -66,7 +70,11 @@ var rgn_bank: byte = 0          ; the bank + 1 of its region, or 0 if the region
 
 ; The variables and constants in a region that is in a bank (lk_envf.region_bank), in the order
 ; they are defined. Those of a region in fixed memory are ordinary ones and are not here.
+#if LKSMALL == 2
+const MAX_REGION_DEFS = 16      ; the 32K build (lk_tab.lth)
+#else
 const MAX_REGION_DEFS = 64
+#end
 pub var rdef_count: byte = 0
 var rdef_def: [MAX_REGION_DEFS]word
 pub var rdef_bank: [MAX_REGION_DEFS]byte    ; the bank + 1

@@ -961,6 +961,114 @@ Free of `PAGE-$7BFF` and `$0401-$06FF` (26,111 bytes at `$1900`, 24,575 at `$1F0
 
 The message file gives the compiler 75 to 87 bytes in every ROM form and nothing in the developer's forms, which are the same; the linker loses 53 to 90 (the reader's 25 fixed bytes, `add_wk` and `sub_wk`, and in the ROM forms stubs that moved). The splits in `lathec-bbc.env` stay where the compiler's work put them: the ROM form's code ends at `$4756` with `BBCFS 1` (`$47A9` before the message file) below the split at `$4F00`, and at `$4D85` with `BBCFS 2` below `$5220`.
 
+## The linker on a 32K BBC (2026-11-18)
+
+The owner asked for a form of the tools for a 32K BBC Model B: RAM `$0000-$7FFF` only, no sideways RAM, no shadow screen, the module (the 128 KB EPROM, scheme `direct8`) in one socket. It cannot rebuild the tools, but it should compile and link programs: ideally one that takes most of the memory free in mode 7 (`$1900-$7BFF`, about 25 KB), at least one for a mode 4 screen (`$1900-$57FF`, about 16 KB). This is the linker's part; the compiler's is beside it (`lathec-bbc.env`), and both read the same switch, `define RAM32`.
+
+### The build
+
+`lathe/src/linker-bbc.env` with `define RAM32 1` (0 in the file; every build of `RAM32 0` is byte for byte what it was: the images, bank files and maps of the developer's, sixteen-bank and eight-bank forms with `BBCFS` 0, 1 and 2 and `ADFS`, of `linker-full.env`, `linker-bank.env` and `lktest1` to `lktest4`, and the compiler's, compared before and after):
+
+- *No sideways RAM.* `unless RAM32` before the three `bank` entries of slots 0, 1 and 12 and the five `region` entries, so the regions `LKLOCAL`, `LKCALLS`, `LKSLOTS`, `LKNODES` and `LKWORK` have no entry and are fixed memory, as on Wendy 2's small build: nothing else was needed for that. The functions with `with` blocks stay fixed (the linker keeps them so whatever region they name), and a block of a fixed region maps slot 0 for nothing, which is harmless since all that runs inside it is fixed code (`rt_bbc.lth`); on a Model B slot 0 is a ROM socket, maybe empty, and the same holds.
+- *Main RAM.* `when RAM32 code $1900 $3C9A` and `data $3C9B $7BFF`, with `more data $0401 $06FF` as before: the split is where the code ends with `BBCFS 1`, the build for a real DFS disc.
+- *Code out of main RAM.* In the eight-bank form `lk_out` and `lk_op`, which `ROM128` keeps fixed to save 1,288 far calls, go in bank 2 (`when RAM32 when ROM128 place`): 803 bytes of main RAM for 881 bytes as judged of that bank, the one with room for them with every `BBCFS` (bank 1 holds `bbcfs` with `BBCFS` 1 and 2).
+- *Its capacities*, `LKSMALL 2` (`when RAM32 define LKSMALL 2`), a third set of the twins' values under `#if LKSMALL == 2` before the small build's, which `lk_small.load(2)` gives the host modules (`lathe/host/README.md`, "The linker in Lathe").
+
+What does not build: `RAM32` with `ADFS 1` (the code range is given twice, link error 43: ADFS's PAGE leaves 1.5 KB less), with `BBCFS 2` at `$1900` (45 bytes over the code range), and the developer's form (28 bytes over; it needs the module's RAM board, which a 32K machine does not have).
+
+### Main RAM
+
+The eight-bank ROM form, `BBCFS 1` (with `BBCFS 0` the code is 23 bytes shorter and those bytes are left below the split):
+
+| What | Bytes |
+|---|---|
+| resident part: code, constants and stubs, `$1900-$3C9A` (9,829 in the `RAM32 0` form) | 9,115 |
+| the work area, `lk_tab.work` and `nodes`: 10 words a node, 300 nodes | 6,000 |
+| the slots' columns, 800 slots (and 16 large slots, 64) | 1,664 |
+| the functions' columns, 296 functions (`fn_edge` among them) | 2,072 |
+| the calls, 576 | 1,152 |
+| the symbols in object files, `lk_name.local`, 592 | 1,184 |
+| the variables and constants, 257 | 1,285 |
+| the classes, their parameters and members (8, 32, 32) | 432 |
+| buffers: `lk_file.arg_text` 512, `lk_envf.text` 384, `bbc.arg_text` 256, `lk_file.path` 256, `bbc.name_buf` 128 | 1,536 |
+| the rest: the linker's frames, the small tables and variables of every module | 1,247 |
+| free: `$0558-$06FF`, room only for variables of less than 424 bytes | 424 |
+
+The data range is full to `$7BFF`: the linker places variables in their order, each in `data` while it fits there and else in `more`, and `lk_name.local`, the last large one, ends 46 bytes below HIMEM. The banks as judged: 15,387 (with `bbcfs` 15,877), 15,983 and 16,031 of 16,272; with the compiler in banks 0 to 4 the eight banks have 5,648 bytes free (5,815 with `RAM32 0`).
+
+### The capacities, and why these
+
+The tables are what real programs need, not the full ones cut evenly. Measured with the host linker over the real programs below, a program of 16 to 25 KB uses about 1.0 node, 2.5 slots, 1.9 calls and 2.0 symbols in object files a function, and 0.5 variables or constants; so functions, nodes, slots, calls and symbols were given the same share of what is left, and the rest the least it can be:
+
+| Capacity | `LKSMALL 2` | small build | full | Why |
+|---|---|---|---|---|
+| functions | 296 | 320 | 896 | |
+| nodes (the work area, 20 bytes a node) | 300 | 360 | 900 | a node a function; the reading's names need about as much |
+| slots | 800 | 1,280 | 4,000 | |
+| calls | 576 | 1,200 | 3,600 | |
+| symbols in object files | 592 | 1,400 | 4,000 | |
+| variables and constants | 257 | 320 | 800 | the least a word column can have; programs use 100 to 170 |
+| fix-ups of one function | 278 | 256 | 512 | as many as the work area holds below its node columns (no bytes of their own) |
+| promotion's list | 18 | 32 | 128 | as long as its column holds (no bytes of its own) |
+| large slots; classes, parameters, members | 16; 8, 32, 32 | 64; 32, 128, 128 | as small | the corpus uses at most 1; 3, 8 and 7 |
+
+A word column of 256 rows or fewer would need a byte index in the twins, so the word columns have 257 rows or more. Three things the 32K build does differently, in host and twin, under constants that the other builds give their old values (so their code is unchanged), each to let the work area be 300 nodes and not 333 or more:
+
+- *The S lines' names.* The map's reading of each file's slots held its names above the slot name, `6 × (MAX_NODES − MAX_FIXES) − 128` words, where the image's own reading held them until 2026-11-16; once the image is closed the fix-ups' words below `W_ADDR` are free, and the 32K build holds them there as the F, D and V lines do (`lk_map.SLOTS_LOW`). Without it kerneltest, whose `kernel.lo` needs 692 words, would allow 163 fix-ups to a function; it needs 204.
+- *The first reading's floor.* `mark_all` keeps a bit for each of 32,768 hashes of the names some file defines (`lk_name.DEFS`), 2,048 words above 1,280 others: a work area of 333 nodes at least. The 32K build keeps 16,384 (`DEFS_HASH $3FFF`); a false match only keeps a name that need not have been (no output changes: the corpus links as at full capacities, every file the same).
+- *Room for the names.* The words below the reading's heap: 16 weights waiting (`lk_scan.MAX_PENDING`; the programs here wait for at most 7), so `MARKS` at 64, and 256 chains of kept names: 896 bytes more for the names than the layout of the full build would leave.
+
+### What it links
+
+`lathe/tests/lk_ram32.py` (`real`, `series`, `shape`, and the links on the BBC that `test_lk_ram32.py` makes). The real programs are the test programs of `lathe/src` (each a set of the compiler's or the linker's own modules with a driver) and the end-to-end cases, compiled for the BBC all in one; a larger program is made of real ones (`glue`: each piece's modules renamed, the run-time modules once, a main that calls each piece's main, so that each piece keeps what it kept), grown a piece at a time until the 32K build refuses it. Whether it links is the host linker at the 32K build's capacities, which refuses exactly where the Lathe-written build does; the links on the BBC check that.
+
+**Real programs:** 73 of the 81 link: every end-to-end case but four (three test mains with 344 fix-ups each, more than 278, and `for_ranges`, one file of 1,124 slots), and copytest, errtest, srctest, typetest, foldtest, lextest (15.4 KB), fbuftest (16.4 KB), lktest1 and kerneltest (22.7 KB). outtest (28.5 KB, its main 351 fix-ups), regtest, condtest and asmtest (40 to 43 KB) do not fit a 32K BBC anyway.
+
+**Grown** (program: its code and constants and its variables, which in mode 7 must be at most 26,111 bytes, and in mode 4 16,895):
+
+| Program | Objects (bytes) | Program | Tightest tables | Result |
+|---|---|---|---|---|
+| fbuftest (mode 4) | 14 (77,134) | 16,447 | names read 4,472 of 6,000 (25 % left), functions 219 (26 %), calls 409 (29 %) | links |
+| lextest + errtest | 15 (77,996) | 22,001 | | links |
+| lextest + errtest + copytest + compare (mode 7) | 18 (89,605) | 25,034 | fix-ups of one function 219 (21 %), symbols 473 (20 %), functions 231 (22 %) | links |
+| kerneltest + copytest + compare | 14 (74,911) | 25,730 | fix-ups 219 (21 %), names read 4,450 (26 %) | links |
+| fbuftest + errtest + copytest + compare | 19 (98,902) | 26,125 | | links (14 bytes too large for mode 7) |
+| lktest1 + srctest + copytest | 20 (96,871) | 22,469 | names read (2 %), symbols (3 %), calls (4 %) | links |
+| lktest1 + srctest + copytest + compare | 22 (107,306) | 25,094 | symbols 625 | link error 33 |
+| srctest + typetest + copytest | 18 (107,327) | 21,764 | functions 297 | link error 11 |
+| kerneltest + ... + signed | 23 (106,537) | 32,540 | calls 579 | link error 13 (too large for the machine) |
+
+So **a 16 KB program for mode 4 links with a quarter of every table to spare, and a 25 KB program for mode 7 links with a fifth to spare** when its code is of the tools' usual shape (100 bytes or more a function). Programs of very small functions run out of functions first (typetest's average 59 bytes a function: about 18 KB of code at 296 functions), and the linker's own shape (more calls and symbols a function) of symbols, calls and names at about 22.5 KB; a function with more than 278 fix-ups (about 900 bytes of code) is refused whatever the program's size.
+
+**On the BBC** (the eight-bank image, the compiler in banks 0 to 4 and the 32K linker in 5 to 7, `*LLINK @LINKARG`, `--bbc-strict` on filled memory; every file the host linker's; with `BBCFS 1` under `--bbc-fs dfs` too, 2 files open at most, 1 for writing):
+
+| Program | Objects | Program | Cycles | Minutes at 2 MHz | Files opened | Read | Written |
+|---|---|---|---|---|---|---|---|
+| lextest | 13 | 15,403 | 157,316,136 | 1.31 | 105 | 601,837 | 22,639 |
+| fbuftest, for mode 4 | 14 | 16,447 | 183,807,919 | 1.53 | 112 | 682,001 | 25,271 |
+| kerneltest | 11 | 22,699 | 175,997,536 | 1.47 | 85 | 536,781 | 31,883 |
+| lextest + errtest + copytest + compare | 18 | 25,034 | 222,815,376 | 1.86 | 147 | 792,559 | 35,546 |
+| kerneltest + copytest + compare | 14 | 25,730 | 289,370,215 | 2.41 | 109 | 628,265 | 36,732 |
+
+The emulator's MOS charges nearly nothing for the disc; at 1,000 cycles a byte a real DFS would add 4.5 to 6.6 minutes to these (the 600 to 800 KB the passes read), more than the link itself.
+
+**The disc.** A 25 KB program is 14 to 22 object files of 75 to 110 KB (4.5 bytes of object file a byte of code); the link reads them, the environment and LINKARG, and writes the image and a map of about 10 KB, 22 to 26 files and 110 to 150 KB in all. That fits the 31 files of a side, but not the 100 KB of a 40-track single-density Acorn DFS side: an 80-track side (200 KB), a double-density DFS, or the objects on one drive and the outputs on another (`:1.`, "Drives"). The sources and interfaces are another side's. The 16 KB program's 14 objects are 77 KB.
+
+### What would raise it, ranked
+
+Each is measured or worked out from the account above; a table byte is worth about one fortieth of a function (40.6 bytes of tables a function at this balance), so 1 KB of main RAM is about 25 functions, 2.5 KB of program.
+
+1. **RAM on the module's own board.** A 32 KB static RAM beside the EPROM, as banks 8 to 9 of the latch (`direct8` decoding A3, or `direct16`'s scheme), takes the large tables as the B+128's sideways slots do: all of `LKSMALL 2`'s 13 KB and room for twice it, and 12 KB of main RAM back. Then any program the machine holds links, with every table at twice what it now has. Cost: an SRAM and its write enable on the board; `rt_bbc` already maps a bank of the module in a block; the environment gives the regions bank values `$88` and `$89`; LOADMOD and `bbcrom` unchanged. The cheapest large step, and hardware.
+2. **Fix-ups held in runs.** One function's fix-ups are held at once (12 bytes each in the work area), which caps a function at 278 and refused four test mains. Held in runs of what fits, read twice when a FIX record is longer (shrinking is counted on the first reading, applied on the second), the cap goes. Cost: about 300 bytes in `lk_fix` (bank 1 has 885 bytes as judged, 395 with `bbcfs`), a second reading of a long record. No memory.
+3. **`with` blocks of a fixed region cost nothing.** In the 32K build every block maps slot 0 and back for nothing: 64 cycles and 12 bytes of fixed code a block, which on the B+128 were 4.5 % of outtest's link and 16 % of the compiler's ("The linker links the compiler"). And 721 bytes of functions are fixed only because they have a block (`lk_name.local_at`, `set_local`, `global_sym` 191, `lk_graph`'s four readers 180, `lk_alloc`'s four 184, `lk_fix.shrinks` and `removed_before` 166), of which the banks have room as judged for those of `lk_name` and `lk_fix`, 357 bytes. Needed: the linker not keeping a function fixed for a block of a region that is fixed, and giving such a block's kind 6 fix-up the value of the function's own bank (re-selecting it is harmless) where it now gives 0 (slot 0); an environment entry to ask for it, so that no other build changes; host and twin, about 40 lines. Better still, the compiler leaving out the block's calls when the region is fixed, which it cannot know today.
+4. **More code out of the resident part.** lk_tab's functions that only the reading calls (`build_chains` 792, `chains_to_runs` 380, `add_waiting` 315, `add_edge` 258, `add_own` 251 and the `new_` functions, about 2.5 KB) would leave main RAM in `lk_scan`'s bank, which has 289 bytes as judged left; so it needs a fourth bank for the linker, which the 128 KB EPROM does not have with the compiler's five (5,648 bytes free in all, in pieces). 2.5 KB is about 60 functions more.
+5. **Narrower or fewer rows.** The variables and constants have 257 rows where 25 KB programs use 170 at most: byte-indexed columns would save up to 485 bytes but need a second form of every access in the twins. The work area's names (37 % of the tables) are 4 bytes a symbol and the kept names; keeping a symbol's second word (its weight and flags) in `local` would save about 900 bytes for 450 symbols, a redesign of the reading.
+6. **Not worth it:** making zero-page promotion optional saves no memory (its columns are the graph's, in the work area) and only time; keeping more on the disc saves little (what can be read again already is: names, what fix-ups name, sizes of copies).
+
+### Tests
+
+`lathe/tests/test_lk_ram32.py`: the 32K build in the eight-bank ROM form with `BBCFS` 0 and 1 links, puts every table in main RAM and nothing in a sideways slot, and fits the 128 KB image beside the compiler; the host at its capacities links the corpus as at full capacities, every file the same, and the 16 KB and 25 KB programs; what stops larger ones; on the emulated BBC lextest, and with `LATHE_LK_RAM32_ALL=1` the programs of the table above, linked as the host links them, under the DFS's names too (`LATHE_LK_RAM32_REPORT=1` prints the cycles). `test_src_lk.py` checks the 32K build's capacities and its work area's rules with the other builds'. The end-to-end run from the image on the Model B emulation waits for the compiler's half and the emulator's Model B.
+
 ## Open, for the owner
 
 - ~~**File names.** The compiler joins a directory and a name with `/`, which the emulator now accepts only as a leading `./` (step 4); a real filing system needs its own scheme. DFS allows seven characters and uses `.` to separate the directory, so `asmblock.lth` cannot exist there. ADFS allows ten. The first version uses names as the emulator's directory takes them. A scheme is needed for real discs, for example `L.EXPR` for source, `O.EXPR` for the object file and `I.EXPR` for the interface, with module names kept to seven characters.~~ Closed (2026-11-16): the BBC's build maps the names, and module names are not limited ("File names on the BBC"). What a real disc still asks for is listed there: the linker's map against "Can't extend" (five files open and the image larger than a side were dealt with on 2026-11-16).

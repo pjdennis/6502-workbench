@@ -60,11 +60,25 @@ import lk_sym (CLASS, CONSTANT, edge_bits, edge_ref, FUNCTION, is_defined, kind_
 ; Capacities: sized for linking the compiler itself (architecture.md, "Memory in the linker").
 ; LKSMALL 1 is the small build of the test programs; the BBC (lathe/src/linker-bbc.env) and the
 ; banked build of Wendy 2 at full size (linker-full.env) have the full capacities, with the large
-; tables in regions. (The BBC's own capacities, LKSMALL 2, were dropped on 2026-11-16, when the work
-; area went into regions.) The work area must hold what each phase puts there: below
-; W_OWN the fix-ups held, then the names of one file while the image is written (lk_map.W_HELD:
-; 6 * (MAX_NODES - MAX_FIXES) - 128 words, 496 in the small build), and the calls' chains (256 +
-; 2 * MAX_EDGES + MAX_FUNCS <= 10 * MAX_NODES); test_src_lk.py checks both.
+; tables in regions. LKSMALL 2 is the build for a 32K BBC Model B (linker-bbc.env with RAM32 1),
+; whose tables are all in main RAM beside the resident part and fill it: balanced on real
+; programs of 16 to 25 KB, which use about 1.0 node, 2.5 slots, 1.9 calls and 2.0 symbols in
+; object files a function (lathe/docs/bbc.md, "The linker on a 32K BBC"). (The B+128's own
+; capacities, which had that number from 2026-11-15, were dropped on 2026-11-16, when the work
+; area went into regions.) A word column of 256 rows or fewer would need a byte index, so the
+; word columns have more. The work area must hold what each phase puts there: below W_OWN the
+; fix-ups held, each copy's address and a slot's name; the names of one file for the map, below
+; W_ADDR, and for its S lines from lk_map.W_HELD (6 * (MAX_NODES - MAX_FIXES) - 128 words, 496 in
+; the small build) or, in the 32K build, below W_ADDR too (lk_map.SLOTS_LOW); and the calls'
+; chains (256 + 2 * MAX_EDGES + MAX_FUNCS <= 10 * MAX_NODES); test_src_lk.py checks them.
+#if LKSMALL == 2
+pub const MAX_FUNCS = 296
+pub const MAX_SLOTS = 800
+pub const MAX_EDGES = 576
+pub const MAX_NODES = 300
+pub const MAX_DEFS = 257
+pub const MAX_FIXES = 278
+#else
 #if LKSMALL
 pub const MAX_FUNCS = 320
 pub const MAX_SLOTS = 1280
@@ -80,10 +94,18 @@ pub const MAX_NODES = 900
 pub const MAX_DEFS = 800
 pub const MAX_FIXES = 512       ; fix-ups of one function or one piece of constant data
 #end
+#end
+#if LKSMALL == 2
+const MAX_BIG_SLOTS = 16
+pub const MAX_CLASSES = 8
+pub const MAX_CPARAMS = 32
+const MAX_MEMBERS = 32
+#else
 const MAX_BIG_SLOTS = 64        ; slots of 15 bytes or more
 pub const MAX_CLASSES = 32
 pub const MAX_CPARAMS = 128
 const MAX_MEMBERS = 128
+#end
 pub const MAX_CONTEXTS = 8      ; a context is a bit in a byte
 pub const NONE = $FFFF
 

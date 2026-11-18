@@ -1270,16 +1270,47 @@ class LinkerTwins(unittest.TestCase):
             lk_small.load(False)
         self.assertEqual(lk_tab.MAX_FUNCS, 896)
 
+    def test_the_32k_build_has_the_capacities_of_its_twins(self):
+        """LKSMALL 2 (linker-bbc.env with RAM32 1): its own values, and the small build's where
+        a twin has none of its own."""
+        lk_small.load(2)
+        try:
+            for module, values in lk_small.capacities(2).items():
+                for name, value in values.items():
+                    self.assertEqual(getattr(sys.modules[module], name), value)
+            self.assertEqual((lk_tab.MAX_FUNCS, lk_tab.MAX_NODES, lk_map.SLOTS_LOW), (296, 300, 1))
+            self.assertEqual(lk_small.capacities(2)['lk_alloc'], {'MAX_TAKEN': 18})
+            self.assertEqual(len(lk_tab.work), lk_tab.WORK_SIZE)
+        finally:
+            lk_small.load(False)
+
     def test_the_work_columns_of_the_graph_and_storage_do_not_overlap(self):
-        for small in (True, False):
+        for small in (True, False, 2):
             lk_small.load(small)
             n = lk_tab.MAX_NODES
             # The image: the fix-ups held, each copy's address and a slot's name, below the node
             # columns (12 bytes a fix-up: lk_fix).
             self.assertLessEqual(lk_tab.W_SNAME + 128, lk_tab.W_OWN)
             # ... and the names of one file, as many as in the small build, with which the
-            # corpus is tested.
-            self.assertGreaterEqual(lk_tab.W_OWN - lk_map.W_HELD, 496)
+            # corpus is tested: for the F, D and V lines below W_ADDR, for the S lines from
+            # W_HELD, or in the 32K build below W_ADDR too (lk_map.SLOTS_LOW).
+            self.assertGreaterEqual(lk_tab.W_ADDR, 496)
+            if lk_map.SLOTS_LOW == 0:
+                self.assertGreaterEqual(lk_tab.W_OWN - lk_map.W_HELD, 496)
+            # While the files are first read: the weights waiting below MARKS, and the bits of
+            # the names some file defines (DEFS) within the work area.
+            self.assertLessEqual(4 * lk_scan.MAX_PENDING, lk_name.MARKS)
+            self.assertLessEqual(lk_name.DEFS + (lk_name.DEFS_HASH + 1) // 16, lk_tab.WORK_SIZE)
+            self.assertGreaterEqual(lk_name.DEFS_HASH, 0x1FFF)
+            if small == 2:
+                # The 32K build's fix-ups held and promotion's list cost no memory of their own:
+                # each is as long as the work area leaves room for.
+                self.assertGreater(lk_tab.W_SNAME + 128 + 6, lk_tab.W_OWN)
+                self.assertGreater(lk_alloc.LIST + 2 * (lk_alloc.MAX_TAKEN + 1), lk_tab.WORK_SIZE)
+            # A word column of 256 rows or fewer would need a byte index in the twins.
+            for rows in (lk_tab.MAX_FUNCS, lk_tab.MAX_SLOTS, lk_tab.MAX_EDGES, lk_tab.MAX_NODES, lk_tab.MAX_DEFS,
+                         lk_name.MAX_LOCALS):
+                self.assertGreater(rows, 256)
             # The calls' chains while the classes' calls are added (lk_tab.build_chains).
             self.assertLessEqual(lk_tab.W_NEXT + lk_tab.MAX_EDGES, lk_tab.WORK_SIZE)
             # While what is kept is found: reach's stack, a DFIX record's entries, the files to read.

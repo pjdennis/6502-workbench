@@ -43,9 +43,12 @@ local_count = 0
 # While the files are read for the tables: lk_tab.work, in words, from MARKS up (lk_scan's
 # waiting weights are below it).
 MARKS = 256                         # 8192 bits: the names to keep
-HEADS = MARKS + 512                 # 512 chains of kept names
-HEAP = HEADS + 512                  # the heap, up to the symbols' words at the top
-DEFS = HEAP                         # mark_all: 32768 bits, the names some file defines
+CHAINS = 512                        # chains of kept names (a power of 2)
+HEADS = MARKS + 512                 # where each chain starts
+HEAP = HEADS + CHAINS               # the heap, up to the symbols' words at the top
+DEFS = HEAP                         # mark_all: a bit for each hash of a name some file defines
+DEFS_HASH = 0x7FFF                  # the bits of a name's hash DEFS is indexed by (32768 bits; at
+                                    # least MARKS's 0x1FFF)
 HEAP_START = 2 * HEAP               # in bytes
 HEAP_END = 2 * lk_tab.WORK_SIZE     # without the symbols' words
 ENTRY = 5                           # a kept name: next in its chain + 1 (2), symbol (2),
@@ -182,7 +185,7 @@ def mark_object(obj):
     lk_rec.close()
     for i in range(0, count):
         v = local_at(i)
-        h = v & L_HASH
+        h = v & DEFS_HASH
         if (v & L_DEFINED) == 0 or get_bit(DEFS, h):
             set_bit(MARKS, h & 0x1FFF)
         else:
@@ -193,7 +196,7 @@ def mark_all():
     """The first reading of every object file, which marks the names to keep."""
     for i in range(0, 512):
         lk_tab.set_wk(MARKS + i, 0)
-    for i in range(0, 2048):
+    for i in range(0, (DEFS_HASH + 1) >> 4):
         lk_tab.set_wk(DEFS + i, 0)
     for obj in range(0, object_count):
         mark_object(obj)
@@ -202,7 +205,7 @@ def mark_all():
 def begin():
     """Before the tables are read: no name kept yet, and MAINMODULE.main to look out for."""
     global heap_top, main_length, main_sym, fc_call, fc_start
-    for i in range(0, 512):
+    for i in range(0, CHAINS):
         lk_tab.set_wk(HEADS + i, 0)
     main_length = lk_file.arg_length(lk_file.ARG_MAIN)
     for i in range(0, main_length):
@@ -327,7 +330,7 @@ def rename_farcall():
 
 def chain():
     """The chain of the pending name: an index into HEADS."""
-    return (pend_hash ^ (pend_hash >> 7)) & 0x1FF
+    return (pend_hash ^ (pend_hash >> 7)) & (CHAINS - 1)
 
 
 def find():

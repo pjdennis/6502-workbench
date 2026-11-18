@@ -895,3 +895,40 @@ Correctness: for every change kept below, `test_src_lathec.py` (the compiler's t
 **Large features**, for the owner to know (bytes of code as placed in the eight-bank image; none recommended for cutting): `inline` (INLINES 5,152, and the code for it in EXPR and DECL, 6,881 counted before); the embedded assembler (ASMBLOCK 3,527 and 465 of tables); constant folding (FOLD 1,301); conditional compilation (about 770); the linker's zero page promotion (LK_ALLOC 7,834 and 184 resident, of which the choice of what goes in zero page is most); the environment file reader (LK_ENVF 4,139 and 172 of tables); the map (LK_MAP 3,606); windows, banks and stubs (LK_WIN 1,146, LK_BOOT 1,194, with more in LK_PLACE and LK_EMIT).
 
 **What I would build first:** the position record (1,126 bytes alone, reads better), then DECL's stream, OUT's `put`, `need_name`, the loop state, `head_of` and LK_SCAN's object: **1,793 bytes of the image**, measured together, for +0.14 % of the self-compile's cycles, with main RAM a little up for both tools. With the estimated changes after them (the rest of `Place`, `fatal_at`), about 2.0 to 2.1 KB in all. They help the compiler's banks; the linker's third bank, the fullest (241 bytes left as judged), gains nothing from them, and needs its own work (`lk_alloc`, `lk_graph`) if it is to hold more.
+
+## The linker on a 32K BBC, measured (2026-11-18)
+
+What the linker's build for a 32K Model B (`linker-bbc.env` with `define RAM32 1`, every table in main RAM; [`bbc.md`](bbc.md), "The linker on a 32K BBC") links, and the shape of Lathe code it was balanced on. All by `lathe/tests/lk_ram32.py` (`shape`, `real`, `series`) and `test_lk_ram32.py` (the links on the BBC).
+
+### The shape of Lathe code (counted)
+
+The object files of the tools' own modules (the run-time modules left out), as build.py compiles them for `linker-bbc.env` and `lathec-bbc.env`, and of two of the real programs the assessment uses, compiled for the BBC all in one; code as the object files hold it, before zero page shrinks it:
+
+| | the linker | the compiler | lextest | kerneltest |
+|---|---|---|---|---|
+| modules, functions | 19, 436 | 17, 744 | 5, 131 | 3, 98 |
+| code bytes | 55,161 | 81,020 | 10,845 | 9,668 |
+| code a function (median) | 126.5 (67) | 108.9 (67) | 82.8 (46) | 98.7 (55) |
+| slots, of them parameters, a function | 3.64, 1.05 | 3.16, 1.33 | 2.91, 1.11 | 3.38, 1.27 |
+| calls (CALL records) a function | 3.69 | 4.16 | 2.63 | 3.15 |
+| fix-ups a function (most) | 33.9 (255) | 28.4 (263) | 21.8 (204) | 27.9 (204) |
+| functions, symbols, symbols from outside, imports a module | 23.0, 69.4, 35.8, 7.0 | 43.8, 114.5, 50.8, 6.8 | 26.2, 56.4, 15.6, 3.6 | 32.7, 78.3, 23.3, 3.0 |
+| variables a module (bytes) | 9.5 (2,938) | 17.2 (2,565) | 12.4 (1,678) | 11.0 (2,671) |
+| bytes of object file a byte of code | 4.49 | 4.54 | 5.12 | 5.27 |
+
+The test programs' functions are smaller than the tools' (83 to 99 bytes a function against 109 to 127), so as programs of a given size they have more functions: the assessment on them is the harder case. What the linker's tables hold of them, a function: about 1.0 node, 2.5 slots, 1.9 calls (the linker's rows, a call between two functions once), 2.0 symbols in object files and 0.5 variables or constants; the capacities of `LKSMALL 2` are in those proportions.
+
+### The synthetic programs
+
+Made of real programs (`lk_ram32.glue`): each piece's own modules renamed (`g1lex`...), the run-time modules once, a main that calls each piece's main, so that the shape is the real one and each piece keeps what it kept. Six series, each a real program with pieces added in order (errtest, copytest, srctest or typetest, then end-to-end cases of 1 to 2.6 KB) until the 32K build refuses it (the host linker at its capacities, which refuses where the Lathe-written build does):
+
+| Series from | Largest that links, and fits mode 7 | Refused next | By |
+|---|---|---|---|
+| lextest | 25,034 (+ errtest, copytest, compare); 27,222 links, too large for mode 7 | 29,412 | fix-ups of one function: a test main's 344 |
+| fbuftest | 26,125 links (14 bytes over mode 7); 23,509 fits | 30,049 | functions, 320 |
+| kerneltest | 25,730; up to 31,066 links | 32,540 | calls, 579 |
+| srctest | 21,326 (+ typetest) | 21,764 | functions, 297 (typetest's 59 bytes a function) |
+| lktest1 | 22,469 (+ srctest, copytest) | 25,094 | symbols in object files, 625 |
+| errtest | 22,086 | 24,272 | fix-ups of one function, 344 |
+
+The time of a link on the emulated BBC, 157 to 289 million cycles (1.3 to 2.4 minutes at 2 MHz) for 15 to 26 KB programs, and the files, are in [`bbc.md`](bbc.md).

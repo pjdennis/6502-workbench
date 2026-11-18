@@ -82,9 +82,14 @@ def begin(letter, addr, size):
 
 # The names of one object file are held in the work area (lk_name's buffer) while it is read:
 # from index_at, where the name of each of its symbol numbers is held + 1, or 0; then the names.
-# Only the names of symbols marked HELD are held. Before the image is written they take the
-# first W_ADDR words; while it is written the words from W_HELD, above the slot name (W_SNAME).
+# Only the names of symbols marked HELD are held. The F, D and V lines' readings (lines) hold
+# them in the first W_ADDR words, which the fix-ups held take while the image is written; the S
+# lines' (slots), once the image is closed too, in the words from W_HELD, above the slot name
+# (W_SNAME), where the image's own reading held them until 2026-11-16, or, in the 32K build
+# (lk_tab.py), where the room there is not left, in the first W_ADDR words as the others do
+# (SLOTS_LOW).
 W_HELD = lk_tab.W_SNAME + 128
+SLOTS_LOW = 0
 index_at = 0
 
 
@@ -327,7 +332,10 @@ def slots(obj):
     that have slots are held as the file is read, and each slot's name is kept at W_SNAME."""
     if not mark_functions(obj, True, True):
         return
-    hold_begin(obj, W_HELD, lk_tab.W_OWN)
+    if SLOTS_LOW == 0:
+        hold_begin(obj, W_HELD, lk_tab.W_OWN)
+    else:
+        hold_begin(obj, 0, lk_tab.W_ADDR)
     lk_rec.open_object(obj)
     f = 0
     number = 0

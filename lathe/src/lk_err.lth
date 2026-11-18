@@ -13,7 +13,8 @@
 ;     rows is indexed by a word.
 ;   - A capacity that sizes a table is given twice, under `#if LKSMALL`: the small value is for
 ;     the test programs, which must fit the emulator's default machine beside the linker's code
-;     (lathe/src/linker.env; lathe/host/README.md, "The linker in Lathe").
+;     (lathe/src/linker.env; lathe/host/README.md, "The linker in Lathe"). Some are given a third
+;     time, under `#if LKSMALL == 2` before the others: the build for a 32K BBC (lk_tab.lth).
 ;   - The linker's files are opened by the number of their argument, through lathe/src/sys.lth.
 ;
 ; Where the Lathe differs from the Python:

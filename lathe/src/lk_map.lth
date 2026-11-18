@@ -41,6 +41,8 @@
 ;   |                                      |                                   | after `and`     |
 ;   | copy_name, symbol_line, in_bank used | forward declarations              | declare before  |
 ;   | before they are defined              |                                   | use             |
+;   | slots: `if SLOTS_LOW == 0`           | `#if SLOTS_LOW`                   | a build has one |
+;   |                                      |                                   | of the two ways |
 module lk_map
 
 import lk_alloc (slot_addr)
@@ -120,9 +122,17 @@ end
 
 ; The names of one object file are held in the work area (lk_name's buffer) while it is read: from
 ; index_at, where the name of each of its symbol numbers is held + 1, or 0; then the names. Only
-; the names of symbols marked HELD are held. Before the image is written they take the first
-; W_ADDR words; while it is written the words from W_HELD, above the slot name (W_SNAME).
+; the names of symbols marked HELD are held. The F, D and V lines' readings (lines) hold them in
+; the first W_ADDR words, which the fix-ups held take while the image is written; the S lines'
+; (slots), once the image is closed too, in the words from W_HELD, above the slot name (W_SNAME),
+; where the image's own reading held them until 2026-11-16, or, in the 32K build (lk_tab.lth),
+; where the room there is not left, in the first W_ADDR words as the others do (SLOTS_LOW).
 pub const W_HELD = lk_tab.W_SNAME + 128
+#if LKSMALL == 2
+const SLOTS_LOW = 1
+#else
+const SLOTS_LOW = 0
+#end
 var index_at: word = 0
 
 ; True if the function, variable or constant data s is marked (lk_tab.F_HELD, D_HELD).
@@ -440,7 +450,11 @@ pub func slots(obj: byte)
   if not mark_functions(obj, true, true) then
     return
   end
+#if SLOTS_LOW
+  hold_begin(obj, 0, lk_tab.W_ADDR)
+#else
   hold_begin(obj, W_HELD, lk_tab.W_OWN)
+#end
   lk_rec.open_object(obj)
   f = 0
   number = 0

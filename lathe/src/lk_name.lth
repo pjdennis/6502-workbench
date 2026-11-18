@@ -59,10 +59,14 @@ import lk_tab (ctx_of, edge_at, edge_count, edge_sym, is_extra_copy, MAX_EDGES, 
 import sys (write)
 
 pub const MAX_OBJECTS = 40
+#if LKSMALL == 2
+pub const MAX_LOCALS = 592
+#else
 #if LKSMALL
 pub const MAX_LOCALS = 1400
 #else
 pub const MAX_LOCALS = 4000     ; SYM records in all object files together
+#end
 #end
 
 pub var object_count: byte = 0
@@ -73,11 +77,23 @@ pub var local: [MAX_LOCALS]word rows nozp in LKLOCAL
 pub var local_count: word = 0
 
 ; While the files are read for the tables: lk_tab.work, in words, from MARKS up (lk_scan's waiting
-; weights are below it).
+; weights are below it). The 32K build (lk_tab.lth), whose work area is a third of the full one,
+; has fewer words below the heap, so more of it for the names: room for 16 weights waiting
+; (lk_scan.MAX_PENDING), 256 chains, and half the bits of DEFS, which keep a name now and then
+; that need not have been kept (a false match only does that), in the reading's heap.
+#if LKSMALL == 2
+pub const MARKS = 64
+const CHAINS = 256
+const DEFS_HASH = $3FFF
+#else
 pub const MARKS = 256           ; 8192 bits: the names to keep
-pub const HEADS = MARKS + 512   ; 512 chains of kept names
-const HEAP = HEADS + 512        ; the heap, up to the symbols' words at the top
-pub const DEFS = HEAP           ; mark_all: 32768 bits, the names some file defines
+const CHAINS = 512              ; chains of kept names (a power of 2)
+const DEFS_HASH = $7FFF         ; the bits of a name's hash DEFS is indexed by (32768 bits; at
+                                ; least MARKS's $1FFF)
+#end
+pub const HEADS = MARKS + 512   ; where each chain starts
+const HEAP = HEADS + CHAINS     ; the heap, up to the symbols' words at the top
+pub const DEFS = HEAP           ; mark_all: a bit for each hash of a name some file defines
 pub const HEAP_START = 2 * HEAP ; in bytes
 pub const HEAP_END = 2 * lk_tab.WORK_SIZE       ; without the symbols' words
 const ENTRY = 5                 ; a kept name: next in its chain + 1 (2), symbol (2), length (1),
@@ -251,7 +267,7 @@ func mark_object(obj: byte)
   lk_rec.close()
   for i = 0 until count do
     v = local_at(i)
-    h = v & L_HASH
+    h = v & DEFS_HASH
     if (v & L_DEFINED) == 0 or get_bit(DEFS, h) then
       set_bit(MARKS, h & $1FFF)
     else
@@ -267,7 +283,7 @@ pub func mark_all()
   for i = 0 until 512 do
     lk_tab.set_wk(MARKS + i, 0)
   end
-  for i = 0 until 2048 do
+  for i = 0 until (DEFS_HASH + 1) >> 4 do
     lk_tab.set_wk(DEFS + i, 0)
   end
   for obj = 0 until object_count do
@@ -279,7 +295,7 @@ end
 pub func begin()
   var i: word
   var c: byte
-  for i = 0 until 512 do
+  for i = 0 until CHAINS do
     lk_tab.set_wk(HEADS + i, 0)
   end
   main_length = lk_file.arg_length(lk_file.ARG_MAIN)
@@ -399,7 +415,7 @@ end
 
 ; The chain of the pending name: an index into HEADS.
 func chain(): word
-  return (pend_hash ^ (pend_hash >> 7)) & $1FF
+  return (pend_hash ^ (pend_hash >> 7)) & (CHAINS - 1)
 end
 
 ; The kept symbol with the pending name, and whether there is one.

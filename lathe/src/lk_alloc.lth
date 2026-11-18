@@ -578,11 +578,16 @@ end
 const CAND = WEIGHT_COUNT + WEIGHTS     ; while promote() works: the copies of the item judged,
 const LIST = CAND + lk_tab.MAX_CONTEXTS ; then the list, two words a copy (through; size, and
                                         ; context << 12), throughs largest first
+#if LKSMALL == 2
+const MAX_TAKEN = 18            ; the 32K build (lk_tab.lth): the list ends the column of main
+                                ; memory bases, MAX_NODES words, after CAND
+#else
 #if LKSMALL
 const MAX_TAKEN = 32
 #else
 const MAX_TAKEN = 128           ; a list longer than this takes a layout instead: judging an item
                                 ; reads it, and longer lists saved no layouts on the corpus
+#end
 #end
 var taken: word = 0
 var taken_vars: word = 0        ; bytes of variables accepted since L
