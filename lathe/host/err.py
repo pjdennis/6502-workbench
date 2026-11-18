@@ -356,6 +356,17 @@ def position(new_line, new_col):
     col = new_col
 
 
+# Where a token is, kept for an error found later: a list [line, col], as
+# parts.mark_place() makes it (the Lathe's record err.Place, its two fields).
+PLACE_LINE = 0
+PLACE_COL = 1
+
+
+def position_at(place):
+    """Say that an error found from now on is at `place`."""
+    position(place[PLACE_LINE], place[PLACE_COL])
+
+
 def put_decimal(n):
     count = 0
     while True:

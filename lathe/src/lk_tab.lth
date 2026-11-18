@@ -425,6 +425,8 @@ pub func next_call(r: word, e: word): word
   return 0
 end
 
+; Where the calls of function or class r start: its entry of fn_edge or cls_edge, which while
+; the chains are built is its newest call + 1 (head_of).
 func run_start(r: word): word
   if lk_sym.kind_of(r) == lk_sym.CLASS then
     return cls_edge[byte(lk_sym.row_of(r))]
@@ -518,13 +520,9 @@ pub func chain_next(e: word): word
   return wk(W_NEXT + e - 1)
 end
 
+; The newest call of r's chain + 1: the same entry as run_start's.
 pub func head_of(r: word): word
-  if lk_sym.kind_of(r) == lk_sym.CLASS then
-    return cls_edge[byte(lk_sym.row_of(r))]
-  end
-  with LKCALLS do
-    return fn_edge[lk_sym.row_of(r)]
-  end
+  return run_start(r)
 end
 
 func set_head(r: word, e: word)

@@ -22,8 +22,10 @@ class Memory(unittest.TestCase):
         # of a command file (lk_file.arg_text, 2026-11-16), which the compiler's link on the BBC
         # needs: its command line is longer than the 239 bytes the module copies; and 48 for the
         # environment file's defines, which `when` and `unless` read (lk_envf.define_name and
-        # define_word, 16 of them, 2026-11-17).
-        self.assertLessEqual(lk_memory_report.CEILING, 54144 + 96 * 7 + 512 + 16 * 3)
+        # define_word, 16 of them, 2026-11-17); and 16 for what each copy of a function loses
+        # before the run of its fix-ups held (lk_fix.run_lost, a word a context, 2026-11-18), so
+        # that no function is refused for its number of fix-ups.
+        self.assertLessEqual(lk_memory_report.CEILING, 54144 + 96 * 7 + 512 + 16 * 3 + 2 * 8)
         self.assertGreaterEqual(lk_memory_report.CEILING, lk_memory_report.BUDGET)
 
     def test_the_compiler_has_room_for_more_functions(self):

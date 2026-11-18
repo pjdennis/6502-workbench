@@ -50,12 +50,19 @@
 ;   |                                      |                                   | function with a |
 ;   |                                      |                                   | result must not |
 ;   |                                      |                                   | be reachable    |
+;   | place = mark_char(): a list          | var place: err.Place, filled in   | a record is not |
+;   | [line, col]; x_line and x_col, and   | by mark_char(@place); x_place,    | a result or a   |
+;   | x_place() to make a list of them     | a record                          | parameter; a    |
+;   |                                      |                                   | list at module  |
+;   |                                      |                                   | level counts as |
+;   |                                      |                                   | a table (memory_|
+;   |                                      |                                   | report)         |
 module asmblock
 
 import err (E_ASM_BRANCH, E_ASM_DIRECTIVE, E_ASM_LABEL_USE, E_ASM_MNEMONIC, E_ASM_MODE,
             E_ASM_NO_LABEL, E_ASM_NOT_ZP, E_ASM_RANGE, E_DOT_EXPECTED, E_DUPLICATE, E_END_EXPECTED,
             E_EXPR_EXPECTED, E_LABELS_FULL, E_NAME_EXPECTED, E_NL_EXPECTED, E_RPAREN_EXPECTED,
-            E_SYNTAX, E_TYPE, E_UNDEFINED, fatal, position)
+            E_SYNTAX, E_TYPE, E_UNDEFINED, fatal, Place, position, position_at)
 import fbuf (as_written, branch, FIX_ADDRESS, FIX_HIGH, FIX_LOW, FIX_ZERO_PAGE, jump,
              keep_as_written, new_label, NO_SLOT, op, op_byte, op_fix, OP_RTS, op_word, place,
              runs_on)
@@ -254,8 +261,20 @@ func is_end_word(): bool
   return true
 end
 
-func fail_at(at_line: word, at_col: word, number: byte)
-  err.position(at_line, at_col)
+func fail_at(place: ^err.Place, number: byte)
+  err.position_at(place)
+  err.fatal(number)
+end
+
+; Where the character being looked at is, into `place`.
+func mark_char(place: ^err.Place)
+  place.line = src.line
+  place.col = src.col
+end
+
+; Error `number`, at the character being looked at.
+func fail_here(number: byte)
+  err.position(src.line, src.col)
   err.fatal(number)
 end
 
@@ -271,7 +290,7 @@ var label_col: [MAX_BLOCK_LABELS]word
 var label_count: byte = 0
 
 ; The block's label called `name`, made if it is new.
-func label_find(name: word, at_line: word, at_col: word): byte
+func label_find(name: word, place: ^err.Place): byte
   var i: byte
   for i = 0 until label_count do
     if label_name[i] == name then
@@ -284,18 +303,18 @@ func label_find(name: word, at_line: word, at_col: word): byte
   label_name[label_count] = name
   label_number[label_count] = fbuf.new_label()
   label_defined[label_count] = false
-  label_line[label_count] = at_line
-  label_col[label_count] = at_col
+  label_line[label_count] = place.line
+  label_col[label_count] = place.col
   label_count += 1
   return label_count - 1
 end
 
 ; The label called `name` is here.
-func label_define(name: word, at_line: word, at_col: word)
+func label_define(name: word, place: ^err.Place)
   var i: byte
-  i = label_find(name, at_line, at_col)
+  i = label_find(name, place)
   if label_defined[i] then
-    fail_at(at_line, at_col, err.E_DUPLICATE)
+    fail_at(place, err.E_DUPLICATE)
   end
   label_defined[i] = true
   fbuf.place(label_number[i])
@@ -306,7 +325,8 @@ func labels_check()
   var i: byte
   for i = 0 until label_count do
     if not label_defined[i] then
-      fail_at(label_line[i], label_col[i], err.E_ASM_NO_LABEL)
+      err.position(label_line[i], label_col[i])
+      err.fatal(err.E_ASM_NO_LABEL)
     end
   end
 end
@@ -438,8 +458,7 @@ var x_symbol: word = 0
 var x_slot: byte = 0
 var x_storage: word = 0
 var x_function: bool = false
-var x_line: word = 0            ; where the expression starts
-var x_col: word = 0
+var x_place: err.Place          ; where the expression starts
 
 ; A number: $hex, %binary, decimal or a character. Returns its value.
 func number_term(): word
@@ -473,11 +492,11 @@ func name_term()
     src.advance()
     read_word()
     if spelling_length == 0 then
-      fail_at(x_line, x_col, err.E_NAME_EXPECTED)
+      fail_at(@x_place, err.E_NAME_EXPECTED)
     end
     member = word_name()
   end
-  err.position(x_line, x_col)
+  err.position_at(@x_place)
   x_kind = name_operand(first, member)
   x_value = found_value
   x_symbol = found_symbol
@@ -498,10 +517,10 @@ func term(have_word: bool)
     src.advance()
     read_word()
     if spelling_length == 0 then
-      fail_at(x_line, x_col, err.E_NAME_EXPECTED)
+      fail_at(@x_place, err.E_NAME_EXPECTED)
     end
     x_kind = X_LABEL
-    x_value = label_find(word_name(), x_line, x_col)
+    x_value = label_find(word_name(), @x_place)
   elif lex.is_letter(src.ch) then
     read_word()
     name_term()
@@ -523,13 +542,13 @@ func expression(have_word: bool)
     skip_blanks()
     n = number_term()
     if x_kind == X_LABEL then
-      fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+      fail_at(@x_place, err.E_ASM_LABEL_USE)
     end
     if x_kind == X_NUMBER and adding and n > $FFFF - x_value then
-      fail_at(x_line, x_col, err.E_ASM_RANGE)
+      fail_at(@x_place, err.E_ASM_RANGE)
     end
     if x_kind == X_NUMBER and not adding and n > x_value then
-      fail_at(x_line, x_col, err.E_ASM_RANGE)
+      fail_at(@x_place, err.E_ASM_RANGE)
     end
     if adding then
       x_value = x_value + n
@@ -542,19 +561,18 @@ end
 
 ; Note where the expression about to be read starts.
 func expression_here()
-  x_line = src.line
-  x_col = src.col
+  mark_char(@x_place)
 end
 
 ; ---- Instructions ------------------------------------------------------------------------
 
 func fail_mode()
-  fail_at(x_line, x_col, err.E_ASM_MODE)
+  fail_at(@x_place, err.E_ASM_MODE)
 end
 
 func use_storage(zero_page: bool)
   if x_storage != NO_STORAGE then
-    err.position(x_line, x_col)
+    err.position_at(@x_place)
     storage_used(x_storage, zero_page)
   end
 end
@@ -594,7 +612,7 @@ func branch(m: byte)
   expression(false)
   op, ok = opcode(m, M_REL)
   if x_kind != X_LABEL then
-    fail_at(x_line, x_col, err.E_ASM_BRANCH)
+    fail_at(@x_place, err.E_ASM_BRANCH)
   end
   fbuf.branch(op, label_number[lo(x_value)])
 end
@@ -618,7 +636,7 @@ func immediate(m: byte)
   expression_here()
   expression(false)
   if x_kind == X_LABEL then
-    fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+    fail_at(@x_place, err.E_ASM_LABEL_USE)
   end
   if x_kind == X_ADDRESS then
     if selector == C_LESS then
@@ -626,7 +644,7 @@ func immediate(m: byte)
     elif selector == C_GREATER then
       address_fix(op, fbuf.FIX_HIGH)
     else
-      fail_at(x_line, x_col, err.E_ASM_RANGE)
+      fail_at(@x_place, err.E_ASM_RANGE)
     end
     return
   end
@@ -636,7 +654,7 @@ func immediate(m: byte)
   elif selector == C_GREATER then
     value = hi(value)
   elif value > $FF then
-    fail_at(x_line, x_col, err.E_ASM_RANGE)
+    fail_at(@x_place, err.E_ASM_RANGE)
   end
   fbuf.op_byte(op, lo(value))
 end
@@ -694,7 +712,7 @@ func indirect(m: byte)
     fail_mode()
   end
   if x_kind == X_LABEL then
-    fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+    fail_at(@x_place, err.E_ASM_LABEL_USE)
   end
   if mode == M_IND then
     if x_kind == X_NUMBER then
@@ -707,11 +725,11 @@ func indirect(m: byte)
   end
   if x_kind == X_NUMBER then
     if x_value > $FF then
-      fail_at(x_line, x_col, err.E_ASM_RANGE)
+      fail_at(@x_place, err.E_ASM_RANGE)
     end
     fbuf.op_byte(op, lo(x_value))
   elif x_storage == NO_STORAGE then
-    fail_at(x_line, x_col, err.E_ASM_RANGE)       ; a function is never in zero page
+    fail_at(@x_place, err.E_ASM_RANGE)            ; a function is never in zero page
   else
     address_fix(op, fbuf.FIX_ZERO_PAGE)
     use_storage(true)
@@ -742,7 +760,7 @@ func direct(m: byte, have_word: bool)
   end
   if x_kind == X_LABEL then
     if abs_op != OP_JMP or zp_mode != M_ZP then
-      fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+      fail_at(@x_place, err.E_ASM_LABEL_USE)
     end
     fbuf.jump(label_number[lo(x_value)])
   elif x_kind == X_NUMBER then
@@ -751,7 +769,7 @@ func direct(m: byte, have_word: bool)
     elif has_abs then
       fbuf.op_word(abs_op, x_value)
     else
-      fail_at(x_line, x_col, err.E_ASM_RANGE)
+      fail_at(@x_place, err.E_ASM_RANGE)
     end
   elif has_abs then
     address_fix(abs_op, fbuf.FIX_ADDRESS)
@@ -760,7 +778,7 @@ func direct(m: byte, have_word: bool)
       out.call(x_symbol, 0, out.NO_OUTER)
     end
   elif x_storage == NO_STORAGE then
-    fail_at(x_line, x_col, err.E_ASM_RANGE)
+    fail_at(@x_place, err.E_ASM_RANGE)
   else
     ; STX zp,Y and STY zp,X have no absolute form: the operand must be in zero page.
     address_fix(zp_op, fbuf.FIX_ZERO_PAGE)
@@ -796,7 +814,7 @@ func instruction(m: byte)
   end
   skip_blanks()
   if not at_line_end() then
-    fail_at(src.line, src.col, err.E_NL_EXPECTED)
+    fail_here(err.E_NL_EXPECTED)
   end
 end
 
@@ -806,28 +824,27 @@ var end_line: word = 0          ; where the `end` that closed the block is
 var end_col: word = 0
 
 ; The instruction the word just read names; if none, an error at the word.
-func mnemonic_here(at_line: word, at_col: word): byte
+func mnemonic_here(place: ^err.Place): byte
   var m: byte
   var ok: bool
   m, ok = find_mnemonic()
   if not ok then
-    fail_at(at_line, at_col, err.E_ASM_MNEMONIC)
+    fail_at(place, err.E_ASM_MNEMONIC)
   end
   return m
 end
 
 ; A line that starts with a dot: a label, alone or before an instruction, or a directive,
 ; which blocks do not have. The dot has been passed over.
-func label_line_rest(at_line: word, at_col: word)
+func label_line_rest(place: ^err.Place)
   var name: word
   var colon: bool
-  var word_line: word
-  var word_col: word
+  var word_place: err.Place
   var m: byte
   var ok: bool
   read_word()
   if spelling_length == 0 then
-    fail_at(at_line, at_col, err.E_NAME_EXPECTED)
+    fail_at(place, err.E_NAME_EXPECTED)
   end
   name = word_name()
   colon = src.ch == C_COLON
@@ -836,56 +853,53 @@ func label_line_rest(at_line: word, at_col: word)
   end
   skip_blanks()
   if at_line_end() then
-    label_define(name, at_line, at_col)
+    label_define(name, place)
     return
   end
-  word_line = src.line
-  word_col = src.col
+  mark_char(@word_place)
   if not lex.is_letter(src.ch) then
-    fail_at(at_line, at_col, err.E_ASM_DIRECTIVE)
+    fail_at(place, err.E_ASM_DIRECTIVE)
   end
   read_word()
   m, ok = find_mnemonic()
   if not ok and not colon then
-    fail_at(at_line, at_col, err.E_ASM_DIRECTIVE)
+    fail_at(place, err.E_ASM_DIRECTIVE)
   end
   if not ok then
-    fail_at(word_line, word_col, err.E_ASM_MNEMONIC)
+    fail_at(@word_place, err.E_ASM_MNEMONIC)
   end
-  label_define(name, at_line, at_col)
+  label_define(name, place)
   instruction(m)
 end
 
 ; One line of the block. Returns false for the line that ends it, whose `end` has been
 ; read; true for any other, which has been passed over with its line feed.
 func asm_line(): bool
-  var at_line: word
-  var at_col: word
+  var place: err.Place
   skip_blanks()
   if src.eof then
-    fail_at(src.line, src.col, err.E_END_EXPECTED)
+    fail_here(err.E_END_EXPECTED)
   end
   if at_line_end() then
     skip_line()
     return true
   end
-  at_line = src.line
-  at_col = src.col
-  err.position(at_line, at_col)
+  mark_char(@place)
+  err.position_at(@place)
   if src.ch == C_DOT then
     src.advance()
-    label_line_rest(at_line, at_col)
+    label_line_rest(@place)
   else
     if not lex.is_letter(src.ch) then
-      fail_at(at_line, at_col, err.E_ASM_MNEMONIC)
+      fail_at(@place, err.E_ASM_MNEMONIC)
     end
     read_word()
     if is_end_word() then
-      end_line = at_line
-      end_col = at_col
+      end_line = place.line
+      end_col = place.col
       return false
     end
-    instruction(mnemonic_here(at_line, at_col))
+    instruction(mnemonic_here(@place))
   end
   skip_line()
   return true

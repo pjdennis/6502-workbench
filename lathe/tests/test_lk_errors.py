@@ -572,6 +572,8 @@ class Capacities(ErrorTest):
         self.assertEqual(link([o], ENV).errors, 'link error 16: too many interrupt functions\n')
 
     def test_fixes(self):
+        # A function of any number of fix-ups links (test_lk_fixup_runs.py); a table of more
+        # than a run holds does not.
         o = Obj('t')
         v = o.var('z', 1, NEVER)
         c = o.code()
@@ -579,13 +581,13 @@ class Capacities(ErrorTest):
             c.abs(0xEE, v)
         c.raw(0x60)
         o.func('main', c)
-        self.assertEqual(link([o], ENV).errors,
-                         'link error 28: too many fix-ups in one function or table: t.main\n')
+        r = link([o], ENV)
+        self.assertEqual((r.status, r.errors), (0, ''))
         o = simple()
         v = o.var('z', 1, NEVER)
         o.data('$1', bytes(1025), fixes=[(i, 2, v, 0xFF, 0) for i in range(1025)])
         keep(o, '$1')
-        self.assertEqual(link([o], ENV).errors, 'link error 28: too many fix-ups in one function or table\n')
+        self.assertEqual(link([o], ENV).errors, 'link error 28: too many fix-ups in one table\n')
 
     def test_local_symbols(self):
         objs = [simple()]

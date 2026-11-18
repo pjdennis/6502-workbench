@@ -115,6 +115,7 @@ C_SPACE = 0x20
 C_ZERO = 0x30
 
 register_name = [0] * REGISTER_COUNT
+stream = 0              # the interface being read or written: one is open at a time
 init_parts = 0          # how many functions of initial values have been written out early
 
 
@@ -185,7 +186,7 @@ def file_path(directory_name, module_name, kind):
 
 # ---- Writing the interface ---------------------------------------------------------------
 
-def write_type(stream, t):
+def write_type(t):
     while typetab.is_pointer(t) or typetab.is_array(t):
         if typetab.is_pointer(t):
             kernel.put(stream, LI_POINTER)
@@ -202,7 +203,7 @@ def write_type(stream, t):
         kernel.put(stream, t)
 
 
-def write_named_type(stream, s):
+def write_named_type(s):
     """A type entry: a record, an enumeration or a function type that `s` declares, or another
     name for a type. Every record, enumeration and function type is written, so that what is
     exported can use them; one not `pub` is known to an importer but cannot be named there.
@@ -222,30 +223,30 @@ def write_named_type(stream, s):
         flags = flags | LI_RECURSIVE
     kernel.put(stream, flags)
     if kind == LI_FUNC_TYPE:
-        write_signature(stream, s)
+        write_signature(s)
     elif kind == LI_TYPE:
-        write_type(stream, t)
+        write_type(t)
     elif kind == LI_RECORD:
         kernel.put(stream, kernel.params_of(s))
         for f in range(s + 1, s + 1 + kernel.params_of(s)):
             kernel.put_name(stream, kernel.word_of(f, kernel.C_NAME))
-            write_type(stream, kernel.type_of(f))
+            write_type(kernel.type_of(f))
 
 
-def write_members(stream, first, count):
+def write_members(first, count):
     kernel.put(stream, count)
     for m in range(first, first + count):
-        write_type(stream, kernel.member_type_of(m))
+        write_type(kernel.member_type_of(m))
         kernel.put(stream, kernel.member_value_of(m))
 
 
-def write_signature(stream, s):
+def write_signature(s):
     """The parameters and results of function or function type `s`."""
-    write_members(stream, kernel.word_of(s, kernel.C_MEMBERS), kernel.params_of(s))
-    write_members(stream, kernel.word_of(s, kernel.C_MEMBERS) + kernel.params_of(s), kernel.byte_of(s, kernel.C_RESULTS))
+    write_members(kernel.word_of(s, kernel.C_MEMBERS), kernel.params_of(s))
+    write_members(kernel.word_of(s, kernel.C_MEMBERS) + kernel.params_of(s), kernel.byte_of(s, kernel.C_RESULTS))
 
 
-def write_function(stream, s):
+def write_function(s):
     kernel.put(stream, LI_FUNC)
     kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
     if kernel.flags_of(s) & kernel.SF_EXTERN != 0:
@@ -261,29 +262,29 @@ def write_function(stream, s):
         kernel.put(stream, LI_INTERRUPT)
     else:
         kernel.put(stream, 0)
-    write_signature(stream, s)
+    write_signature(s)
     if kernel.flags_of(s) & inline.SF_INLINE != 0:
         inline.write(stream, s)
 
 
-def write_constant(stream, s):
+def write_constant(s):
     if kernel.flags_of(s) & kernel.SF_IN != 0:
         kernel.put(stream, LI_CONST_IN)
         kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-        write_type(stream, kernel.type_of(s))
+        write_type(kernel.type_of(s))
         kernel.put_word(stream, 0)
         kernel.put_name(stream, kernel.value_of(s))
         return
     kernel.put(stream, LI_CONST)
     kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-    write_type(stream, kernel.type_of(s))
+    write_type(kernel.type_of(s))
     kernel.put_word(stream, kernel.value_of(s))
 
 
-def write_variable(stream, s):
+def write_variable(s):
     kernel.put(stream, LI_VAR)
     kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-    write_type(stream, kernel.type_of(s))
+    write_type(kernel.type_of(s))
     if kernel.flags_of(s) & kernel.SF_AT != 0:
         kernel.put(stream, LI_AT)
         kernel.put_word(stream, kernel.value_of(s))
@@ -300,6 +301,7 @@ def write_variable(stream, s):
 
 def write_interface():
     """Write what the module exports to its interface file in the output directory."""
+    global stream
     stream, ok = kernel.open_out(file_path(directory[0], kernel.module_name[0], C_LOWER_I))
     if not ok:
         err.fatal(err.E_CREATE)
@@ -323,25 +325,25 @@ def write_interface():
             inline.write_uses(stream, s)
     for s in range(0, kernel.sym_count):
         if kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_TYPE:
-            write_named_type(stream, s)
+            write_named_type(s)
         elif kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_MODULE:
             if expands:
                 kernel.put(stream, LI_MODULE)
                 kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
         elif kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.flags_of(s) & kernel.SF_PUB != 0:
             if kernel.kind_of(s) == kernel.K_FUNC:
-                write_function(stream, s)
+                write_function(s)
             elif kernel.kind_of(s) == kernel.K_CONST:
-                write_constant(stream, s)
+                write_constant(s)
             else:
-                write_variable(stream, s)
+                write_variable(s)
     kernel.put(stream, LI_END)
     kernel.close(stream)
 
 
 # ---- Reading an interface ----------------------------------------------------------------
 
-def read_type(stream):
+def read_type():
     mark = typetab.prefix_count
     t, _ = kernel.get(stream)
     while t == LI_POINTER or t == LI_ARRAY or t == LI_ROWS:
@@ -351,13 +353,13 @@ def read_type(stream):
             typetab.prefix(typetab.FORM_ARRAY + t - LI_ARRAY, kernel.get_word(stream))
         t, _ = kernel.get(stream)
     if t == LI_NAMED:
-        t = imported_type(stream)
+        t = imported_type()
     elif t < typetab.BYTE_TYPE or t > typetab.NIL_TYPE:
         err.fatal(err.E_BAD_INTERFACE)
     return typetab.build(t, mark)
 
 
-def imported_type(stream):
+def imported_type():
     """A record, an enumeration or a function type given by the name of its module and its own: the module must
     have been imported already, and is in a scope of its own number."""
     name = inline.read_name(stream)
@@ -372,12 +374,12 @@ def imported_type(stream):
     return kernel.type_of(s)
 
 
-def read_named_type(stream, scope, kind, again):
+def read_named_type(scope, kind, again):
     """A type entry of kind LI_TYPE, LI_RECORD, LI_ENUM or LI_FUNC_TYPE. Every type of the
     interface is read, listed or not, the first time it is read; `again`, it is passed over, but
     the importer can name it from now on if it is listed. A listed type that is not `pub` is
     error 102."""
-    read_entry_name(stream)
+    read_entry_name()
     entry_name_begin()
     how = wanted(scope, True)
     flags, _ = kernel.get(stream)
@@ -385,44 +387,44 @@ def read_named_type(stream, scope, kind, again):
         not_exported(entry_row)
     if again:
         kernel.built_loaded(scope, how & READ_SHOWN != 0)
-        skip_named_type(stream, kind)
+        skip_named_type(kind)
         return
     s = kernel.sym_add(scope, kernel.name_end(), kernel.K_TYPE)
     if flags & LI_PUB != 0:
         kernel.set_byte(s, kernel.C_FLAGS, hidden(kernel.SF_PUB, how))
     if kind == LI_TYPE:
-        kernel.set_byte(s, kernel.C_TYPE, read_type(stream))
+        kernel.set_byte(s, kernel.C_TYPE, read_type())
         return
     t = typetab.declared(typetab.FORM_RECORD + kind - LI_RECORD, s)
     kernel.set_byte(s, kernel.C_TYPE, t)
     if kind == LI_FUNC_TYPE:
         if flags & LI_RECURSIVE != 0:
             typetab.make_recursive(t)
-        read_signature(stream, s)
+        read_signature(s)
         return
     if kind == LI_ENUM:
         return
     count, _ = kernel.get(stream)
     for i in range(0, count):
         name = inline.read_name(stream)
-        add_field(s, name, read_type(stream))
+        add_field(s, name, read_type())
 
 
-def skip_named_type(stream, kind):
+def skip_named_type(kind):
     """What follows the flags of a type entry read before: its types are read again, which
     makes no new type, and nothing else is made."""
     global entry_members
     entry_members = 0
     if kind == LI_TYPE:
-        read_type(stream)
+        read_type()
     elif kind == LI_FUNC_TYPE:
-        read_entry_members(stream)
-        read_entry_members(stream)
+        read_entry_members()
+        read_entry_members()
     elif kind == LI_RECORD:
         count, _ = kernel.get(stream)
         for i in range(0, count):
             inline.skip_name(stream)
-            read_type(stream)
+            read_type()
 
 
 def add_field(s, name, t):
@@ -434,23 +436,23 @@ def add_field(s, name, t):
     kernel.set_byte(s, kernel.C_PARAMS, kernel.params_of(s) + 1)
 
 
-def read_members(stream):
+def read_members():
     """Read parameters or results as members of the newest symbol. Returns how many."""
     count, _ = kernel.get(stream)
     for i in range(0, count):
-        t = read_type(stream)
+        t = read_type()
         register, _ = kernel.get(stream)
         kernel.member_add(t, register)
     return count
 
 
-def read_signature(stream, s):
+def read_signature(s):
     """The parameters and results of function or function type `s`, the newest symbol."""
-    kernel.set_byte(s, kernel.C_PARAMS, read_members(stream))
-    kernel.set_byte(s, kernel.C_RESULTS, read_members(stream))
+    kernel.set_byte(s, kernel.C_PARAMS, read_members())
+    kernel.set_byte(s, kernel.C_RESULTS, read_members())
 
 
-def read_entry_name(stream):
+def read_entry_name():
     """The name of an entry, which is not made a name yet: its characters are kept in
     entry_name, the first kernel.MAX_NAME of them, as a name keeps them."""
     global entry_length
@@ -470,14 +472,14 @@ def entry_name_begin():
         kernel.name_add(entry_name[i])
 
 
-def read_entry_members(stream):
+def read_entry_members():
     """Read parameters or results into the entry's members. Returns how many."""
     global entry_members
     count, _ = kernel.get(stream)
     for i in range(0, count):
         if entry_members == MAX_ENTRY_MEMBERS:
             err.fatal(err.E_MEMBERS_FULL)
-        entry_type[entry_members] = read_type(stream)
+        entry_type[entry_members] = read_type()
         register, _ = kernel.get(stream)
         entry_register[entry_members] = register
         entry_members += 1
@@ -640,24 +642,24 @@ def enter(scope, how, again, kind, flags, t, value, params, results):
         freeze(scope, kind, flags, t, value, params, results)
 
 
-def read_function(stream, scope, again):
+def read_function(scope, again):
     """A function entry: frozen, unless it is `inline`, whose saved tokens are read now if it is
     wanted, or passed over."""
     global entry_members
-    read_entry_name(stream)
+    read_entry_name()
     flags, _ = kernel.get(stream)
     if flags & LI_INLINE != 0:
         entry_name_begin()
         how = wanted(scope, True)
         entry_members = 0
         if how == READ_SKIP or again and kernel.built_loaded(scope, how & READ_SHOWN != 0):
-            params = read_entry_members(stream)
-            read_entry_members(stream)
+            params = read_entry_members()
+            read_entry_members()
             inline.skip(stream, params)
             return
         s = kernel.sym_add(scope, kernel.name_end(), kernel.K_FUNC)
         kernel.set_byte(s, kernel.C_FLAGS, hidden(kernel.SF_PUB | inline.SF_INLINE, how))
-        read_signature(stream, s)
+        read_signature(s)
         inline.read(stream, s)
         return
     symbol_flags = kernel.SF_PUB
@@ -672,18 +674,18 @@ def read_function(stream, scope, again):
     if flags & LI_INTERRUPT != 0:
         symbol_flags = kernel.SF_PUB | inline.SF_INTERRUPT
     entry_members = 0
-    params = read_entry_members(stream)
-    results = read_entry_members(stream)
+    params = read_entry_members()
+    results = read_entry_members()
     entry_name_begin()
     how = wanted(scope, True)
     enter(scope, how, again, kernel.K_FUNC, symbol_flags, 0, value, params, results)
 
 
-def read_constant(stream, scope, in_region, again):
+def read_constant(scope, in_region, again):
     """A constant entry; `in_region` for a table in a region, whose name follows its value."""
     global entry_members
-    read_entry_name(stream)
-    t = read_type(stream)
+    read_entry_name()
+    t = read_type()
     entry_members = 0
     value = kernel.get_word(stream)
     entry_name_begin()
@@ -691,11 +693,11 @@ def read_constant(stream, scope, in_region, again):
     flags = kernel.SF_PUB
     if in_region:
         flags = kernel.SF_PUB | kernel.SF_IN
-        value = region_name(stream, how)
+        value = region_name(how)
     enter(scope, how, again, kernel.K_CONST, flags, t, value, 0, 0)
 
 
-def region_name(stream, how):
+def region_name(how):
     """The name of a region, after an entry read as `how` says: passed over if it is not read."""
     if how == READ_SKIP:
         inline.skip_name(stream)
@@ -703,10 +705,10 @@ def region_name(stream, how):
     return inline.read_name(stream)
 
 
-def read_variable(stream, scope, again):
+def read_variable(scope, again):
     global entry_members
-    read_entry_name(stream)
-    t = read_type(stream)
+    read_entry_name()
+    t = read_type()
     placement, _ = kernel.get(stream)
     entry_name_begin()
     how = wanted(scope, True)
@@ -721,14 +723,14 @@ def read_variable(stream, scope, again):
         symbol_flags = kernel.SF_PUB | kernel.SF_NOZP
     elif placement == LI_IN:
         symbol_flags = kernel.SF_PUB | kernel.SF_NOZP | kernel.SF_IN
-        value = region_name(stream, how)
+        value = region_name(how)
     elif placement != 0:
         err.fatal(err.E_BAD_INTERFACE)
     entry_members = 0
     enter(scope, how, again, kernel.K_VAR, symbol_flags, t, value, 0, 0)
 
 
-def read_module_name(stream, number):
+def read_module_name(number):
     """The module of a name in an LI_USES entry of module `number`'s interface: a string, or
     an empty one for that module itself."""
     length, _ = kernel.get(stream)
@@ -741,12 +743,12 @@ def read_module_name(stream, number):
     return kernel.name_end()
 
 
-def read_uses(stream, number):
+def read_uses(number):
     """An LI_USES entry: if the inline function it is for is wanted, a row for each name its
     body names, so that the entries of this module and of the modules it imports are read
     for it. The entries come newest function first, so that a function another one names is
     wanted by the time its own entry is read."""
-    read_entry_name(stream)
+    read_entry_name()
     entry_name_begin()
     how = wanted(number, False)
     count, _ = kernel.get(stream)
@@ -755,7 +757,7 @@ def read_uses(stream, number):
             inline.skip_name(stream)
             inline.skip_name(stream)
         else:
-            owner = read_module_name(stream, number)
+            owner = read_module_name(number)
             add_want(owner, inline.read_name(stream), 0)
 
 
@@ -763,22 +765,23 @@ def open_interface(name, skip):
     """The interface of the module called `name`, from the first directory that has one, with
     its first `skip` bytes read."""
     for i in range(0, directory_count):
-        stream, ok = kernel.open_in(file_path(directory[i], name, C_LOWER_I))
+        found, ok = kernel.open_in(file_path(directory[i], name, C_LOWER_I))
         if ok:
             for k in range(0, skip):
-                kernel.get(stream)
-            return stream
+                kernel.get(found)
+            return found
     err.fatal(err.E_NO_INTERFACE)
     return 0
 
 
-def imported_module(stream, scope, again):
+def imported_module(scope, again):
     """An LI_MODULE entry: a module that the exported inline functions of module `scope` can
     name. It is imported too, if it is not already (or read again for the names the rows want
     of it), and is a name of that module's scope, which the expansions of its inline functions
-    see and the importer's own code does not. Returns the stream, which is another if the
-    module's interface was read: the one of `scope` is closed while it is, then opened again
-    where it was, so that one interface is open at a time however deep the imports go."""
+    see and the importer's own code does not. If the module's interface is read, the one of
+    `scope` is closed while it is, then opened again where it was (`stream` is then another),
+    so that one interface is open at a time however deep the imports go."""
+    global stream
     name = inline.read_name(stream)
     m = 1
     while m < kernel.module_count and kernel.module_name[m] != name:
@@ -793,13 +796,13 @@ def imported_module(stream, scope, again):
         stream = open_interface(kernel.module_name[scope], skip)
     if not again:
         kernel.set_word(kernel.sym_add(scope, name, kernel.K_MODULE), kernel.C_VALUE, m)
-    return stream
 
 
 def read_interface(number, again):
     """Declare what module number `number` exports, as symbols in the scope of that number: its
     types, and of the rest what the rows want (wanted()), or all of it. `again`: it was read
     before, and what it had then is not made again."""
+    global stream
     stream = open_interface(kernel.module_name[number], 0)
     letter_l, _ = kernel.get(stream)
     letter_i, _ = kernel.get(stream)
@@ -815,17 +818,17 @@ def read_interface(number, again):
         if kind == LI_END:
             break
         if kind == LI_FUNC:
-            read_function(stream, number, again)
+            read_function(number, again)
         elif kind == LI_CONST or kind == LI_CONST_IN:
-            read_constant(stream, number, kind == LI_CONST_IN, again)
+            read_constant(number, kind == LI_CONST_IN, again)
         elif kind == LI_VAR:
-            read_variable(stream, number, again)
+            read_variable(number, again)
         elif kind == LI_MODULE:
-            stream = imported_module(stream, number, again)
+            imported_module(number, again)
         elif kind == LI_USES:
-            read_uses(stream, number)
+            read_uses(number)
         else:
-            read_named_type(stream, number, kind, again)
+            read_named_type(number, kind, again)
     kernel.close(stream)
 
 
@@ -834,8 +837,7 @@ def read_interface(number, again):
 def module_line():
     """"module" name NL. The name must be the file's."""
     lex.expect(lex.T_MODULE, err.E_MODULE_EXPECTED)
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
+    parts.need_name()
     if lex.value != kernel.module_name[0]:
         err.fatal(err.E_MODULE_NAME)
     lex.next()
@@ -847,8 +849,7 @@ def import_list(name):
     lex.next()
     if lex.tok != lex.T_RPAREN:
         while True:
-            if lex.tok != lex.T_NAME:
-                err.fatal(err.E_NAME_EXPECTED)
+            parts.need_name()
             add_want(name, lex.value, W_LISTED)
             lex.next()
             if lex.tok != lex.T_COMMA:
@@ -864,13 +865,11 @@ def import_line():
     importer cannot name). Each name listed must be one the module exports."""
     global want_count
     lex.next()
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
+    parts.need_name()
     name = lex.value
     if name == kernel.module_name[0]:
         err.fatal(err.E_SELF_IMPORT)
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_MODULE)
     lex.next()
     want_count = 0
@@ -879,7 +878,7 @@ def import_line():
         kernel.set_byte(s, kernel.C_FLAGS, kernel.SF_LIST)
         how = 0
         import_list(name)
-    err.position(line, col)
+    err.position_at(place)
     # An interface read before may have brought the module in, for its inline functions
     # (imported_module()): that reading serves, and what it has is not made twice.
     m = 1
@@ -906,8 +905,7 @@ def function_symbol(flags):
     """The name after "func": declare it as a function with these flags. If it was declared
     `forward`, that symbol is the one, and what follows must repeat that declaration. Returns
     the symbol and whether it is new."""
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
+    parts.need_name()
     s, found = kernel.sym_find(kernel.SCOPE_MODULE, lex.value)
     if found and kernel.kind_of(s) == kernel.K_FUNC and kernel.flags_of(s) & kernel.SF_FORWARD != 0 \
             and flags & kernel.SF_FORWARD == 0:
@@ -966,8 +964,7 @@ def register_parameters():
     used = 0
     if lex.tok != lex.T_RPAREN:
         while True:
-            if lex.tok != lex.T_NAME:
-                err.fatal(err.E_NAME_EXPECTED)
+            parts.need_name()
             lex.next()
             lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
             used = bound_member(used)
@@ -1040,8 +1037,7 @@ def member(s, fresh, index, where):
     """type: the type of parameter or result number `index` of function `s`, which is in
     `where`, or for a result in the place its type gives it. If the function is not `fresh`,
     this must be what the forward declaration said. Returns the type."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     t = expr.value_type()
     if where != gen.REG_NONE:
         where = result_register(t)
@@ -1050,7 +1046,7 @@ def member(s, fresh, index, where):
     elif index >= kernel.params_of(s) + kernel.byte_of(s, kernel.C_RESULTS) \
             or kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + index) != t \
             or kernel.member_value_of(kernel.word_of(s, kernel.C_MEMBERS) + index) != where:
-        err.position(line, col)
+        err.position_at(place)
         err.fatal(err.E_FORWARD)
     return t
 
@@ -1135,8 +1131,7 @@ def function_declaration(flags):
     interrupt function has no parameters and no results (reported at its name), and entry
     and exit code."""
     lex.next()
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     s, fresh = function_symbol(flags)
     # The scope begins once the function's own name is declared and the token after it has
     # been read: every name made from here on is a parameter's or a local's.
@@ -1149,7 +1144,7 @@ def function_declaration(flags):
         return
     if flags & inline.SF_INTERRUPT != 0:
         if kernel.params_of(s) + kernel.byte_of(s, kernel.C_RESULTS) != 0:
-            err.position(line, col)
+            err.position_at(place)
             err.fatal(err.E_INTERRUPT_HEAD)
         gen.interrupt_entry()
     gen.receive(s)
@@ -1210,10 +1205,9 @@ def constant_declaration(flags):
     t = typetab.NO_TYPE
     if lex.tok == lex.T_COLON:
         lex.next()
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         t = expr.type_spec()
-        err.position(line, col)
+        err.position_at(place)
         parts.layout(t)
     region = 0
     if lex.tok == lex.T_IN:
@@ -1238,11 +1232,10 @@ def constant_declaration(flags):
         return
     if region != 0:
         parts.not_in_region()
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expr.constant(t)
     if reg.op_kind[reg.depth - 1] != reg.O_CONST:
-        err.position(line, col)
+        err.position_at(place)
         err.fatal(err.E_NOT_CONST)
     s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
     kernel.set_byte(s, kernel.C_FLAGS, flags)
@@ -1297,10 +1290,9 @@ def record_type(s):
     while lex.tok != lex.T_END:
         name = parts.new_name(kernel.SCOPE_FIELDS + t)
         lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         f = expr.type_spec()
-        err.position(line, col)
+        err.position_at(place)
         parts.layout(f)
         if typetab.innermost(f) == t:
             err.fatal(err.E_RECORD_SELF)
@@ -1327,8 +1319,7 @@ def function_type(s):
     count = 0
     if lex.tok != lex.T_RPAREN:
         while True:
-            if lex.tok != lex.T_NAME:
-                err.fatal(err.E_NAME_EXPECTED)
+            parts.need_name()
             lex.next()
             lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
             member(s, True, count, gen.REG_NONE)
@@ -1351,10 +1342,9 @@ def type_declaration(flags):
     elif lex.tok == lex.T_FUNC or lex.tok == lex.T_RECURSIVE:
         function_type(type_symbol(name, flags))
     else:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         t = expr.type_spec()
-        err.position(line, col)
+        err.position_at(place)
         parts.layout(t)
         kernel.set_byte(type_symbol(name, flags), kernel.C_TYPE, t)
     line_end()
@@ -1370,16 +1360,14 @@ def enum_declaration(flags):
     line_end()
     value = 0
     while lex.tok != lex.T_END:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         name = parts.new_name(kernel.SCOPE_MODULE)
         if lex.tok == lex.T_ASSIGN:
             lex.next()
-            line = lex.line
-            col = lex.col
+            place = parts.mark_place()
             value = expr.constant_number()
         if value > 0xFF:
-            err.position(line, col)
+            err.position_at(place)
             err.fatal(err.E_RANGE)
         c = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
         kernel.set_byte(c, kernel.C_FLAGS, flags)

@@ -969,6 +969,97 @@ Correctness: for every change kept below, `test_src_lathec.py` (the compiler's t
 
 **What I would build first:** the position record (1,126 bytes alone, reads better), then DECL's stream, OUT's `put`, `need_name`, the loop state, `head_of` and LK_SCAN's object: **1,793 bytes of the image**, measured together, for +0.14 % of the self-compile's cycles, with main RAM a little up for both tools. With the estimated changes after them (the rest of `Place`, `fatal_at`), about 2.0 to 2.1 KB in all. They help the compiler's banks; the linker's third bank, the fullest (241 bytes left as judged), gains nothing from them, and needs its own work (`lk_alloc`, `lk_graph`) if it is to hold more.
 
+### Built: the tools' source, a second look (2026-11-18)
+
+The figures of this section, but for those of "After the merge" at its end, were measured on 8dd784a, before the merge into the integration branch.
+
+Rows 1 to 7 of the first table above, and two of the estimated rows (`Place` in ASMBLOCK and PARTS, and `Place` for EXPR's five functions that took `line, col`), built in host and twin with every compile byte for byte as before. `err.fatal_at` was built too and measured 13 bytes: once `Place` was in, the pairs `err.position_at` then `err.fatal` were 9, 3 bytes a site against a function of 14. It was left out. Bytes of the eight-bank image's account (`test_bbc_rom128.build_tools`, `BBCFS 0`) after each change, against 8dd784a's 5,815 free:
+
+| Change (commits) | Compiler | Linker | Free |
+|---|---|---|---|
+| `lk_tab.head_of` is `run_start` (93b9c46) | | −68 (resident) | |
+| LK_SCAN's `cur_obj` (bf903a7) | | −38 | 5,921 |
+| `need_name()` (65a0594, 909b0c5; in PARTS since bee17a9) | −92 | | |
+| `err.Place`, `mark_place()` and `err.position_at()` (dd0ae6d; `mark_place` in PARTS since bee17a9), used in EXPR, DECL and PARTS (2db2da8) | −1,108 | | 7,121 |
+| DECL's interface stream a module variable (6683125) | −183 | | 7,304 |
+| OUT's `put` and `put_word` (0dbe1e0) | −179 | | 7,483 |
+| `enter_loop` and `leave_loop` (68c64c7) | −107 | | 7,590 |
+| ASMBLOCK's positions as `err.Place` (fb01763) | −403 | | 7,993 |
+| PARTS's `in_place` (2c9037d) | −37 | | 8,030 |
+| EXPR's `target`, `call_value`, `conversion`, `assignment` and `pair_assignment` take an `err.Place` (e1e30ba) | −276 | | 8,306 |
+
+In all, the compiler is 2,385 bytes smaller and the linker 106. The eight-bank image has **8,306 bytes free** (in use 121,479 of 130,304), and 7,109 in the build for ADFS (4,610 before).
+
+- **The banks as judged.** The compiler's are 13,648, 15,396, 14,223, 12,377 and 13,648 (bank 1, EXPR's, 1,818 smaller; bank 3, DECL's and ASMBLOCK's, 1,120). The linker's are 15,309, 15,016 and 16,031: its third bank, the fullest, still has 241 bytes left.
+- **Main RAM free** (before, after), measured by the tests' reports:
+  - eight-bank ROM form at ADFS's PAGE: compiler 2,253 to 2,274, linker 1,581 to 1,648;
+  - sixteen-bank ROM form with `BBCFS 1`: compiler 3,874 to 3,895;
+  - developer's form: compiler 7,658 to 7,652;
+  - at ADFS's PAGE, ROM form: compiler 2,254 to 2,275, linker 2,312 to 2,379;
+  - at ADFS's PAGE, developer's form: compiler 5,526 to 5,521, linker 2,762 to 2,830.
+
+  The compiler's developer's forms lose 5 or 6 bytes: its fixed code is a little larger there. No split in `lathec-bbc.env` or `linker-bbc.env` needs to move.
+- **Two estimates were low.** ASMBLOCK's positions saved 403 bytes (estimated 80 to 100): its 25 calls of `fail_at` with two words became a pointer each. EXPR's five functions saved 276 (estimated 50 to 80). `call_value` and `conversion` copy the caller's place first, `place = start[0]`, because a nested call may use the caller's record again; `target`, `assignment` and `pair_assignment` use it before any call.
+- **Where the helpers live.** `need_name()` and `mark_place()` were first in LEX. On the BBC LEX is in another bank than EXPR (`lathec-bbc.env`), so each mark became a far call: the self-compile from the eight-bank image took 890.1 million cycles against 877.7 million before. Each of the twelve modules whose source was unchanged was 2 to 4 % slower. In PARTS, beside EXPR, the bytes are the same and the self-compile takes 873.2 million (−0.5 %).
+- **The host** follows the Python subset (`test_shape.py`). Its place is a list `[line, col]` (`err.PLACE_LINE`, `PLACE_COL`) where the twin's is a record. A place kept at module level is two numbers in the host, because a list there would count as a table (`test_memory.py`). Each module's table "Where the Lathe differs" says so.
+
+**Cycles.**
+- **Wendy 2, the self-compile** (`bank_report.py --selfhost`, all eighteen modules): 834.5 million to 824.1 million (−1.25 %). Over the eleven modules whose source did not change, +0.12 %; EXPR −5.1 %, OUT −5.1 %, ASMBLOCK −3.2 %, DECL −2.6 %.
+- **Wendy 2, the self-link** (`test_src_selflink.py`): the compiler's link 2,514 million to 2,398 million (−4.6 %: there is less of it); the linker's own +0.4 %.
+- **The BBC, from the eight-bank image:** the self-compile 877.7 million to 873.2 million (−0.5 %), and the link of the compiler 3,463 million to 3,240 million (−6.4 %).
+- **The BBC, the sixteen-bank form:** the self-compile 877.7 million to 873.2 million; the rebuild loop 4,802 million to 4,549 million (−5.3 %), and on two ADFS discs 4,822 million to 4,560 million (−5.4 %).
+- **The BBC, small programs:** compiling, linking and running the 71 small programs of `test_bbc_toolchain.py` takes 0.46 % more in all, their links 0.43 % less. DECL's marks of a position are far calls to PARTS where they were copies in line.
+
+**After the merge (2026-11-18).** The changes were merged with the integration branch (the 32K forms, the texts of the errors in the module, the Mode 7 check, FBUF's stores that nothing reads) and with the linker's fix-ups held in runs and link error 62 (commit c6f9140). Measured against c6f9140, built as each test builds it:
+
+- **The 128 KB module, `BBCFS 0`:** 2,400 bytes free to **4,823** (+2,423). The module's code and the texts of the errors are 4,369 bytes in bank 3.
+- **The 128 KB module, `BBCFS 1`:** 1,530 to 3,961.
+- **The 128 KB module, the ADFS build:** 1,192 to 3,615.
+- **The 32K image, the sixteen-bank form:** 80,323 to 80,370 bytes free.
+- **The 32K image, the eight-bank form:** it still does not fit. The module's code and texts need 4,250 bytes at the end of one bank; the most room after a bank's code is 3,357 before, 3,472 now: 778 bytes short.
+
+The banks as the linker judges them, before and after (`lk_judged.py` through each build's environment); nothing was moved, and every build links:
+
+| Build | The compiler's five banks | The linker's banks |
+|---|---|---|
+| 128 KB, `BBCFS 0` | 15,568, 15,271, 15,130, 12,138, 13,360 to 13,759, 15,271, 14,007, 12,173, 13,360 | 15,529, 14,929, 15,884 to 15,529, 14,872, 15,884 |
+| 128 KB, `BBCFS 1` | the same, bank 5 13,850 to 13,850 | 16,019, 14,929, 15,884 to 16,019, 14,872, 15,884 |
+| 128 KB, ADFS | the same, bank 5 13,976 to 13,976 | 15,945, 15,134, 15,884 to 15,945, 15,077, 15,884 |
+| 32K, eight banks | 16,071, 15,650, 15,788, 15,829, 15,476 to 14,239, 15,685, 14,665, 15,829, 15,476 | 16,051, 15,979, 15,884 to 16,051, 15,922, 15,884 |
+| 32K, sixteen banks | as in eight | 6,572, 10,782, 9,168, 9,732, 12,070 to 6,572, 10,725, 9,168, 9,732, 12,070 |
+
+The 32K compiler's bank 1 has 2,033 bytes left as judged, where it had 201. The linker's first bank is unchanged by these changes in every build (253 bytes left with `BBCFS 1`, 221 in the 32K eight-bank build).
+
+**Main RAM free, after the merge** (before, after):
+
+| Form | Compiler | Linker |
+|---|---|---|
+| Eight-bank ROM form at ADFS's PAGE | 2,140 to 2,161 | 1,665 to 1,736 |
+| Sixteen-bank ROM form, `BBCFS 1` | 3,761 to 3,781 | |
+| The developer's form | 7,397 to 7,390 | |
+| ADFS, the ROM forms | 2,141 to 2,161 | 2,415 to 2,486 |
+| ADFS, the developer's forms | 5,272 to 5,266 | 2,876 to 2,948 |
+| The 32K form | 193 to 178 | |
+
+The 32K form compiles 52 of the 75 modules of `lathe/src` and `lathe/rt` on the Model B, where it compiled 51: `copytest` fits now.
+
+**Cycles, after the merge:**
+
+| Run | Before | After | Change |
+|---|---|---|---|
+| Wendy 2, the self-compile (eighteen modules) | 828.0 million | 817.8 million | −1.23 % |
+| BBC, the self-compile from the 128 KB image | 879.1 million | 874.7 million | −0.5 % |
+| BBC, the link of the compiler | 3,194.6 million | 3,023.1 million | −5.4 % |
+| BBC, the rebuild loop | 4,213.6 million | 4,039.8 million | −4.1 % |
+| BBC, the rebuild on two ADFS discs | 4,218.7 million | 4,075.2 million | −3.4 % |
+| BBC sixteen-bank form, the rebuild loop | 4,498.9 million | 4,316.3 million | −4.1 % |
+| BBC sixteen-bank form, the rebuild on ADFS | 4,506.8 million | 4,349.6 million | −3.5 % |
+| Wendy 2, the compiler's link | 2,343.0 million | 2,208.0 million | −5.8 % |
+| Wendy 2, the linker's link | 1,326.2 million | 1,321.2 million | −0.4 % |
+
+- On Wendy 2, the eleven modules whose source is unchanged take +0.14 %.
+- The 72 small programs of `test_bbc_toolchain.py` take +0.51 % in all, and their links −0.17 %.
+- For Wendy 2, `bank_report.py --selfhost` needs its counting copy given four options, now that the compiler is built with `-dRAM32` (a copy so changed measured this; the tool is unchanged).
 ## The linker on a 32K BBC, measured (2026-11-18)
 
 What the linker's build for a 32K Model B (`linker-bbc.env` with `define RAM32 1`, every table in main RAM; [`bbc.md`](bbc.md), "The linker on a 32K BBC") links, and the shape of Lathe code it was balanced on. All by `lathe/tests/lk_ram32.py` (`shape`, `real`, `series`) and `test_lk_ram32.py` (the links on the BBC).
@@ -997,14 +1088,16 @@ Made of real programs (`lk_ram32.glue`): each piece's own modules renamed (`g1le
 
 | Series from | Largest that links, and fits mode 7 | Refused next | By |
 |---|---|---|---|
-| lextest | 25,034 (+ errtest, copytest, compare); 27,222 links, too large for mode 7 | 29,412 | fix-ups of one function: a test main's 344 |
-| fbuftest | 26,125 links (14 bytes over mode 7); 23,509 fits | 30,049 | functions, 320 |
-| kerneltest | 25,730; up to 31,066 links | 32,540 | calls, 579 |
-| srctest | 21,326 (+ typetest) | 21,764 | functions, 297 (typetest's 59 bytes a function) |
-| lktest1 | 22,469 (+ srctest, copytest) | 25,094 | symbols in object files, 625 |
-| errtest | 22,086 | 24,272 | fix-ups of one function, 344 |
+| lextest | 25,034 (+ errtest, copytest, compare); up to 29,412 links, too large for mode 7 | 31,132 | functions, 310 (601 symbols in object files before the texts left `err`; until the fix-ups were held in runs: 29,412, by a test main's 344 fix-ups) |
+| fbuftest | 26,125 links (14 bytes over mode 7); 23,509 fits | 30,049 | functions, 319 |
+| kerneltest | 25,730; up to 31,066 links | 32,540 | calls, 578 |
+| srctest | 21,764 (+ typetest, copytest: 296 functions, all there are) | 24,347 | functions, 316 (typetest's 59 bytes a function; 21,764 was refused, 297 functions, until the texts left `err`) |
+| lktest1 | 22,457 (+ srctest, copytest) | 25,082 | symbols in object files, 624 |
+| errtest | 25,988 (+ srctest, copytest, compare, reg_args, record_copy, control) | 27,380 | functions, 297 (until the runs: 24,272, by 344 fix-ups) |
 
-The time of a link on the emulated BBC, 157 to 289 million cycles (1.3 to 2.4 minutes at 2 MHz) for 15 to 26 KB programs, and the files, are in [`bbc.md`](bbc.md).
+The time of a link on the emulated BBC, 158 to 287 million cycles (1.3 to 2.4 minutes at 2 MHz) for 15 to 26 KB programs, and the files, are in [`bbc.md`](bbc.md). Since 2026-11-18 a function's fix-ups are held in runs ([`bbc.md`](bbc.md), "Fix-ups held in runs"): no series stops at a function's fix-ups any more; the cost of the runs was 384 bytes of the linker's bank 1 as judged, +0.28 % of the cycles of linking the compiler on the BBC (3,463,370,865 to 3,473,194,730) and +0.44 % on Wendy 2 (2,513,831,206 to 2,524,931,333), and for a function of 1,006 fix-ups in two contexts a reading of its file for each run and each offset outside the run (81 files opened, 218 million cycles on the BBC).
+
+Link error 62 (an object compiled for a region in fixed memory, `-fREGION`, linked with the region in a bank; [`bbc.md`](bbc.md), "Link error 62") costs the linker's bank 1 139 bytes as judged in every eight-bank build (the ADFS build's `link` moved to bank 2 again to make room), 2 bytes of variables, and a look for the region of each variable and constant a fix-up of code names.
 
 ## Error messages back in the ROM, measured (2026-11-18)
 

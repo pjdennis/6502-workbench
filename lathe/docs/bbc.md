@@ -1174,7 +1174,7 @@ The tables are what real programs need, not the full ones cut evenly. Measured w
 | calls | 576 | 1,200 | 3,600 | |
 | symbols in object files | 592 | 1,400 | 4,000 | |
 | variables and constants | 257 | 320 | 800 | the least a word column can have; programs use 100 to 170 |
-| fix-ups of one function | 278 | 256 | 512 | as many as the work area holds below its node columns (no bytes of their own) |
+| fix-ups held at once (a run; a function may have any number since 2026-11-18) | 278 | 256 | 512 | as many as the work area holds below its node columns (no bytes of their own) |
 | promotion's list | 18 | 32 | 128 | as long as its column holds (no bytes of its own) |
 | large slots; classes, parameters, members | 16; 8, 32, 32 | 64; 32, 128, 128 | as small | the corpus uses at most 1; 3, 8 and 7 |
 
@@ -1188,33 +1188,42 @@ A word column of 256 rows or fewer would need a byte index in the twins, so the 
 
 `lathe/tests/lk_ram32.py` (`real`, `series`, `shape`, and the links on the BBC that `test_lk_ram32.py` makes). The real programs are the test programs of `lathe/src` (each a set of the compiler's or the linker's own modules with a driver) and the end-to-end cases, compiled for the BBC all in one; a larger program is made of real ones (`glue`: each piece's modules renamed, the run-time modules once, a main that calls each piece's main, so that each piece keeps what it kept), grown a piece at a time until the 32K build refuses it. Whether it links is the host linker at the 32K build's capacities, which refuses exactly where the Lathe-written build does; the links on the BBC check that.
 
-**Real programs:** 73 of the 81 link: every end-to-end case but four (three test mains with 344 fix-ups each, more than 278, and `for_ranges`, one file of 1,124 slots), and copytest, errtest, srctest, typetest, foldtest, lextest (15.4 KB), fbuftest (16.4 KB), lktest1 and kerneltest (22.7 KB). outtest (28.5 KB, its main 351 fix-ups), regtest, condtest and asmtest (40 to 43 KB) do not fit a 32K BBC anyway.
+**Real programs:** 77 of the 81 link: every end-to-end case but `for_ranges` (one file of 1,124 slots), and copytest, errtest, srctest, typetest, foldtest, lextest (15.4 KB), fbuftest (16.4 KB), lktest1, kerneltest (22.7 KB) and outtest (28.5 KB, too large for the machine). regtest, condtest and asmtest (40 to 43 KB, link error 10) do not fit a 32K BBC anyway. (Until the fix-ups were held in runs, below, three test mains of 344 fix-ups each and outtest's of 351 were refused too.)
 
 **Grown** (program: its code and constants and its variables, which in mode 7 must be at most 26,111 bytes, and in mode 4 16,895):
 
 | Program | Objects (bytes) | Program | Tightest tables | Result |
 |---|---|---|---|---|
-| fbuftest (mode 4) | 14 (77,134) | 16,447 | names read 4,472 of 6,000 (25 % left), functions 219 (26 %), calls 409 (29 %) | links |
-| lextest + errtest | 15 (77,996) | 22,001 | | links |
-| lextest + errtest + copytest + compare (mode 7) | 18 (89,605) | 25,034 | fix-ups of one function 219 (21 %), symbols 473 (20 %), functions 231 (22 %) | links |
-| kerneltest + copytest + compare | 14 (74,911) | 25,730 | fix-ups 219 (21 %), names read 4,450 (26 %) | links |
-| fbuftest + errtest + copytest + compare | 19 (98,902) | 26,125 | | links (14 bytes too large for mode 7) |
-| lktest1 + srctest + copytest | 20 (96,871) | 22,469 | names read (2 %), symbols (3 %), calls (4 %) | links |
-| lktest1 + srctest + copytest + compare | 22 (107,306) | 25,094 | symbols 625 | link error 33 |
-| srctest + typetest + copytest | 18 (107,327) | 21,764 | functions 297 | link error 11 (since the texts of the errors left `err`, 2026-11-18: 296 functions, and it links; with errtest too, 310, link error 11) |
-| kerneltest + ... + signed | 23 (106,537) | 32,540 | calls 579 | link error 13 (too large for the machine) |
+| fbuftest (mode 4) | 14 (76,809) | 16,447 | names read 4,468 of 6,000 (26 % left), functions 218 (26 %), calls 408 (29 %) | links |
+| lextest + errtest | 15 (77,671) | 22,001 | | links |
+| lextest + errtest + copytest + compare (mode 7) | 18 (89,280) | 25,034 | symbols 472 (20 %), functions 230 (22 %), calls 439 (24 %) | links |
+| kerneltest + copytest + compare | 14 (74,586) | 25,730 | names read 4,446 (26 %), calls 378 (34 %) | links |
+| lextest + ... + reg_args + record_copy (a main of 344 fix-ups) | 23 (109,130) | 29,412 | | links (too large for the machine) |
+| lextest + ... + record_copy + control | 25 (115,747) | 31,132 | functions 310 | link error 11 (too large for the machine) |
+| fbuftest + errtest + copytest + compare | 19 (98,577) | 26,125 | | links (14 bytes too large for mode 7) |
+| lktest1 + srctest + copytest | 20 (96,534) | 22,457 | symbols 590 (0 %), names read (2 %), calls (2 %) | links |
+| lktest1 + srctest + copytest + compare | 22 (106,969) | 25,082 | symbols 624 | link error 33 |
+| srctest + typetest + copytest | 18 (107,002) | 21,764 | functions 296 (0 %), slots 790 (1 %) | links (297 functions until the texts left `err`, 2026-11-18) |
+| srctest + typetest + copytest + compare | 20 (117,437) | 24,347 | functions 316 | link error 11 |
+| kerneltest + ... + signed | 23 (106,212) | 32,540 | calls 578 | link error 13 (too large for the machine) |
 
-So **a 16 KB program for mode 4 links with a quarter of every table to spare, and a 25 KB program for mode 7 links with a fifth to spare** when its code is of the tools' usual shape (100 bytes or more a function). Programs of very small functions run out of functions first (typetest's average 59 bytes a function: about 18 KB of code at 296 functions), and the linker's own shape (more calls and symbols a function) of symbols, calls and names at about 22.5 KB; a function with more than 278 fix-ups (about 900 bytes of code) is refused whatever the program's size.
+So **a 16 KB program for mode 4 links with a quarter of every table to spare, and a 25 KB program for mode 7 links with a fifth to spare** when its code is of the tools' usual shape (100 bytes or more a function). Programs of very small functions run out of functions first (typetest's average 59 bytes a function: about 18 KB of code at 296 functions), and the linker's own shape (more calls and symbols a function) of symbols, calls and names at about 22.5 KB. No function is refused for its number of fix-ups (since 2026-11-18, below); until then one of more than 278 (about 900 bytes of code) was, whatever the program's size.
 
 **On the BBC** (the eight-bank image, the compiler in banks 0 to 4 and the 32K linker in 5 to 7, `*LLINK @LINKARG`, `--bbc-strict` on filled memory; every file the host linker's; with `BBCFS 1` under `--bbc-fs dfs` too, 2 files open at most, 1 for writing):
 
 | Program | Objects | Program | Cycles | Minutes at 2 MHz | Files opened | Read | Written |
 |---|---|---|---|---|---|---|---|
-| lextest | 13 | 15,403 | 157,316,136 | 1.31 | 105 | 601,837 | 22,639 |
-| fbuftest, for mode 4 | 14 | 16,447 | 183,807,919 | 1.53 | 112 | 682,001 | 25,271 |
-| kerneltest | 11 | 22,699 | 175,997,536 | 1.47 | 85 | 536,781 | 31,883 |
-| lextest + errtest + copytest + compare | 18 | 25,034 | 222,815,376 | 1.86 | 147 | 792,559 | 35,546 |
-| kerneltest + copytest + compare | 14 | 25,730 | 289,370,215 | 2.41 | 109 | 628,265 | 36,732 |
+| lextest | 13 | 15,403 | 158,079,033 | 1.32 | 105 | 601,837 | 22,639 |
+| fbuftest, for mode 4 | 14 | 16,447 | 184,725,056 | 1.54 | 112 | 682,001 | 25,271 |
+| kerneltest | 11 | 22,699 | 177,218,554 | 1.48 | 85 | 536,781 | 31,883 |
+| lextest + errtest + copytest + compare | 18 | 25,034 | 223,921,313 | 1.87 | 147 | 792,559 | 35,546 |
+| kerneltest + copytest + compare | 14 | 25,730 | 286,675,440 | 2.39 | 109 | 628,265 | 36,732 |
+| record_copy (a main of 344 fix-ups: two runs) | 6 | 2,209 | 34,648,613 | 0.29 | 46 | 121,610 | 3,421 |
+| arith_ops (344 fix-ups) | 8 | 1,997 | 50,963,170 | 0.42 | 67 | 162,024 | 4,467 |
+| bigarray_pages (344 fix-ups) | 7 | 4,782 | 33,746,145 | 0.28 | 55 | 124,451 | 2,168 |
+| a function of 1,006 fix-ups in two contexts (test_lk_fixup_runs.py) | 1 | 5,171 | 218,033,414 | 1.82 | 81 | 756,856 | 5,532 |
+
+(The first five before the runs, earlier on 2026-11-18: 157,316,136, 183,807,919, 175,997,536, 222,815,376 and 289,370,215 cycles.)
 
 The emulator's MOS charges nearly nothing for the disc; at 1,000 cycles a byte a real DFS would add 4.5 to 6.6 minutes to these (the 600 to 800 KB the passes read), more than the link itself.
 
@@ -1225,11 +1234,57 @@ The emulator's MOS charges nearly nothing for the disc; at 1,000 cycles a byte a
 Each is measured or worked out from the account above; a table byte is worth about one fortieth of a function (40.6 bytes of tables a function at this balance), so 1 KB of main RAM is about 25 functions, 2.5 KB of program.
 
 1. **RAM on the module's own board.** A 32 KB static RAM beside the EPROM, as banks 8 to 9 of the latch (`direct8` decoding A3, or `direct16`'s scheme), takes the large tables as the B+128's sideways slots do: all of `LKSMALL 2`'s 13 KB and room for twice it, and 12 KB of main RAM back. Then any program the machine holds links, with every table at twice what it now has. Cost: an SRAM and its write enable on the board; `rt_bbc` already maps a bank of the module in a block; the environment gives the regions bank values `$88` and `$89`; LOADMOD and `bbcrom` unchanged. The cheapest large step, and hardware.
-2. **Fix-ups held in runs.** One function's fix-ups are held at once (12 bytes each in the work area), which caps a function at 278 and refused four test mains. Held in runs of what fits, read twice when a FIX record is longer (shrinking is counted on the first reading, applied on the second), the cap goes. Cost: about 300 bytes in `lk_fix` (bank 1 has 885 bytes as judged, 395 with `bbcfs`), a second reading of a long record. No memory.
+2. ~~**Fix-ups held in runs.**~~ Built (2026-11-18, the owner's choice; "Fix-ups held in runs" below): no function is refused for its number of fix-ups. It took 384 bytes of bank 1 as judged where this estimated 300, and 16 bytes of main RAM.
 3. **`with` blocks of a fixed region cost nothing.** In the 32K build every block maps slot 0 and back for nothing: 64 cycles and 12 bytes of fixed code a block, which on the B+128 were 4.5 % of outtest's link and 16 % of the compiler's ("The linker links the compiler"). And 721 bytes of functions are fixed only because they have a block (`lk_name.local_at`, `set_local`, `global_sym` 191, `lk_graph`'s four readers 180, `lk_alloc`'s four 184, `lk_fix.shrinks` and `removed_before` 166), of which the banks have room as judged for those of `lk_name` and `lk_fix`, 357 bytes. Needed: the linker not keeping a function fixed for a block of a region that is fixed, and giving such a block's kind 6 fix-up the value of the function's own bank (re-selecting it is harmless) where it now gives 0 (slot 0); an environment entry to ask for it, so that no other build changes; host and twin, about 40 lines. Better still, the compiler leaving out the block's calls when the region is fixed, which it cannot know today.
 4. **More code out of the resident part.** lk_tab's functions that only the reading calls (`build_chains` 792, `chains_to_runs` 380, `add_waiting` 315, `add_edge` 258, `add_own` 251 and the `new_` functions, about 2.5 KB) would leave main RAM in `lk_scan`'s bank, which has 289 bytes as judged left; so it needs a fourth bank for the linker, which the 128 KB EPROM does not have with the compiler's five (5,648 bytes free in all, in pieces). 2.5 KB is about 60 functions more.
 5. **Narrower or fewer rows.** The variables and constants have 257 rows where 25 KB programs use 170 at most: byte-indexed columns would save up to 485 bytes but need a second form of every access in the twins. The work area's names (37 % of the tables) are 4 bytes a symbol and the kept names; keeping a symbol's second word (its weight and flags) in `local` would save about 900 bytes for 450 symbols, a redesign of the reading.
 6. **Not worth it:** making zero-page promotion optional saves no memory (its columns are the graph's, in the work area) and only time; keeping more on the disc saves little (what can be read again already is: names, what fix-ups name, sizes of copies).
+
+### Fix-ups held in runs (2026-11-18)
+
+The image pass held all of one function's fix-ups in the work area while its code was written (12 bytes each, `lk_tab.MAX_FIXES` of them: 278 in the 32K build, 256 in the small one, 512 at full capacities), and a function with more was link error 28. The owner chose to have no such limit. Now, in host and twin (`lk_fix`, `lk_emit`), a function's fix-ups are held in **runs** of `MAX_FIXES`:
+
+- `hold` holds the first run and notes where the FIX record is (its object file and record number) and how many entries it has. A function of no more entries than a run holds is written as before, every byte the same.
+- When the code reaches the end of a run (`next_fix`), what the run's instructions lose in each context is added to `run_lost`, the record is read again (the stream's only way back is to read the file from its start, `lk_rec.goto`) to the next run's first entry, the run is held, and the stream goes back to the CODE record and the byte it had reached (`away`, `back`). A second copy of the function, for another context, starts again from the first run (`rewind`).
+- What the code loses before an offset (`removed`, for a branch and for a label of the function, which may be anywhere in it) is `run_lost` and what the run held loses before it, when the run covers the offset (every entry before the run is before it, every one after the run after it); else it is counted from the record itself, read again up to the offset (`from_record`, by `count_before`, which pass 1's `count_shrinks` now calls with no offset). The bytes a whole copy loses (`lost`) are counted so too.
+- The order of two fix-ups on either side of the end of a run is not compared by `next_fix`; an instruction finds a fix-up behind it bad, as before.
+
+**What bound remains.** None for a function: a FIX record is at most 65,535 bytes, 8,191 entries, which is the object format's own limit (and needs a CODE record of 16 KB or more), not the linker's. Constant data is still held whole, and a table of more entries than a run holds is link error 28, now "too many fix-ups in one table"; the compiler writes at most 256 addresses in a table (`out.MAX_TABLE_FIXES`), and every build of the linker holds at least that many, so no compiled table is refused (the entries a kept `DFIX` record names, `lk_graph`, have the same bound).
+
+**What it costs**, measured against the commit before:
+
+| Build | Bank 1 as judged | Main RAM | Linking the compiler |
+|---|---|---|---|
+| eight banks, `RAM32 0`, `BBCFS 0` | 15,309 to 15,693 (579 left) | resident 9,829 to 9,827; 16 bytes of tables (`run_lost`) | from the 128 KB image 3,463,370,865 to 3,473,194,730 cycles (+0.28 %) |
+| eight banks, `BBCFS 1` | 16,183 (89 left) | 9,850 | |
+| eight banks, ADFS (`BBCFS 2`, `ADFS 1`) | 16,112 (160 left), with `link`, called once, moved to bank 2 (`when ADFS when ROM128`; else 46 bytes over); since the texts of the errors left `lk_err` (merged the same day) it fitted in bank 1 again, at 16,234 (38 left), until link error 62 (below) took 139 more and `link` went back to bank 2: 16,167 | 9,926 (9,897: the stubs of the phases `link` calls); merged, 9,875, then 9,906 | |
+| 32K, `BBCFS 0` and `1` | 15,725 and 16,215 (57 left) | 9,090 and 9,113, as before | |
+| Wendy 2 at full size (`linker-full.env`) | | | 2,513,831,206 to 2,524,931,333 cycles (+0.44 %) |
+
+The eight-bank image has 5,348 bytes free (5,815). `lk_fix` is 2,485 bytes as judged (1,905) and `lk_emit` 2,120 (2,316): an accessor of the column at the cursor (`lk_fix.held`) took 196 bytes out of `lk_emit`, without which bank 1 did not fit with `bbcfs`. The links of the 32K table above take about 0.5 % more cycles; a function that needs runs costs a reading of its file up to the record for each run and for each offset outside the run (the function of 1,006 fix-ups: 81 files opened, 218 million cycles for 5 KB of code). The developer's and sixteen-bank forms have `lk_fix` in a bank with room.
+
+**Tests.** `lathe/tests/test_lk_fixup_runs.py`: functions of more fix-ups than a run holds (266 to 2,300), with instructions that shrink and some that do not, one-byte fix-ups, branches back and forward across the ends of runs, jumps to labels far behind and far ahead, calls, slots of their own in zero page, and a second copy for an interrupt context: at full capacities the image is what the assembler path reckons on its own; at the small and the 32K build's capacities and with runs of 16, every file is what a link that holds all of them at once writes; a table of more than a run is still refused. `test_lk_errors.py`: a function of 1,025 fix-ups links. On the BBC (`test_lk_ram32.py`): the three test mains of 344 and the function of 1,006 link at the 32K capacities, every file the host's.
+
+### Link error 62 (2026-11-18)
+
+Since the compiler may be told that a region is in fixed memory (`-fREGION`, from `define FIXED_REGIONS 1` and `region NAME fixed`: "The 32K Model B"), a `with` block of that region compiles to its body alone. An object so compiled and then linked with an environment that puts the region in a bank linked silently, and its code read and wrote whatever the window held. Now it is **link error 62, "code uses a region in a bank where it maps none"**, with the symbol and the function named, in host and twin.
+
+**The rule.** The compiler allows a variable or constant of a region only inside a `with` block of it, and a block starts with `LDA #bank(REGION)`, a fix-up of kind 6, before the code it holds. So, in the image pass, a fix-up of a function's code (any kind but 6: an address, its low or high byte, an address formed only to reach an element) that names a variable or constant of a region in bank B is good only if a kind 6 fix-up of the same function, earlier in its code, named a symbol of bank B (`lk_fix.check_mapped`, called by `lk_emit.value`; `bank_value`, which resolves kind 6, notes the bank in `mapped`, a bit a bank, cleared at each function by `begin`). This is stricter than the rule first proposed (the function has some kind 6 fix-up, `F_WITH`): it also refuses a function that maps one region's bank and uses another region of another bank, which `-f` for one of two regions would give. Two regions in one bank (the B+128 linker's `LKLOCAL` and `LKSLOTS`) are one bank here, as they are to the hardware.
+
+**What it covers**: variables and constants of a region named from code, the initial values a module's `$init` writes into a region, and an address of a region's variable formed in code (`@v`, `LDA #<v`). **What it does not look at, on purpose**: constant data that holds such an address (a table of pointers into a region, used inside a block elsewhere: legitimate), and code that reaches a region through a pointer it is given (`kept.lth`'s `add8`: the block is its caller's, and the caller names the region). **What can slip through**: (1) a function compiled with `-fR` that names R only through constant data holding R's addresses, and dereferences them outside a block; (2) a use after the block that mapped its bank has ended, in the same function (the linker sees where a block starts, not where it ends: the calls of `unmap` are not marked), which the compiler does not write. And one it refuses that may be right: `asm` that maps a bank itself, with no kind 6 fix-up (none in the corpus). None of the 161 cases of `test_cases.py` or the linker's own links is refused.
+
+**Tests** (written first): `lathe/tests/test_lk_unmapped.py`: objects by hand (a use after a block of its bank links, of the other region of the same bank too; a use with no block, with a block of another bank, a constant, an address's low byte: refused, naming symbol and function; the regions in fixed memory, with an entry or none: no block needed; a constant table holding a region's address: links); `fixedblk.lth` compiled with `fixedblk_fixed.env` (`-ffwork`) and linked with `fixedblk_banks.env`: refused by the host linker and by the Lathe-written one (Wendy 2, `lk_banked.py`), the same text. The two harmless combinations are configurations of `tests/cases/e2e-config/fixedblk.lth`: `fixedblk_fixed.env` (told, fixed) and the new `fixedblk_untold.env` (not told, fixed: the blocks map nothing), each giving the program's output. `test_lk_windows.py`'s module `t`, which used a constant of bank 5 with only bank 4 mapped, maps both now, as the compiler would have it.
+
+**What it costs**, bank 1 as judged (of 16,272), against the merged tree before it:
+
+| Build | Before | After | Left |
+|---|---|---|---|
+| eight banks, `BBCFS 0` | 15,609 | 15,748 | 524 |
+| eight banks, `BBCFS 1` | 16,099 | 16,238 | 34 |
+| eight banks, ADFS (`BBCFS 2`, `ADFS 1`) | 16,234 | 16,373, 101 over; so `link`, called once, is in bank 2 again there (`when ADFS when ROM128`): **16,167** (bank 2 15,079 to 15,290; resident 9,875 to 9,906, the stubs of the phases it calls) | 105 |
+| 32K, eight banks, `BBCFS 0` and `1` | 15,641 and 16,131 | 15,780 and 16,270 | 492 and 2 |
+
+139 bytes: `check_mapped` and `bank_of` (which `bank_value` shares) in `lk_fix`, and the call in `lk_emit`. The 128 KB image (`test_bbc_rom128.py`, `BBCFS 0`) has 1,336 bytes free (1,495 before; the module's code and texts 4,385 bytes in bank 3), and the linker links the compiler from it in 3,559,557,177 cycles (3,548,476,259 before, +0.31 %). The 32K image (`test_bbc_ram32.build_image`, sixteen banks, `BBCFS 1`) has 80,111 bytes free, the linker's five banks 5,917 to 10,542 bytes as placed, and leaves the linker 1,655 bytes of main RAM free (resident 7,839, variables 16,617): room the 32K capacities could grow into, which this does not do. The sixteen-bank and developer's forms have `lk_fix` in a bank with room, and the 32K image is the sixteen-bank form. Main RAM: 2 bytes of variables (`mapped`). Time: a fix-up of a variable or constant now looks for its region (`lk_scan.region_of`, a walk of the regions' definitions, none in most programs).
 
 ### Tests
 

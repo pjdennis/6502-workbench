@@ -10,7 +10,12 @@
 ; function for another context has other slot addresses, so each held fix-up carries one bit per
 ; context in which its instruction shrinks.
 ;
-; The fix-ups of one function are the only thing about its code the linker ever holds.
+; The fix-ups of one function are the only thing about its code the linker ever holds, and it
+; holds at most MAX_FIXES of them, a run: a function with more has its FIX record read again for
+; each run after the first, from the place the code has reached and back (next_fix), and what its
+; code loses before an offset that the run held does not cover is counted from the record itself
+; (removed). Constant data is held whole: the compiler writes at most 256 addresses in a table
+; (out.MAX_TABLE_FIXES), and every build holds more.
 ;
 ; Where the Lathe differs from the Python:
 ;
@@ -35,9 +40,9 @@ module lk_fix
 
 import lk_alloc (slot_addr)
 import lk_envf (bank_value)
-import lk_err (E_FIXES, E_FIXUP, E_NOT_LINKED, E_NOT_ZP, E_UNDEFINED, fail)
+import lk_err (E_FIXES, E_FIXUP, E_NOT_LINKED, E_NOT_ZP, E_UNDEFINED, E_UNMAPPED, fail)
 import lk_name (fail, fail_in, global_sym)
-import lk_rec (get_byte, get_word, left)
+import lk_rec (get_byte, get_word, goto, left, recno)
 import lk_scan (fn_bank, region_of)
 import lk_sym (CLASS, CONSTANT, FUNCTION, is_defined, kind_of, row_of, VARIABLE)
 import lk_tab (class_of, cls_ctx, cls_np, cls_par, cls_reach, copy_node, cp_addr, ctx_count, def_a,
@@ -76,22 +81,39 @@ pub const FX_ADD = 4 * MAX_FIXES
 pub const FX_ZP = 5 * MAX_FIXES         ; a bit per context in which the instruction shrinks
 pub var cursor: word = 0                ; the next fix-up to apply
 
+; A function of more fix-ups than a run holds (long_fix): where its FIX record is, the record's
+; entry that the run's first is, and what the entries before the run lose. Set by hold.
+var long_fix: bool
+var fix_obj: byte                       ; the object file being written
+var fix_recno: word                     ; the number of the FIX record in it
+var fix_total: word                     ; the entries of the record
+var run_base: word                      ; the entry of the record that held entry 0 is
+var run_lost: [lk_tab.MAX_CONTEXTS]word ; bytes each copy loses before the run
+var here: word                          ; while the record is read again (away): the record
+var rest: word                          ; the code was read in, and the bytes of it left
+
 pub var shrink_count: [lk_tab.MAX_CONTEXTS]word ; pass 1: bytes each copy of cur_fn loses
 
+var mapped: word                        ; pass 2: a bit for each bank a kind 6 fix-up of cur_fn has
+                                        ; mapped so far, in the order of its code (bank_value)
 pub var cur_fn: word = 0                ; the function whose records are being read
 pub var cur_sym: word = 0               ; its symbol, or that of the constant data being written
 
 forward func zp_contexts(sym: word, slot: byte, addend: word): byte
+forward func shrunk(ctx: byte): word
+forward func removed_before(pos: word, ctx: byte): word
 
 ; A fix-up of the current function or constant makes no sense.
 pub func bad()
   lk_name.fail(lk_err.E_FIXUP, cur_sym)
 end
 
-; Start on function f, which has no fix-up that shrinks until count_shrinks finds some.
+; Start on function f, which has no fix-up that shrinks until count_shrinks finds some, and has
+; mapped no bank.
 pub func begin(f: word)
   var ctx: byte
   cur_fn = f
+  mapped = 0
   cur_sym = lk_tab.fn_ref(f)
   for ctx = 0 until lk_tab.ctx_count do
     shrink_count[ctx] = 0
@@ -117,8 +139,9 @@ func read_entry(obj: byte)
   e_add = lk_rec.get_word()
 end
 
-; Pass 1. MAIN is at cur_fn's FIX record: count, for each context, its fix-ups that shrink.
-pub func count_shrinks(obj: byte)
+; MAIN is at cur_fn's FIX record: count, for each context, its fix-ups before written offset
+; `pos` that shrink (shrink_count).
+func count_before(obj: byte, pos: word)
   var ctx: byte
   var bits: byte
   for ctx = 0 until lk_tab.ctx_count do
@@ -126,6 +149,9 @@ pub func count_shrinks(obj: byte)
   end
   while lk_rec.left() > 0 do
     read_entry(obj)
+    if e_at >= pos then
+      return
+    end
     if e_kind == K_SHRINK then
       bits = zp_contexts(e_sym, e_slot, e_add)
       for ctx = 0 until lk_tab.ctx_count do
@@ -137,31 +163,96 @@ pub func count_shrinks(obj: byte)
   end
 end
 
-; Pass 2. MAIN is at a FIX record of cur_fn, or at a DFIX record: hold its entries.
+; Pass 1. MAIN is at cur_fn's FIX record: count, for each context, its fix-ups that shrink.
+pub func count_shrinks(obj: byte)
+  count_before(obj, $FFFF)
+end
+
+; Column `column` of the fix-up held next is v.
+func put(column: word, v: word)
+  lk_tab.set_wk(column + fix_count, v)
+end
+
+; Hold the entries of the record MAIN is in from where it is, as many as a run holds.
+func take_run(obj: byte, in_code: bool)
+  while lk_rec.left() > 0 and fix_count < MAX_FIXES do
+    read_entry(obj)
+    put(FX_AT, e_at)
+    put(FX_KIND, e_kind)
+    put(FX_SYM, e_sym)
+    put(FX_SLOT, e_slot)
+    put(FX_ADD, e_add)
+    put(FX_ZP, 0)
+    if in_code and e_kind == K_SHRINK then
+      put(FX_ZP, zp_contexts(e_sym, e_slot, e_add))
+    end
+    fix_count += 1
+  end
+end
+
+; Nothing is lost before the first run.
+func first_run()
+  var ctx: byte
+  run_base = 0
+  for ctx = 0 until lk_tab.ctx_count do
+    run_lost[ctx] = 0
+  end
+end
+
+; Pass 2. MAIN is at a FIX record of cur_fn, or at a DFIX record: hold its entries, or the first
+; run of them.
 ;
 ; Whether they make sense is checked as they are applied.
 pub func hold(obj: byte, in_code: bool)
   fix_count = 0
   cursor = 0
-  while lk_rec.left() > 0 do
-    if fix_count == MAX_FIXES then
-      if in_code then
-        lk_name.fail(lk_err.E_FIXES, cur_sym)
-      end
-      lk_err.fail(lk_err.E_FIXES)
-    end
-    read_entry(obj)
-    lk_tab.set_wk(FX_AT + fix_count, e_at)
-    lk_tab.set_wk(FX_KIND + fix_count, e_kind)
-    lk_tab.set_wk(FX_SYM + fix_count, e_sym)
-    lk_tab.set_wk(FX_SLOT + fix_count, e_slot)
-    lk_tab.set_wk(FX_ADD + fix_count, e_add)
-    lk_tab.set_wk(FX_ZP + fix_count, 0)
-    if in_code and e_kind == K_SHRINK then
-      lk_tab.set_wk(FX_ZP + fix_count, zp_contexts(e_sym, e_slot, e_add))
-    end
-    fix_count += 1
+  fix_obj = obj
+  fix_recno = lk_rec.recno()
+  take_run(obj, in_code)
+  fix_total = fix_count + (lk_rec.left() >> 3)
+  long_fix = lk_rec.left() > 0
+  if long_fix and not in_code then
+    lk_err.fail(lk_err.E_FIXES)
   end
+  first_run()
+end
+
+; Read the FIX record again, from its start, leaving the code where it is (back).
+func away()
+  here = lk_rec.recno()
+  rest = lk_rec.left()
+  lk_rec.goto(fix_obj, fix_recno)
+end
+
+; Back to where the code was being read.
+func back()
+  lk_rec.goto(fix_obj, here)
+  while lk_rec.left() > rest do
+    lk_rec.get_byte()
+  end
+end
+
+; The bytes the copy for context ctx loses before written offset `pos`, counted from the FIX
+; record, read again.
+func from_record(pos: word, ctx: byte): word
+  away()
+  count_before(fix_obj, pos)
+  back()
+  return shrink_count[ctx]
+end
+
+; Hold the run that starts at entry `base` of the FIX record, read again.
+func load_run(base: word)
+  var i: word
+  away()
+  for i = 0 until 8 * base do
+    lk_rec.get_byte()
+  end
+  fix_count = 0
+  cursor = 0
+  take_run(fix_obj, true)
+  run_base = base
+  back()
 end
 
 ; No fix-ups are held.
@@ -175,28 +266,50 @@ pub func more(): bool
   return cursor < fix_count
 end
 
-; The fix-up at the cursor is applied: go on to the next.
+; Column `column` of the held fix-up at the cursor.
+pub func held(column: word): word
+  return lk_tab.wk(column + cursor)
+end
+
+; The run held is applied: hold the next one, read again from the record.
+func next_run()
+  var ctx: byte
+  for ctx = 0 until lk_tab.ctx_count do
+    run_lost[ctx] += shrunk(ctx)
+  end
+  load_run(run_base + fix_count)
+end
+
+; The fix-up at the cursor is applied: go on to the next, in the next run if it is not held. (The
+; order of two fix-ups on either side of the end of a run is checked by the instructions, which
+; find a fix-up behind them bad: lk_emit.)
 pub func next_fix()
   var after: word
-  if lk_tab.wk(FX_KIND + cursor) < K_WORD or lk_tab.wk(FX_KIND + cursor) > K_REACH_HIGH then
+  if held(FX_KIND) < K_WORD or held(FX_KIND) > K_REACH_HIGH then
     bad()
   end
   cursor += 1
-  if cursor < fix_count then
+  if cursor == fix_count and run_base + fix_count < fix_total then
+    next_run()
+  elif cursor < fix_count then
     ; Fix-ups are sorted by offset, and do not overlap.
     after = lk_tab.wk(FX_AT + cursor - 1) + 1
     if is_word(lo(lk_tab.wk(FX_KIND + cursor - 1))) then
       after += 1
     end
-    if lk_tab.wk(FX_AT + cursor) < after then
+    if held(FX_AT) < after then
       bad()
     end
   end
 end
 
-; Apply the held fix-ups again, to the next copy of the function.
+; Apply the held fix-ups again, to the next copy of the function: from the first run.
 pub func rewind()
   cursor = 0
+  if run_base != 0 then
+    load_run(0)
+    first_run()
+  end
 end
 
 ; ---- what a fix-up points at
@@ -286,20 +399,42 @@ pub func target(ctx: byte, sym: word, slot: byte, is_call: bool): word
   return lk_alloc.slot_addr(n, slot)
 end
 
-; What a kind 6 fix-up naming symbol s stands for: the register value of the bank of the region s
-; is in, or 0 if the region is in fixed memory.
-pub func bank_value(s: word): word
+; The bank + 1 of the region variable or constant data s is in, 0 for fixed memory, or $FF if s
+; is not a variable or constant data that is defined.
+func bank_of(s: word): byte
   var k: byte
-  var r: byte
   k = lk_sym.kind_of(s)
   if (k != lk_sym.VARIABLE and k != lk_sym.CONSTANT) or not lk_sym.is_defined(s) then
+    return $FF
+  end
+  return lk_scan.region_of(lk_sym.row_of(s))
+end
+
+; What a kind 6 fix-up naming symbol s stands for: the register value of the bank of the region s
+; is in, or 0 if the region is in fixed memory. The bank is mapped from here on.
+pub func bank_value(s: word): word
+  var r: byte
+  r = bank_of(s)
+  if r == $FF then
     return $100                         ; not a variable or constant data: a bad fix-up
   end
-  r = lk_scan.region_of(lk_sym.row_of(s))
   if r == 0 then
     return 0
   end
+  mapped |= word(1) << (r - 1)
   return lk_envf.bank_value[r - 1]
+end
+
+; Code of cur_fn names symbol s: if s is a variable or constant data of a region in a bank, a kind
+; 6 fix-up of cur_fn must have mapped that bank before (a `with` block's `LDA #bank`). Code
+; compiled with the region in fixed memory (-fREGION) has no block, and would read the window as
+; whatever is there.
+pub func check_mapped(s: word)
+  var r: byte
+  r = bank_of(s)
+  if r != 0 and r != $FF and (mapped & (word(1) << (r - 1))) == 0 then
+    lk_name.fail_in(lk_err.E_UNMAPPED, s, cur_sym)
+  end
 end
 
 ; The byte a one-byte fix-up of this kind puts in the code.
@@ -309,7 +444,7 @@ pub func part(value: word, kind: byte): byte
   end
   if kind == K_ZP and value > $FF then
     ; Only a class 0 slot is always in zero page; the compiler must not ask this of others.
-    lk_name.fail_in(lk_err.E_NOT_ZP, lk_tab.wk(FX_SYM + cursor), cur_sym)
+    lk_name.fail_in(lk_err.E_NOT_ZP, held(FX_SYM), cur_sym)
   end
   return lo(value)
 end
@@ -363,6 +498,25 @@ pub func shrunk(ctx: byte): word
     end
   end
   return count
+end
+
+; Bytes the copy for context ctx loses, from all of the function's fix-ups.
+pub func lost(ctx: byte): word
+  if long_fix then
+    return from_record($FFFF, ctx)
+  end
+  return shrunk(ctx)
+end
+
+; How many bytes are removed before written offset `pos` in the copy for context ctx: from the
+; run held if it covers `pos` (every entry before the run is before it, every one after the run
+; after it), else from the FIX record.
+pub func removed(pos: word, ctx: byte): word
+  if long_fix and (run_base != 0 and pos < lk_tab.wk(FX_AT)
+                   or pos > lk_tab.wk(FX_AT + fix_count - 1)) then
+    return from_record(pos, ctx)
+  end
+  return run_lost[ctx] + removed_before(pos, ctx)
 end
 
 ; How many bytes are removed before written offset `pos` in the copy for context ctx.

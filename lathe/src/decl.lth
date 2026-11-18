@@ -40,17 +40,19 @@
 ;   |                                      |                                   | function with a |
 ;   |                                      |                                   | result must not |
 ;   |                                      |                                   | be reachable    |
+;   | place = parts.mark_place(): a list   | var place: err.Place, filled in   | a record is not |
+;   | [line, col]; err.position_at(place)  | by parts.mark_place(@place);      | a result or a   |
+;   |                                      | err.position_at(@place)           | parameter       |
 module decl
 
 import asmblock (function_body)
 import err (E_AT_EXPECTED, E_ATTRIBUTES, E_BAD_INTERFACE, E_COLON_EXPECTED, E_CREATE,
             E_DECL_EXPECTED, E_DIRS_FULL, E_EMPTY_RECORD, E_END_EXPECTED, E_FORWARD,
             E_FUNC_EXPECTED, E_IN_EXPECTED, E_INTERRUPT_HEAD, E_LISTED_TWICE, E_LPAREN_EXPECTED,
-            E_MEMBERS_FULL, E_MODULE_EXPECTED, E_MODULE_NAME, E_NAME_EXPECTED, E_NL_EXPECTED,
-            E_NO_BODY, E_NO_INTERFACE, E_NOT_CONST, E_NOT_EXPORTED, E_RANGE, E_RECORD_SELF,
-            E_RECURSIVE_BODY, E_REG_TYPE, E_REG_USED, E_REGISTER_EXPECTED, E_RPAREN_EXPECTED,
-            E_SELF_IMPORT, E_SYNTAX, E_TYPE, E_TYPE_MODULE, E_UNSUPPORTED, E_WANTS_FULL, fatal,
-            position)
+            E_MEMBERS_FULL, E_MODULE_EXPECTED, E_MODULE_NAME, E_NL_EXPECTED, E_NO_BODY,
+            E_NO_INTERFACE, E_NOT_CONST, E_NOT_EXPORTED, E_RANGE, E_RECORD_SELF, E_RECURSIVE_BODY,
+            E_REG_TYPE, E_REG_USED, E_REGISTER_EXPECTED, E_RPAREN_EXPECTED, E_SELF_IMPORT, E_SYNTAX,
+            E_TYPE, E_TYPE_MODULE, E_UNSUPPORTED, E_WANTS_FULL, fatal, Place, position, position_at)
 import expr (constant, constant_number, data_region, directive, function_body, LEVEL_MODULE,
              table_data, type_spec, value_type, variable)
 import gen (cpu, function_begin, function_end, init_count, INIT_FLUSH, init_function,
@@ -74,7 +76,8 @@ import lex (col, expect, line, next, string_length, T_ASM, T_ASSIGN, T_AT, T_BOO
             T_RPAREN, T_STATIC, T_STRING, T_TYPE, T_VAR, tok, value)
 import out (begin_module, FUNC_EXPORTED, FUNC_INTERRUPT, FUNC_RECURSIVE, FUNC_REGISTERS, imported,
             open, region, SYM_DATA, SYM_FUNCTION, symbol, variable)
-import parts (layout, new_name, no_record, not_in_region, region_name, zp_class)
+import parts (layout, mark_place, need_name, new_name, no_record, not_in_region, region_name,
+              zp_class)
 import reg (begin, CLASS_EITHER, depth, new_slot, O_CONST, object_symbol, op_kind, op_type,
             op_value, pop, SLOT_PARAMETER)
 import typetab (array_of, base, BOOL_TYPE, build, BYTE_TYPE, declared, form, FORM_ARRAY, FORM_ENUM,
@@ -183,6 +186,7 @@ const C_SPACE = $20
 const C_ZERO = $30
 
 var register_name: [REGISTER_COUNT]word
+var stream: byte                ; the interface being read or written: one is open at a time
 var init_parts: byte = 0        ; how many functions of initial values have been written out early
 
 ; Declare what the language declares. Needs the keywords to have their tokens.
@@ -264,7 +268,7 @@ end
 
 ; ---- Writing the interface ---------------------------------------------------------------
 
-func write_type(stream: byte, t: byte)
+func write_type(t: byte)
   var s: word
   while typetab.is_pointer(t) or typetab.is_array(t) do
     if typetab.is_pointer(t) then
@@ -285,13 +289,13 @@ func write_type(stream: byte, t: byte)
   end
 end
 
-forward func write_signature(stream: byte, s: word)
+forward func write_signature(s: word)
 
 ; A type entry: a record, an enumeration or a function type that `s` declares, or another name
 ; for a type. Every record, enumeration and function type is written, so that what is exported
 ; can use them; one not `pub` is known to an importer but cannot be named there. Another name
 ; for a type is written only if it is `pub`.
-func write_named_type(stream: byte, s: word)
+func write_named_type(s: word)
   var t: byte
   var kind: byte
   var flags: byte
@@ -314,34 +318,34 @@ func write_named_type(stream: byte, s: word)
   end
   kernel.put(stream, flags)
   if kind == LI_FUNC_TYPE then
-    write_signature(stream, s)
+    write_signature(s)
   elif kind == LI_TYPE then
-    write_type(stream, t)
+    write_type(t)
   elif kind == LI_RECORD then
     kernel.put(stream, kernel.params_of(s))
     for f = s + 1 until s + 1 + kernel.params_of(s) do
       kernel.put_name(stream, kernel.word_of(f, kernel.C_NAME))
-      write_type(stream, kernel.type_of(f))
+      write_type(kernel.type_of(f))
     end
   end
 end
 
-func write_members(stream: byte, first: word, count: byte)
+func write_members(first: word, count: byte)
   var m: word
   kernel.put(stream, count)
   for m = first until first + count do
-    write_type(stream, kernel.member_type_of(m))
+    write_type(kernel.member_type_of(m))
     kernel.put(stream, kernel.member_value_of(m))
   end
 end
 
 ; The parameters and results of function or function type `s`.
-func write_signature(stream: byte, s: word)
-  write_members(stream, kernel.word_of(s, kernel.C_MEMBERS), kernel.params_of(s))
-  write_members(stream, kernel.word_of(s, kernel.C_MEMBERS) + kernel.params_of(s), kernel.byte_of(s, kernel.C_RESULTS))
+func write_signature(s: word)
+  write_members(kernel.word_of(s, kernel.C_MEMBERS), kernel.params_of(s))
+  write_members(kernel.word_of(s, kernel.C_MEMBERS) + kernel.params_of(s), kernel.byte_of(s, kernel.C_RESULTS))
 end
 
-func write_function(stream: byte, s: word)
+func write_function(s: word)
   kernel.put(stream, LI_FUNC)
   kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
   if kernel.flags_of(s) & kernel.SF_EXTERN != 0 then
@@ -358,31 +362,31 @@ func write_function(stream: byte, s: word)
   else
     kernel.put(stream, 0)
   end
-  write_signature(stream, s)
+  write_signature(s)
   if kernel.flags_of(s) & inlines.SF_INLINE != 0 then
     inlines.write(stream, s)
   end
 end
 
-func write_constant(stream: byte, s: word)
+func write_constant(s: word)
   if kernel.flags_of(s) & kernel.SF_IN != 0 then
     kernel.put(stream, LI_CONST_IN)
     kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-    write_type(stream, kernel.type_of(s))
+    write_type(kernel.type_of(s))
     kernel.put_word(stream, 0)
     kernel.put_name(stream, kernel.value_of(s))
     return
   end
   kernel.put(stream, LI_CONST)
   kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-  write_type(stream, kernel.type_of(s))
+  write_type(kernel.type_of(s))
   kernel.put_word(stream, kernel.value_of(s))
 end
 
-func write_variable(stream: byte, s: word)
+func write_variable(s: word)
   kernel.put(stream, LI_VAR)
   kernel.put_name(stream, kernel.word_of(s, kernel.C_NAME))
-  write_type(stream, kernel.type_of(s))
+  write_type(kernel.type_of(s))
   if kernel.flags_of(s) & kernel.SF_AT != 0 then
     kernel.put(stream, LI_AT)
     kernel.put_word(stream, kernel.value_of(s))
@@ -400,7 +404,6 @@ end
 
 ; Write what the module exports to its interface file in the output directory.
 pub func write_interface()
-  var stream: byte
   var ok: bool
   var expands: bool
   var s: word
@@ -432,7 +435,7 @@ pub func write_interface()
   end
   for s = 0 until kernel.sym_count do
     if kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_TYPE then
-      write_named_type(stream, s)
+      write_named_type(s)
     elif kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.kind_of(s) == kernel.K_MODULE then
       if expands then
         kernel.put(stream, LI_MODULE)
@@ -440,11 +443,11 @@ pub func write_interface()
       end
     elif kernel.scope_of(s) == kernel.SCOPE_MODULE and kernel.flags_of(s) & kernel.SF_PUB != 0 then
       if kernel.kind_of(s) == kernel.K_FUNC then
-        write_function(stream, s)
+        write_function(s)
       elif kernel.kind_of(s) == kernel.K_CONST then
-        write_constant(stream, s)
+        write_constant(s)
       else
-        write_variable(stream, s)
+        write_variable(s)
       end
     end
   end
@@ -454,9 +457,9 @@ end
 
 ; ---- Reading an interface ----------------------------------------------------------------
 
-forward func imported_type(stream: byte): byte
+forward func imported_type(): byte
 
-func read_type(stream: byte): byte
+func read_type(): byte
   var mark: byte
   var t: byte
   var at_end: bool
@@ -471,7 +474,7 @@ func read_type(stream: byte): byte
     t, at_end = kernel.get(stream)
   end
   if t == LI_NAMED then
-    t = imported_type(stream)
+    t = imported_type()
   elif t < typetab.BYTE_TYPE or t > typetab.NIL_TYPE then
     err.fatal(err.E_BAD_INTERFACE)
   end
@@ -480,7 +483,7 @@ end
 
 ; A record, an enumeration or a function type given by the name of its module and its own: the
 ; module must have been imported already, and is in a scope of its own number.
-func imported_type(stream: byte): byte
+func imported_type(): byte
   var name: word
   var scope: byte
   var s: word
@@ -500,21 +503,21 @@ func imported_type(stream: byte): byte
   return kernel.type_of(s)
 end
 
-forward func read_signature(stream: byte, s: word)
+forward func read_signature(s: word)
 forward func add_field(s: word, name: word, t: byte)
-forward func read_entry_name(stream: byte)
+forward func read_entry_name()
 forward func entry_name_begin()
-forward func read_entry_members(stream: byte): byte
+forward func read_entry_members(): byte
 forward func wanted(number: byte, mark: bool): byte
 forward func listed(row: byte): bool
 forward func not_exported(row: byte)
 forward func hidden(flags: byte, how: byte): byte
-forward func skip_named_type(stream: byte, kind: byte)
+forward func skip_named_type(kind: byte)
 
 ; A type entry of kind LI_TYPE, LI_RECORD, LI_ENUM or LI_FUNC_TYPE. Every type of the interface
 ; is read, listed or not, the first time it is read; `again`, it is passed over, but the importer
 ; can name it from now on if it is listed. A listed type that is not `pub` is error 102.
-func read_named_type(stream: byte, scope: byte, kind: byte, again: bool)
+func read_named_type(scope: byte, kind: byte, again: bool)
   var s: word
   var flags: byte
   var at_end: bool
@@ -523,7 +526,7 @@ func read_named_type(stream: byte, scope: byte, kind: byte, again: bool)
   var i: byte
   var name: word
   var how: byte
-  read_entry_name(stream)
+  read_entry_name()
   entry_name_begin()
   how = wanted(scope, true)
   flags, at_end = kernel.get(stream)
@@ -532,7 +535,7 @@ func read_named_type(stream: byte, scope: byte, kind: byte, again: bool)
   end
   if again then
     kernel.built_loaded(scope, how & READ_SHOWN != 0)
-    skip_named_type(stream, kind)
+    skip_named_type(kind)
     return
   end
   s = kernel.sym_add(scope, kernel.name_end(), kernel.K_TYPE)
@@ -540,7 +543,7 @@ func read_named_type(stream: byte, scope: byte, kind: byte, again: bool)
     kernel.set_byte(s, kernel.C_FLAGS, hidden(kernel.SF_PUB, how))
   end
   if kind == LI_TYPE then
-    kernel.set_byte(s, kernel.C_TYPE, read_type(stream))
+    kernel.set_byte(s, kernel.C_TYPE, read_type())
     return
   end
   t = typetab.declared(typetab.FORM_RECORD + kind - LI_RECORD, s)
@@ -549,7 +552,7 @@ func read_named_type(stream: byte, scope: byte, kind: byte, again: bool)
     if flags & LI_RECURSIVE != 0 then
       typetab.make_recursive(t)
     end
-    read_signature(stream, s)
+    read_signature(s)
     return
   end
   if kind == LI_ENUM then
@@ -558,27 +561,27 @@ func read_named_type(stream: byte, scope: byte, kind: byte, again: bool)
   count, at_end = kernel.get(stream)
   for i = 0 until count do
     name = inlines.read_name(stream)
-    add_field(s, name, read_type(stream))
+    add_field(s, name, read_type())
   end
 end
 
 ; What follows the flags of a type entry read before: its types are read again, which makes no
 ; new type, and nothing else is made.
-func skip_named_type(stream: byte, kind: byte)
+func skip_named_type(kind: byte)
   var count: byte
   var at_end: bool
   var i: byte
   entry_members = 0
   if kind == LI_TYPE then
-    read_type(stream)
+    read_type()
   elif kind == LI_FUNC_TYPE then
-    read_entry_members(stream)
-    read_entry_members(stream)
+    read_entry_members()
+    read_entry_members()
   elif kind == LI_RECORD then
     count, at_end = kernel.get(stream)
     for i = 0 until count do
       inlines.skip_name(stream)
-      read_type(stream)
+      read_type()
     end
   end
 end
@@ -595,7 +598,7 @@ func add_field(s: word, name: word, t: byte)
 end
 
 ; Read parameters or results as members of the newest symbol. Returns how many.
-func read_members(stream: byte): byte
+func read_members(): byte
   var count: byte
   var at_end: bool
   var i: byte
@@ -603,7 +606,7 @@ func read_members(stream: byte): byte
   var register: byte
   count, at_end = kernel.get(stream)
   for i = 0 until count do
-    t = read_type(stream)
+    t = read_type()
     register, at_end = kernel.get(stream)
     kernel.member_add(t, register)
   end
@@ -611,14 +614,14 @@ func read_members(stream: byte): byte
 end
 
 ; The parameters and results of function or function type `s`, the newest symbol.
-func read_signature(stream: byte, s: word)
-  kernel.set_byte(s, kernel.C_PARAMS, read_members(stream))
-  kernel.set_byte(s, kernel.C_RESULTS, read_members(stream))
+func read_signature(s: word)
+  kernel.set_byte(s, kernel.C_PARAMS, read_members())
+  kernel.set_byte(s, kernel.C_RESULTS, read_members())
 end
 
 ; The name of an entry, which is not made a name yet: its characters are kept in entry_name, the
 ; first kernel.MAX_NAME of them, as a name keeps them.
-func read_entry_name(stream: byte)
+func read_entry_name()
   var length: byte
   var at_end: bool
   var i: byte
@@ -644,7 +647,7 @@ func entry_name_begin()
 end
 
 ; Read parameters or results into the entry's members. Returns how many.
-func read_entry_members(stream: byte): byte
+func read_entry_members(): byte
   var count: byte
   var at_end: bool
   var i: byte
@@ -654,7 +657,7 @@ func read_entry_members(stream: byte): byte
     if entry_members == MAX_ENTRY_MEMBERS then
       err.fatal(err.E_MEMBERS_FULL)
     end
-    entry_type[entry_members] = read_type(stream)
+    entry_type[entry_members] = read_type()
     register, at_end = kernel.get(stream)
     entry_register[entry_members] = register
     entry_members += 1
@@ -878,7 +881,7 @@ end
 
 ; A function entry: frozen, unless it is `inline`, whose saved tokens are read now if it is
 ; wanted, or passed over.
-func read_function(stream: byte, scope: byte, again: bool)
+func read_function(scope: byte, again: bool)
   var flags: byte
   var at_end: bool
   var s: word
@@ -887,21 +890,21 @@ func read_function(stream: byte, scope: byte, again: bool)
   var params: byte
   var results: byte
   var how: byte
-  read_entry_name(stream)
+  read_entry_name()
   flags, at_end = kernel.get(stream)
   if flags & LI_INLINE != 0 then
     entry_name_begin()
     how = wanted(scope, true)
     entry_members = 0
     if how == READ_SKIP or again and kernel.built_loaded(scope, how & READ_SHOWN != 0) then
-      params = read_entry_members(stream)
-      read_entry_members(stream)
+      params = read_entry_members()
+      read_entry_members()
       inlines.skip(stream, params)
       return
     end
     s = kernel.sym_add(scope, kernel.name_end(), kernel.K_FUNC)
     kernel.set_byte(s, kernel.C_FLAGS, hidden(kernel.SF_PUB | inlines.SF_INLINE, how))
-    read_signature(stream, s)
+    read_signature(s)
     inlines.read(stream, s)
     return
   end
@@ -921,15 +924,15 @@ func read_function(stream: byte, scope: byte, again: bool)
     symbol_flags = kernel.SF_PUB | inlines.SF_INTERRUPT
   end
   entry_members = 0
-  params = read_entry_members(stream)
-  results = read_entry_members(stream)
+  params = read_entry_members()
+  results = read_entry_members()
   entry_name_begin()
   how = wanted(scope, true)
   enter(scope, how, again, kernel.K_FUNC, symbol_flags, 0, value, params, results)
 end
 
 ; The name of a region, after an entry read as `how` says: passed over if it is not read.
-func region_name(stream: byte, how: byte): word
+func region_name(how: byte): word
   if how == READ_SKIP then
     inlines.skip_name(stream)
     return 0
@@ -938,13 +941,13 @@ func region_name(stream: byte, how: byte): word
 end
 
 ; A constant entry; `in_region` for a table in a region, whose name follows its value.
-func read_constant(stream: byte, scope: byte, in_region: bool, again: bool)
+func read_constant(scope: byte, in_region: bool, again: bool)
   var t: byte
   var value: word
   var flags: byte
   var how: byte
-  read_entry_name(stream)
-  t = read_type(stream)
+  read_entry_name()
+  t = read_type()
   entry_members = 0
   value = kernel.get_word(stream)
   entry_name_begin()
@@ -952,20 +955,20 @@ func read_constant(stream: byte, scope: byte, in_region: bool, again: bool)
   flags = kernel.SF_PUB
   if in_region then
     flags = kernel.SF_PUB | kernel.SF_IN
-    value = region_name(stream, how)
+    value = region_name(how)
   end
   enter(scope, how, again, kernel.K_CONST, flags, t, value, 0, 0)
 end
 
-func read_variable(stream: byte, scope: byte, again: bool)
+func read_variable(scope: byte, again: bool)
   var t: byte
   var placement: byte
   var at_end: bool
   var symbol_flags: byte
   var value: word
   var how: byte
-  read_entry_name(stream)
-  t = read_type(stream)
+  read_entry_name()
+  t = read_type()
   placement, at_end = kernel.get(stream)
   entry_name_begin()
   how = wanted(scope, true)
@@ -980,7 +983,7 @@ func read_variable(stream: byte, scope: byte, again: bool)
     symbol_flags = kernel.SF_PUB | kernel.SF_NOZP
   elif placement == LI_IN then
     symbol_flags = kernel.SF_PUB | kernel.SF_NOZP | kernel.SF_IN
-    value = region_name(stream, how)
+    value = region_name(how)
   elif placement != 0 then
     err.fatal(err.E_BAD_INTERFACE)
   end
@@ -990,7 +993,7 @@ end
 
 ; The module of a name in an LI_USES entry of module `number`'s interface: a string, or an empty
 ; one for that module itself.
-func read_module_name(stream: byte, number: byte): word
+func read_module_name(number: byte): word
   var length: byte
   var at_end: bool
   var i: byte
@@ -1011,13 +1014,13 @@ end
 ; names, so that the entries of this module and of the modules it imports are read for it. The
 ; entries come newest function first, so that a function another one names is wanted by the time
 ; its own entry is read.
-func read_uses(stream: byte, number: byte)
+func read_uses(number: byte)
   var how: byte
   var count: byte
   var at_end: bool
   var i: byte
   var owner: word
-  read_entry_name(stream)
+  read_entry_name()
   entry_name_begin()
   how = wanted(number, false)
   count, at_end = kernel.get(stream)
@@ -1026,7 +1029,7 @@ func read_uses(stream: byte, number: byte)
       inlines.skip_name(stream)
       inlines.skip_name(stream)
     else
-      owner = read_module_name(stream, number)
+      owner = read_module_name(number)
       add_want(owner, inlines.read_name(stream), 0)
     end
   end
@@ -1036,17 +1039,17 @@ end
 ; first `skip` bytes read.
 func open_interface(name: word, skip: word): byte
   var i: byte
-  var stream: byte
+  var found: byte
   var ok: bool
   var b: byte
   for i = 0 until directory_count do
-    stream, ok = kernel.open_in(file_path(directory[i], name, C_LOWER_I))
+    found, ok = kernel.open_in(file_path(directory[i], name, C_LOWER_I))
     if ok then
       while skip != 0 do
-        b, ok = kernel.get(stream)
+        b, ok = kernel.get(found)
         skip -= 1
       end
-      return stream
+      return found
     end
   end
   err.fatal(err.E_NO_INTERFACE)
@@ -1058,10 +1061,10 @@ forward recursive func read_interface(number: byte, again: bool)
 ; An LI_MODULE entry: a module that the exported inline functions of module `scope` can name. It
 ; is imported too, if it is not already (or read again for the names the rows want of it), and
 ; is a name of that module's scope, which the expansions of its inline functions see and the
-; importer's own code does not. Returns the stream, which is another if the module's interface
-; was read: the one of `scope` is closed while it is, then opened again where it was, so that
-; one interface is open at a time however deep the imports go.
-recursive func imported_module(stream: byte, scope: byte, again: bool): byte
+; importer's own code does not. If the module's interface is read, the one of `scope` is closed
+; while it is, then opened again where it was (`stream` is then another), so that one interface
+; is open at a time however deep the imports go.
+recursive func imported_module(scope: byte, again: bool)
   var name: word
   var m: byte
   var fresh: bool
@@ -1084,14 +1087,12 @@ recursive func imported_module(stream: byte, scope: byte, again: bool): byte
   if not again then
     kernel.set_word(kernel.sym_add(scope, name, kernel.K_MODULE), kernel.C_VALUE, m)
   end
-  return stream
 end
 
 ; Declare what module number `number` exports, as symbols in the scope of that number: its types,
 ; and of the rest what the rows want (wanted()), or all of it. `again`: it was read before, and
 ; what it had then is not made again.
 recursive func read_interface(number: byte, again: bool)
-  var stream: byte
   var letter_l: byte
   var letter_i: byte
   var version: byte
@@ -1116,17 +1117,17 @@ recursive func read_interface(number: byte, again: bool)
       break
     end
     if kind == LI_FUNC then
-      read_function(stream, number, again)
+      read_function(number, again)
     elif kind == LI_CONST or kind == LI_CONST_IN then
-      read_constant(stream, number, kind == LI_CONST_IN, again)
+      read_constant(number, kind == LI_CONST_IN, again)
     elif kind == LI_VAR then
-      read_variable(stream, number, again)
+      read_variable(number, again)
     elif kind == LI_MODULE then
-      stream = imported_module(stream, number, again)
+      imported_module(number, again)
     elif kind == LI_USES then
-      read_uses(stream, number)
+      read_uses(number)
     else
-      read_named_type(stream, number, kind, again)
+      read_named_type(number, kind, again)
     end
   end
   kernel.close(stream)
@@ -1137,9 +1138,7 @@ end
 ; "module" name NL. The name must be the file's.
 func module_line()
   lex.expect(lex.T_MODULE, err.E_MODULE_EXPECTED)
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
+  parts.need_name()
   if lex.value != kernel.module_name[0] then
     err.fatal(err.E_MODULE_NAME)
   end
@@ -1152,9 +1151,7 @@ func import_list(name: word)
   lex.next()
   if lex.tok != lex.T_RPAREN then
     loop
-      if lex.tok != lex.T_NAME then
-        err.fatal(err.E_NAME_EXPECTED)
-      end
+      parts.need_name()
       add_want(name, lex.value, W_LISTED)
       lex.next()
       if lex.tok != lex.T_COMMA then
@@ -1174,19 +1171,15 @@ func import_line()
   var s: word
   var m: byte
   var name: word
-  var line: word
-  var col: word
+  var place: err.Place
   var how: byte
   lex.next()
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
+  parts.need_name()
   name = lex.value
   if name == kernel.module_name[0] then
     err.fatal(err.E_SELF_IMPORT)
   end
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_MODULE)
   lex.next()
   want_count = 0
@@ -1196,7 +1189,7 @@ func import_line()
     how = 0
     import_list(name)
   end
-  err.position(line, col)
+  err.position_at(@place)
   ; An interface read before may have brought the module in, for its inline functions
   ; (imported_module()): that reading serves, and what it has is not made twice.
   m = 1
@@ -1227,9 +1220,7 @@ end
 func function_symbol(flags: byte): word, bool
   var s: word
   var found: bool
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
+  parts.need_name()
   s, found = kernel.sym_find(kernel.SCOPE_MODULE, lex.value)
   if found and kernel.kind_of(s) == kernel.K_FUNC and kernel.flags_of(s) & kernel.SF_FORWARD != 0 and
       flags & kernel.SF_FORWARD == 0 then
@@ -1303,9 +1294,7 @@ func register_parameters(): byte
   used = 0
   if lex.tok != lex.T_RPAREN then
     loop
-      if lex.tok != lex.T_NAME then
-        err.fatal(err.E_NAME_EXPECTED)
-      end
+      parts.need_name()
       lex.next()
       lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
       used = bound_member(used)
@@ -1396,11 +1385,9 @@ forward func result_register(t: byte): byte
 ; for a result in the place its type gives it. If the function is not `fresh`, this must be what
 ; the forward declaration said. Returns the type.
 func member(s: word, fresh: bool, index: byte, where: byte): byte
-  var line: word
-  var col: word
+  var place: err.Place
   var t: byte
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   t = expr.value_type()
   if where != gen.REG_NONE then
     where = result_register(t)
@@ -1410,7 +1397,7 @@ func member(s: word, fresh: bool, index: byte, where: byte): byte
   elif index >= kernel.params_of(s) + kernel.byte_of(s, kernel.C_RESULTS) or
       kernel.member_type_of(kernel.word_of(s, kernel.C_MEMBERS) + index) != t or
       kernel.member_value_of(kernel.word_of(s, kernel.C_MEMBERS) + index) != where then
-    err.position(line, col)
+    err.position_at(@place)
     err.fatal(err.E_FORWARD)
   end
   return t
@@ -1514,13 +1501,11 @@ end
 ; funcDecl = funcHead NL body "end" NL, or "forward" funcHead NL if `flags` say so. An interrupt
 ; function has no parameters and no results (reported at its name), and entry and exit code.
 func function_declaration(flags: byte)
-  var line: word
-  var col: word
+  var place: err.Place
   var s: word
   var fresh: bool
   lex.next()
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   s, fresh = function_symbol(flags)
   ; The scope begins once the function's own name is declared and the token after it has been
   ; read: every name made from here on is a parameter's or a local's.
@@ -1534,7 +1519,7 @@ func function_declaration(flags: byte)
   end
   if flags & inlines.SF_INTERRUPT != 0 then
     if kernel.params_of(s) + kernel.byte_of(s, kernel.C_RESULTS) != 0 then
-      err.position(line, col)
+      err.position_at(@place)
       err.fatal(err.E_INTERRUPT_HEAD)
     end
     gen.interrupt_entry()
@@ -1601,8 +1586,7 @@ end
 func constant_declaration(flags: byte)
   var name: word
   var t: byte
-  var line: word
-  var col: word
+  var place: err.Place
   var region: word
   var symbol: word
   var s: word
@@ -1611,10 +1595,9 @@ func constant_declaration(flags: byte)
   t = typetab.NO_TYPE
   if lex.tok == lex.T_COLON then
     lex.next()
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     t = expr.type_spec()
-    err.position(line, col)
+    err.position_at(@place)
     parts.layout(t)
   end
   region = 0
@@ -1645,11 +1628,10 @@ func constant_declaration(flags: byte)
   if region != 0 then
     parts.not_in_region()
   end
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   expr.constant(t)
   if reg.op_kind[reg.depth - 1] != reg.O_CONST then
-    err.position(line, col)
+    err.position_at(@place)
     err.fatal(err.E_NOT_CONST)
   end
   s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
@@ -1707,8 +1689,7 @@ end
 func record_type(s: word)
   var t: byte
   var name: word
-  var line: word
-  var col: word
+  var place: err.Place
   var f: byte
   t = typetab.declared(typetab.FORM_RECORD, s)
   kernel.set_byte(s, kernel.C_TYPE, t)
@@ -1717,10 +1698,9 @@ func record_type(s: word)
   while lex.tok != lex.T_END do
     name = parts.new_name(kernel.SCOPE_FIELDS + t)
     lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     f = expr.type_spec()
-    err.position(line, col)
+    err.position_at(@place)
     parts.layout(f)
     if typetab.innermost(f) == t then
       err.fatal(err.E_RECORD_SELF)
@@ -1754,9 +1734,7 @@ func function_type(s: word)
   count = 0
   if lex.tok != lex.T_RPAREN then
     loop
-      if lex.tok != lex.T_NAME then
-        err.fatal(err.E_NAME_EXPECTED)
-      end
+      parts.need_name()
       lex.next()
       lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
       member(s, true, count, gen.REG_NONE)
@@ -1775,8 +1753,7 @@ end
 ; typeDecl = "type" name "=" ( type | recordType | funcType ) NL.
 func type_declaration(flags: byte)
   var name: word
-  var line: word
-  var col: word
+  var place: err.Place
   var t: byte
   lex.next()
   name = parts.new_name(kernel.SCOPE_MODULE)
@@ -1786,10 +1763,9 @@ func type_declaration(flags: byte)
   elif lex.tok == lex.T_FUNC or lex.tok == lex.T_RECURSIVE then
     function_type(type_symbol(name, flags))
   else
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     t = expr.type_spec()
-    err.position(line, col)
+    err.position_at(@place)
     parts.layout(t)
     kernel.set_byte(type_symbol(name, flags), kernel.C_TYPE, t)
   end
@@ -1802,8 +1778,7 @@ func enum_declaration(flags: byte)
   var s: word
   var t: byte
   var value: word
-  var line: word
-  var col: word
+  var place: err.Place
   var name: word
   var c: word
   lex.next()
@@ -1813,17 +1788,15 @@ func enum_declaration(flags: byte)
   line_end()
   value = 0
   while lex.tok != lex.T_END do
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     name = parts.new_name(kernel.SCOPE_MODULE)
     if lex.tok == lex.T_ASSIGN then
       lex.next()
-      line = lex.line
-      col = lex.col
+      parts.mark_place(@place)
       value = expr.constant_number()
     end
     if value > $FF then
-      err.position(line, col)
+      err.position_at(@place)
       err.fatal(err.E_RANGE)
     end
     c = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)

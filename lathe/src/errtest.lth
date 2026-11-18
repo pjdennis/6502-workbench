@@ -1,8 +1,9 @@
-; A test of err: errtest NUMBER [FILE [LINE COL]] reports error NUMBER, in FILE at LINE and
-; COL if they are given, as err.fatal does. (lathe/tests/test_src_err.py)
+; A test of err: errtest NUMBER [FILE [LINE COL [PLACE]]] reports error NUMBER, in FILE at LINE
+; and COL if they are given, as err.fatal does; with a fifth argument, the place is given as an
+; err.Place kept for later (err.position_at). (lathe/tests/test_src_err.py)
 module errtest
 
-import err (fatal, init, position, set_file)
+import err (fatal, init, Place, position, position_at, set_file)
 import sys (arg_copy, argc)
 
 var text: [256]byte
@@ -29,7 +30,13 @@ pub func main()
     length = sys.arg_copy(1, @file)
     err.set_file(@file)
   end
-  if sys.argc() > 3 then
+  if sys.argc() > 4 then
+    var place: err.Place
+    place.line = argument(2)
+    place.col = argument(3)
+    err.position(0, 0)
+    err.position_at(@place)
+  elif sys.argc() > 3 then
     err.position(argument(2), argument(3))
   end
   err.fatal(byte(number))

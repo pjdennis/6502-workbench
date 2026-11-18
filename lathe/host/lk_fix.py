@@ -8,7 +8,12 @@ before its code or data in the file, and applies them as the bytes go by (lk_emi
 function for another context has other slot addresses, so each held fix-up carries one bit per
 context in which its instruction shrinks.
 
-The fix-ups of one function are the only thing about its code the linker ever holds.
+The fix-ups of one function are the only thing about its code the linker ever holds, and it
+holds at most MAX_FIXES of them, a run: a function with more has its FIX record read again for
+each run after the first, from the place the code has reached and back (next_fix), and what its
+code loses before an offset that the run held does not cover is counted from the record itself
+(removed). Constant data is held whole: the compiler writes at most 256 addresses in a table
+(out.MAX_TABLE_FIXES), and every build holds more.
 """
 import lk_alloc
 import lk_envf
@@ -51,8 +56,21 @@ FX_ADD = 4 * MAX_FIXES
 FX_ZP = 5 * MAX_FIXES               # a bit per context in which the instruction shrinks
 cursor = 0                          # the next fix-up to apply
 
+# A function of more fix-ups than a run holds (long_fix): where its FIX record is, the record's
+# entry that the run's first is, and what the entries before the run lose. Set by hold.
+long_fix = False
+fix_obj = 0                         # the object file being written
+fix_recno = 0                       # the number of the FIX record in it
+fix_total = 0                       # the entries of the record
+run_base = 0                        # the entry of the record that held entry 0 is
+run_lost = [0] * lk_tab.MAX_CONTEXTS    # bytes each copy loses before the run
+here = 0                            # while the record is read again (away): the record the
+rest = 0                            # code was read in, and the bytes of it left
+
 shrink_count = [0] * lk_tab.MAX_CONTEXTS    # pass 1: bytes each copy of cur_fn loses
 
+mapped = 0                          # pass 2: a bit for each bank a kind 6 fix-up of cur_fn has
+                                    # mapped so far, in the order of its code (bank_value)
 cur_fn = 0                          # the function whose records are being read
 cur_sym = 0                         # its symbol, or that of the constant data being written
 
@@ -63,9 +81,11 @@ def bad():
 
 
 def begin(f):
-    """Start on function f, which has no fix-up that shrinks until count_shrinks finds some."""
-    global cur_fn, cur_sym
+    """Start on function f, which has no fix-up that shrinks until count_shrinks finds some, and
+    has mapped no bank."""
+    global cur_fn, cur_sym, mapped
     cur_fn = f
+    mapped = 0
     cur_sym = lk_tab.fn_ref(f)
     for ctx in range(0, lk_tab.ctx_count):
         shrink_count[ctx] = 0
@@ -92,13 +112,15 @@ def read_entry(obj):
     e_add = lk_rec.get_word()
 
 
-def count_shrinks(obj):
-    """Pass 1. MAIN is at cur_fn's FIX record: count, for each context, its fix-ups that
-    shrink."""
+def count_before(obj, pos):
+    """MAIN is at cur_fn's FIX record: count, for each context, its fix-ups before written
+    offset `pos` that shrink (shrink_count)."""
     for ctx in range(0, lk_tab.ctx_count):
         shrink_count[ctx] = 0
     while lk_rec.left() > 0:
         read_entry(obj)
+        if e_at >= pos:
+            return
         if e_kind == K_SHRINK:
             bits = zp_contexts(e_sym, e_slot, e_add)
             for ctx in range(0, lk_tab.ctx_count):
@@ -106,28 +128,94 @@ def count_shrinks(obj):
                     shrink_count[ctx] += 1
 
 
+def count_shrinks(obj):
+    """Pass 1. MAIN is at cur_fn's FIX record: count, for each context, its fix-ups that
+    shrink."""
+    count_before(obj, 0xFFFF)
+
+
 def hold(obj, in_code):
-    """Pass 2. MAIN is at a FIX record of cur_fn, or at a DFIX record: hold its entries.
+    """Pass 2. MAIN is at a FIX record of cur_fn, or at a DFIX record: hold its entries, or the
+    first run of them.
 
     Whether they make sense is checked as they are applied."""
-    global fix_count, cursor
+    global fix_count, cursor, long_fix, fix_obj, fix_recno, fix_total
     fix_count = 0
     cursor = 0
-    while lk_rec.left() > 0:
-        if fix_count == MAX_FIXES:
-            if in_code:
-                lk_name.fail(lk_err.E_FIXES, cur_sym)
-            lk_err.fail(lk_err.E_FIXES)
+    fix_obj = obj
+    fix_recno = lk_rec.recno()
+    take_run(obj, in_code)
+    fix_total = fix_count + (lk_rec.left() >> 3)
+    long_fix = lk_rec.left() > 0
+    if long_fix and not in_code:
+        lk_err.fail(lk_err.E_FIXES)
+    first_run()
+
+
+def put(column, v):
+    """Column `column` of the fix-up held next is v."""
+    lk_tab.set_wk(column + fix_count, v)
+
+
+def take_run(obj, in_code):
+    """Hold the entries of the record MAIN is in from where it is, as many as a run holds."""
+    global fix_count
+    while lk_rec.left() > 0 and fix_count < MAX_FIXES:
         read_entry(obj)
-        lk_tab.set_wk(FX_AT + fix_count, e_at)
-        lk_tab.set_wk(FX_KIND + fix_count, e_kind)
-        lk_tab.set_wk(FX_SYM + fix_count, e_sym)
-        lk_tab.set_wk(FX_SLOT + fix_count, e_slot)
-        lk_tab.set_wk(FX_ADD + fix_count, e_add)
-        lk_tab.set_wk(FX_ZP + fix_count, 0)
+        put(FX_AT, e_at)
+        put(FX_KIND, e_kind)
+        put(FX_SYM, e_sym)
+        put(FX_SLOT, e_slot)
+        put(FX_ADD, e_add)
+        put(FX_ZP, 0)
         if in_code and e_kind == K_SHRINK:
-            lk_tab.set_wk(FX_ZP + fix_count, zp_contexts(e_sym, e_slot, e_add))
+            put(FX_ZP, zp_contexts(e_sym, e_slot, e_add))
         fix_count += 1
+
+
+def first_run():
+    """Nothing is lost before the first run."""
+    global run_base
+    run_base = 0
+    for ctx in range(0, lk_tab.ctx_count):
+        run_lost[ctx] = 0
+
+
+def away():
+    """Read the FIX record again, from its start, leaving the code where it is (back)."""
+    global here, rest
+    here = lk_rec.recno()
+    rest = lk_rec.left()
+    lk_rec.goto(fix_obj, fix_recno)
+
+
+def back():
+    """Back to where the code was being read."""
+    lk_rec.goto(fix_obj, here)
+    while lk_rec.left() > rest:
+        lk_rec.get_byte()
+
+
+def from_record(pos, ctx):
+    """The bytes the copy for context ctx loses before written offset `pos`, counted from the FIX
+    record, read again."""
+    away()
+    count_before(fix_obj, pos)
+    back()
+    return shrink_count[ctx]
+
+
+def load_run(base):
+    """Hold the run that starts at entry `base` of the FIX record, read again."""
+    global fix_count, cursor, run_base
+    away()
+    for i in range(0, 8 * base):
+        lk_rec.get_byte()
+    fix_count = 0
+    cursor = 0
+    take_run(fix_obj, True)
+    run_base = base
+    back()
 
 
 def drop():
@@ -142,25 +230,44 @@ def more():
     return cursor < fix_count
 
 
+def held(column):
+    """Column `column` of the held fix-up at the cursor."""
+    return lk_tab.wk(column + cursor)
+
+
+def next_run():
+    """The run held is applied: hold the next one, read again from the record."""
+    for ctx in range(0, lk_tab.ctx_count):
+        run_lost[ctx] += shrunk(ctx)
+    load_run(run_base + fix_count)
+
+
 def next_fix():
-    """The fix-up at the cursor is applied: go on to the next."""
+    """The fix-up at the cursor is applied: go on to the next, in the next run if it is not held.
+    (The order of two fix-ups on either side of the end of a run is checked by the instructions,
+    which find a fix-up behind them bad: lk_emit.)"""
     global cursor
-    if lk_tab.wk(FX_KIND + cursor) < K_WORD or lk_tab.wk(FX_KIND + cursor) > K_REACH_HIGH:
+    if held(FX_KIND) < K_WORD or held(FX_KIND) > K_REACH_HIGH:
         bad()
     cursor += 1
-    if cursor < fix_count:
+    if cursor == fix_count and run_base + fix_count < fix_total:
+        next_run()
+    elif cursor < fix_count:
         # Fix-ups are sorted by offset, and do not overlap.
         after = lk_tab.wk(FX_AT + cursor - 1) + 1
         if is_word(lk_tab.wk(FX_KIND + cursor - 1)):
             after += 1
-        if lk_tab.wk(FX_AT + cursor) < after:
+        if held(FX_AT) < after:
             bad()
 
 
 def rewind():
-    """Apply the held fix-ups again, to the next copy of the function."""
+    """Apply the held fix-ups again, to the next copy of the function: from the first run."""
     global cursor
     cursor = 0
+    if run_base != 0:
+        load_run(0)
+        first_run()
 
 
 # ---- what a fix-up points at
@@ -226,16 +333,36 @@ def target(ctx, sym, slot, is_call):
     return lk_alloc.slot_addr(n, slot)
 
 
-def bank_value(s):
-    """What a kind 6 fix-up naming symbol s stands for: the register value of the bank of the
-    region s is in, or 0 if the region is in fixed memory."""
+def bank_of(s):
+    """The bank + 1 of the region variable or constant data s is in, 0 for fixed memory, or 0xFF
+    if s is not a variable or constant data that is defined."""
     k = lk_sym.kind_of(s)
     if (k != lk_sym.VARIABLE and k != lk_sym.CONSTANT) or not lk_sym.is_defined(s):
+        return 0xFF
+    return lk_scan.region_of(lk_sym.row_of(s))
+
+
+def bank_value(s):
+    """What a kind 6 fix-up naming symbol s stands for: the register value of the bank of the
+    region s is in, or 0 if the region is in fixed memory. The bank is mapped from here on."""
+    global mapped
+    r = bank_of(s)
+    if r == 0xFF:
         return 0x100                    # not a variable or constant data: a bad fix-up
-    r = lk_scan.region_of(lk_sym.row_of(s))
     if r == 0:
         return 0
+    mapped |= 1 << (r - 1)
     return lk_envf.bank_value[r - 1]
+
+
+def check_mapped(s):
+    """Code of cur_fn names symbol s: if s is a variable or constant data of a region in a bank,
+    a kind 6 fix-up of cur_fn must have mapped that bank before (a `with` block's `LDA #bank`).
+    Code compiled with the region in fixed memory (-fREGION) has no block, and would read the
+    window as whatever is there."""
+    r = bank_of(s)
+    if r != 0 and r != 0xFF and (mapped & (1 << (r - 1))) == 0:
+        lk_name.fail_in(lk_err.E_UNMAPPED, s, cur_sym)
 
 
 def part(value, kind):
@@ -244,7 +371,7 @@ def part(value, kind):
         return value >> 8
     if kind == K_ZP and value > 0xFF:
         # Only a class 0 slot is always in zero page; the compiler must not ask this of others.
-        lk_name.fail_in(lk_err.E_NOT_ZP, lk_tab.wk(FX_SYM + cursor), cur_sym)
+        lk_name.fail_in(lk_err.E_NOT_ZP, held(FX_SYM), cur_sym)
     return value & 0xFF
 
 
@@ -282,6 +409,23 @@ def shrunk(ctx):
         if shrinks(i, ctx):
             count += 1
     return count
+
+
+def lost(ctx):
+    """Bytes the copy for context ctx loses, from all of the function's fix-ups."""
+    if long_fix:
+        return from_record(0xFFFF, ctx)
+    return shrunk(ctx)
+
+
+def removed(pos, ctx):
+    """How many bytes are removed before written offset `pos` in the copy for context ctx: from
+    the run held if it covers `pos` (every entry before the run is before it, every one after the
+    run after it), else from the FIX record."""
+    if long_fix and (run_base != 0 and pos < lk_tab.wk(FX_AT)
+                     or pos > lk_tab.wk(FX_AT + fix_count - 1)):
+        return from_record(pos, ctx)
+    return run_lost[ctx] + removed_before(pos, ctx)
 
 
 def removed_before(pos, ctx):

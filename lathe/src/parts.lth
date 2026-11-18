@@ -13,7 +13,7 @@ module parts
 
 import err (E_DOT_EXPECTED, E_DUPLICATE, E_ELEMENT_SIZE, E_IN_HERE, E_NAME_EXPECTED, E_NEEDS_ROWS,
             E_NO_FIELD, E_NOT_VAR, E_RECORD_INIT, E_ROWS_RECORD, E_TYPE, E_UNDEFINED, E_USAGE,
-            fatal, fatal_value, position)
+            fatal, fatal_value, Place, position, position_at)
 import fbuf (FIX_ADDRESS, newest, NO_SLOT, op, op_fix, OP_JSR, unreached)
 import fold (ADD, BAND, BOR, BXOR, DIV, EQ, GE, GT, LE, LT, MUL, NE, REM, SHL, SHR, SUB)
 import gen (anonymous, binary, compare, field, fixed_name, jump_false, local, OP_BNE, record_of,
@@ -48,6 +48,13 @@ const OP_PLP = $28
 const MAX_FIXED = 8                 ; regions the command line can say are in fixed memory (-fREGION)
 var fixed: [MAX_FIXED]word          ; their names
 var fixed_count: byte = 0
+
+; The current token must be a name: if not, that is error E_NAME_EXPECTED.
+pub func need_name()
+  if lex.tok != lex.T_NAME then
+    err.fatal(err.E_NAME_EXPECTED)
+  end
+end
 
 pub func init()
   map_symbol = kernel.NO_OBJ
@@ -106,9 +113,7 @@ pub func named_symbol(): word
   var s: word
   var found: bool
   var m: word
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
+  need_name()
   s, found = inlines.lookup(lex.value)
   if not found then
     err.fatal(err.E_UNDEFINED)
@@ -117,9 +122,7 @@ pub func named_symbol(): word
   if kernel.kind_of(s) == kernel.K_MODULE then
     m = s
     lex.expect(lex.T_DOT, err.E_DOT_EXPECTED)
-    if lex.tok != lex.T_NAME then
-      err.fatal(err.E_NAME_EXPECTED)
-    end
+    need_name()
     s, found = kernel.module_find(m, lex.value)
     if not found or kernel.flags_of(s) & kernel.SF_PUB == 0 then
       err.fatal(err.E_UNDEFINED)
@@ -129,16 +132,14 @@ pub func named_symbol(): word
   return s
 end
 
-; The name after the "." at `line`, `col`: a field of the record that the newest operand is or
+; The name after the "." at `place`: a field of the record that the newest operand is or
 ; points to.
-pub func field(line: word, col: word)
+pub func field(place: ^err.Place)
   var t: byte
   var f: word
   var found: bool
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
-  err.position(line, col)
+  need_name()
+  err.position_at(place)
   t = gen.record_of()
   err.position(lex.line, lex.col)
   f, found = kernel.sym_find(kernel.SCOPE_FIELDS + t, lex.value)
@@ -229,10 +230,10 @@ pub func relation_operator(token: byte): byte
   return 0
 end
 
-; Do the operator `op`, which was at `line`, `col`, on the two newest operands. Operands of the
+; Do the operator `op`, which was at `place`, on the two newest operands. Operands of the
 ; wrong type are reported there.
-pub func apply(op: byte, line: word, col: word)
-  err.position(line, col)
+pub func apply(op: byte, place: ^err.Place)
+  err.position_at(place)
   if op >= fold.EQ then
     gen.compare(op)
   else
@@ -241,9 +242,9 @@ pub func apply(op: byte, line: word, col: word)
   err.position(lex.line, lex.col)
 end
 
-; One side of the `and` (`wanted` true) or `or` (false) at `line`, `col` is complete.
-pub func test_operator(wanted: bool, line: word, col: word, is_left: bool)
-  err.position(line, col)
+; One side of the `and` (`wanted` true) or `or` (false) at `place` is complete.
+pub func test_operator(wanted: bool, place: ^err.Place, is_left: bool)
+  err.position_at(place)
   if is_left then
     if inlines.copies_due() then
       ; The right side may not be run, so a call in it must not be what copies an argument
@@ -275,9 +276,7 @@ end
 pub func loop_variable(): word
   var s: word
   var found: bool
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
+  need_name()
   s, found = inlines.lookup(lex.value)
   if not found then
     err.fatal(err.E_UNDEFINED)
@@ -410,17 +409,20 @@ end
 
 pub var placed_at: word = 0     ; the address after "at" in the declaration being parsed
 pub var placed_region: word = 0 ; the name after "in" in the declaration being parsed
-var in_line: word = 0           ; and where the "in" is
-var in_col: word = 0
+var in_place: err.Place         ; and where the "in" is (the host: in_line and in_col)
+
+; Where the current token is, into `place`.
+pub func mark_place(place: ^err.Place)
+  place.line = lex.line
+  place.col = lex.col
+end
 
 ; The name being declared, which `scope` must not have yet. It is passed over.
 pub func new_name(scope: byte): word
   var name: word
   var s: word
   var found: bool
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
+  need_name()
   name = lex.value
   s, found = kernel.sym_find(scope, name)
   if found then
@@ -433,12 +435,9 @@ end
 ; "in" name: the region's name. Where the "in" is is kept for an error.
 pub func region_name(): word
   var name: word
-  in_line = lex.line
-  in_col = lex.col
+  mark_place(@in_place)
   lex.next()
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
+  need_name()
   name = lex.value
   lex.next()
   return name
@@ -446,7 +445,7 @@ end
 
 ; `in REGION` was given where it is not allowed.
 pub func not_in_region()
-  err.position(in_line, in_col)
+  err.position_at(@in_place)
   err.fatal(err.E_IN_HERE)
 end
 

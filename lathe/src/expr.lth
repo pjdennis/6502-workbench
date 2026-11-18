@@ -61,17 +61,27 @@
 ;   | functions                            |                                   | them            |
 ;   | map_symbol and unmap_symbol, set by  | declared above init()             | declare before  |
 ;   | init() and declared with `with`      |                                   | use             |
+;   | place = parts.mark_place(): a list   | var place: err.Place, filled in   | a record is not |
+;   | [line, col]; err.position_at(place)  | by parts.mark_place(@place);      | a result or a   |
+;   |                                      | err.position_at(@place)           | parameter       |
+;   | outer = enter_loop(): a list of what | var outer: Outer, a record,       | a record is not |
+;   | the loop keeps; leave_loop(outer)    | filled in by enter_loop(@outer)   | a result or a   |
+;   |                                      |                                   | parameter       |
+;   | call_value(start), conversion(t,     | `start` copied first: place =     | the record is   |
+;   | start): `start` used as it is        | start[0]                          | the caller's; a |
+;   |                                      |                                   | nested call may |
+;   |                                      |                                   | use it again    |
 module expr
 
 import asmblock (block)
 import err (E_ARG_COUNT, E_ARRAY_VALUE, E_CALL_IN_ARGUMENTS, E_CASE_SELECTOR, E_CASE_TWICE,
             E_COLON_EXPECTED, E_DO_EXPECTED, E_END_EXPECTED, E_EXPR_EXPECTED, E_FUNC_TYPE_PLACE,
             E_INLINE_ADDRESS, E_INLINE_NOT_HERE, E_INTERRUPT_CALL, E_LABELS_FULL, E_LPAREN_EXPECTED,
-            E_NAME_EXPECTED, E_NESTING, E_NL_EXPECTED, E_NO_LOOP, E_NO_RETURN, E_NOT_CONST,
-            E_NOT_FUNC, E_NOT_VAR, E_OPERANDS_FULL, E_RANGE, E_RECORD_PLACE, E_RECORD_VALUE,
-            E_RESULTS, E_RPAREN_EXPECTED, E_STATUS_IN_CRITICAL, E_STMT_EXPECTED, E_SYNTAX,
-            E_THEN_EXPECTED, E_TO_EXPECTED, E_TOO_MANY, E_TYPE, E_TYPE_EXPECTED, E_UNSUPPORTED,
-            E_WITH_INTERRUPT, E_WITH_UNKNOWN, fatal, position)
+            E_NESTING, E_NL_EXPECTED, E_NO_LOOP, E_NO_RETURN, E_NOT_CONST, E_NOT_FUNC, E_NOT_VAR,
+            E_OPERANDS_FULL, E_RANGE, E_RECORD_PLACE, E_RECORD_VALUE, E_RESULTS, E_RPAREN_EXPECTED,
+            E_STATUS_IN_CRITICAL, E_STMT_EXPECTED, E_SYNTAX, E_THEN_EXPECTED, E_TO_EXPECTED,
+            E_TOO_MANY, E_TYPE, E_TYPE_EXPECTED, E_UNSUPPORTED, E_WITH_INTERRUPT, E_WITH_UNKNOWN,
+            fatal, Place, position, position_at)
 import fbuf (new_label, NO_SLOT, op, runs_on, set_symbol)
 import fold (ADD, GE, LE, LT, NE)
 import gen (accept, address, address_of, anonymous, arguments_end, as_value, assign, call, carry,
@@ -97,10 +107,10 @@ import lex (choose, col, expect, line, next, open_brackets, resume, string_byte,
             T_TILDE, T_TO, T_UNTIL, T_VAR, T_WHILE, T_WITH, T_ZP, tok, value)
 import out (region, table_begin, table_byte, table_end, with_region, with_unmapped, with_used)
 import parts (apply, basic_type, compare_limit, field, init, is_fixed, lasting_variable, layout,
-              loop_variable, map_bank, named_symbol, new_name, no_record, not_in_region, placed_at,
-              placed_region, push_variable, region_name, region_symbol, relation_operator,
-              restore_flags, step_back, string, sum_operator, term_operator, test_operator,
-              unmap_bank, with_entry, zp_class)
+              loop_variable, map_bank, mark_place, named_symbol, need_name, new_name, no_record,
+              not_in_region, placed_at, placed_region, push_variable, region_name, region_symbol,
+              relation_operator, restore_flags, step_back, string, sum_operator, term_operator,
+              test_operator, unmap_bank, with_entry, zp_class)
 import reg (A, assignable, become, branch, CLASS_EITHER, compare_const, depth, F_DATA, F_TEMP,
             in_registers, is_direct, join, jump, label, load, local_count, loop_label, M_POINTER,
             new_slot, NONE, O_A, O_ADDR, O_CONST, O_FUNC, O_VAR, op_flags, op_kind, op_mode,
@@ -175,8 +185,7 @@ forward recursive func constant_number(): word
 ; record is written only in a type declaration (DECL).
 pub recursive func type_spec(): byte
   var mark: byte
-  var line: word
-  var col: word
+  var place: err.Place
   var n: word
   mark = typetab.prefix_count
   while lex.tok == lex.T_CARET or lex.tok == lex.T_LBRACKET do
@@ -185,11 +194,10 @@ pub recursive func type_spec(): byte
       typetab.prefix(typetab.FORM_POINTER, 0)
     else
       lex.next()
-      line = lex.line
-      col = lex.col
+      parts.mark_place(@place)
       n = constant_number()
       if n == 0 then
-        err.position(line, col)
+        err.position_at(@place)
         err.fatal(err.E_RANGE)
       end
       lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
@@ -199,14 +207,13 @@ pub recursive func type_spec(): byte
   var t: byte
   var s: word
   t = parts.basic_type(lex.tok)
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   if t != typetab.NO_TYPE then
     lex.next()
   elif lex.tok == lex.T_NAME then
     s = parts.named_symbol()
     if kernel.kind_of(s) != kernel.K_TYPE then
-      err.position(line, col)
+      err.position_at(@place)
       err.fatal(err.E_TYPE_EXPECTED)
     end
     t = kernel.type_of(s)
@@ -222,13 +229,11 @@ end
 
 ; The type of a parameter or a result: not an array or a record, which are not values.
 pub func value_type(): byte
-  var line: word
-  var col: word
+  var place: err.Place
   var t: byte
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   t = type_spec()
-  err.position(line, col)
+  err.position_at(@place)
   if typetab.is_array(t) then
     err.fatal(err.E_ARRAY_VALUE)
   end
@@ -247,12 +252,10 @@ recursive func builtin(which: byte)
   if which == B_SIZEOF then
     gen.size_of(type_spec())
   else
-    var line: word
-    var col: word
-    line = lex.line
-    col = lex.col
+    var place: err.Place
+    parts.mark_place(@place)
     expression()
-    err.position(line, col)
+    err.position_at(@place)
     if which == B_LEN then
       gen.length()
     else
@@ -263,23 +266,21 @@ recursive func builtin(which: byte)
   lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
 end
 
-forward recursive func conversion(t: byte, line: word, col: word)
+forward recursive func conversion(t: byte, start: ^err.Place)
 
 ; designator = name { "." name | "[" expression "]" }. Pushes an operand for what it names. A
 ; named type followed by "(" is a conversion.
 recursive func designator()
-  var line: word
-  var col: word
+  var place: err.Place
   var s: word
   var kind: byte
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   s = parts.named_symbol()
   kind = kernel.kind_of(s)
   if kind == kernel.K_FUNC then
     gen.function(s)
   elif kind == kernel.K_CONST and typetab.is_array(kernel.type_of(s)) then
-    err.position(line, col)     ; a table in a region is used only inside `with`
+    err.position_at(@place)     ; a table in a region is used only inside `with`
     gen.table(s)
     here()
   elif kind == kernel.K_CONST then
@@ -287,39 +288,38 @@ recursive func designator()
   elif kind == kernel.K_LOCAL then
     gen.local(kernel.type_of(s), lo(kernel.value_of(s)))
   elif kind == kernel.K_VAR then
-    err.position(line, col)
+    err.position_at(@place)
     gen.variable(s)
     here()
   elif kind == kernel.K_TYPE then
-    conversion(kernel.type_of(s), line, col)
+    conversion(kernel.type_of(s), @place)
   else
     builtin(lo(kernel.value_of(s)))
   end
   while lex.tok == lex.T_LBRACKET or lex.tok == lex.T_DOT do
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     if lex.tok == lex.T_DOT then
       lex.next()
-      parts.field(line, col)
+      parts.field(@place)
     else
       lex.next()
       expression()
       lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
-      err.position(line, col)
+      err.position_at(@place)
       gen.index()
       here()
     end
   end
 end
 
-; Check that the newest operand, which the designator at `line`, `col` gave, is a variable that
-; can be assigned to.
-func target(line: word, col: word)
+; Check that the newest operand, which the designator at `place` gave, is a variable that can be
+; assigned to.
+func target(place: ^err.Place)
   var i: byte
   i = reg.depth - 1
   if reg.op_kind[i] != reg.O_VAR or reg.op_flags[i] & reg.F_DATA != 0 or
       (reg.op_flags[i] & reg.F_TEMP != 0 and reg.op_mode[i] != reg.M_POINTER) then
-    err.position(line, col)
+    err.position_at(place)
     err.fatal(err.E_NOT_VAR)
   end
 end
@@ -328,12 +328,10 @@ end
 ; and the argument is stored in it; if not, the argument is left on the stack. One that does
 ; not fit is reported at its start.
 recursive func argument(t: byte, stored: bool)
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   if stored then
     gen.store()
   else
@@ -458,15 +456,18 @@ func callee()
 end
 
 ; A call where a value is wanted, of the function whose operand is on top of the stack and
-; whose name is at `line`, `col`. One that gives a value and a status needs `-> v` after it,
-; which stores the value and leaves the status.
-recursive func call_value(line: word, col: word)
+; whose name is at `start`. One that gives a value and a status needs `-> v` after it, which
+; stores the value and leaves the status. `start` is copied first: the record it points to is
+; its caller's, which a call in the arguments may use again.
+recursive func call_value(start: ^err.Place)
+  var place: err.Place
   var f: word
+  place = start[0]
   f = reg.op_var[reg.depth - 1]
   if lex.tok != lex.T_LPAREN then
     err.fatal(err.E_LPAREN_EXPECTED)
   end
-  err.position(line, col)
+  err.position_at(@place)
   check_not_pending(f)
   here()
   call(true)
@@ -475,28 +476,30 @@ recursive func call_value(line: word, col: word)
       err.fatal(err.E_RESULTS)
     end
     lex.next()
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     designator()
-    target(line, col)
-    err.position(line, col)
+    target(@place)
+    err.position_at(@place)
     gen.store_arrow()
     here()
   elif kernel.byte_of(f, kernel.C_RESULTS) == 2 and passing then
     passed = gen.mark()
   elif kernel.byte_of(f, kernel.C_RESULTS) == 0 then
-    err.position(line, col)
+    err.position_at(@place)
     err.fatal(err.E_RESULTS)    ; a status beside a value may be ignored: v = f()
   end
 end
 
 ; ---- Expressions -------------------------------------------------------------------------
 
-; "(" expression ")" after typeKw, or after "^" type: a conversion to type `t`.
-recursive func conversion(t: byte, line: word, col: word)
+; "(" expression ")" after typeKw, or after "^" type at `start`: a conversion to type `t`.
+; `start` is copied first, as in call_value().
+recursive func conversion(t: byte, start: ^err.Place)
+  var place: err.Place
+  place = start[0]
   lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   gen.convert(t)
   here()
   lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
@@ -517,23 +520,21 @@ recursive func primary()
     lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
     return
   end
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   if lex.tok == lex.T_NAME then
     designator()
     callee()
     if reg.op_kind[reg.depth - 1] == reg.O_FUNC then
-      call_value(line, col)
+      call_value(@place)
     end
   elif lex.tok == lex.T_CARET then
-    conversion(type_spec(), line, col)
+    conversion(type_spec(), @place)
   elif parts.basic_type(lex.tok) != typetab.NO_TYPE then
     var t: byte
     t = parts.basic_type(lex.tok)
     lex.next()
-    conversion(t, line, col)
+    conversion(t, @place)
   elif lex.tok == lex.T_STRING then
     parts.string()
     lex.next()
@@ -550,18 +551,16 @@ recursive func factor()
     primary()
     return
   end
-  var line: word
-  var col: word
+  var place: err.Place
   var minus: bool
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   if lex.tok == lex.T_MINUS or lex.tok == lex.T_TILDE then
     minus = lex.tok == lex.T_MINUS
     lex.next()
     nest()
     factor()
     unnest()
-    err.position(line, col)
+    err.position_at(@place)
     if minus then
       gen.negate()
     else
@@ -575,7 +574,7 @@ recursive func factor()
     gen.address_of = reg.depth
     designator()
     gen.address_of = outer
-    err.position(line, col)
+    err.position_at(@place)
     var i: byte
     i = reg.depth - 1
     if reg.op_kind[i] == reg.O_FUNC and kernel.flags_of(reg.op_var[i]) & inlines.SF_INTERRUPT != 0 then
@@ -595,15 +594,13 @@ end
 recursive func term()
   factor()
   var op: byte
-  var line: word
-  var col: word
+  var place: err.Place
   op = parts.term_operator(lex.tok)
   while op != 0 do
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     lex.next()
     factor()
-    parts.apply(op, line, col)
+    parts.apply(op, @place)
     op = parts.term_operator(lex.tok)
   end
 end
@@ -612,15 +609,13 @@ end
 recursive func addition()
   term()
   var op: byte
-  var line: word
-  var col: word
+  var place: err.Place
   op = parts.sum_operator(lex.tok)
   while op != 0 do
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     lex.next()
     term()
-    parts.apply(op, line, col)
+    parts.apply(op, @place)
     op = parts.sum_operator(lex.tok)
   end
 end
@@ -629,16 +624,14 @@ end
 recursive func relation()
   addition()
   var op: byte
-  var line: word
-  var col: word
+  var place: err.Place
   op = parts.relation_operator(lex.tok)
   if op != 0 then
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     lex.next()
     gen.as_value()              ; a `bool` on the left cannot wait in the flags
     addition()
-    parts.apply(op, line, col)
+    parts.apply(op, @place)
   end
 end
 
@@ -648,15 +641,13 @@ recursive func inverse()
     relation()
     return
   end
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   lex.next()
   nest()
   inverse()
   unnest()
-  err.position(line, col)
+  err.position_at(@place)
   gen.invert()
   here()
 end
@@ -667,15 +658,13 @@ const OP_SEI = $78
 ; andExpr = notExpr { "and" notExpr }. The right side is reached only if the left is true.
 recursive func both()
   inverse()
-  var line: word
-  var col: word
+  var place: err.Place
   while lex.tok == lex.T_AND do
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     lex.next()
-    parts.test_operator(true, line, col, true)
+    parts.test_operator(true, @place, true)
     inverse()
-    parts.test_operator(true, line, col, false)
+    parts.test_operator(true, @place, false)
   end
 end
 
@@ -684,15 +673,13 @@ end
 pub recursive func expression()
   nest()
   both()
-  var line: word
-  var col: word
+  var place: err.Place
   while lex.tok == lex.T_OR do
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     lex.next()
-    parts.test_operator(false, line, col, true)
+    parts.test_operator(false, @place, true)
     both()
-    parts.test_operator(false, line, col, false)
+    parts.test_operator(false, @place, false)
   end
   unnest()
 end
@@ -712,12 +699,10 @@ end
 ; typetab.NO_TYPE it must be one a `t` can be given, and takes that type. The constant is left
 ; on the stack.
 pub recursive func constant(t: byte)
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   gen.as_value()
   if reg.op_kind[reg.depth - 1] != reg.O_CONST and reg.op_kind[reg.depth - 1] != reg.O_ADDR then
     err.fatal(err.E_NOT_CONST)
@@ -731,14 +716,12 @@ end
 ; constExpr where a number that is not below zero is wanted, as for an address. Returns its
 ; value.
 pub recursive func constant_number(): word
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   constant(typetab.NO_TYPE)
   var i: byte
   i = reg.depth - 1
-  err.position(line, col)
+  err.position_at(@place)
   if reg.op_kind[i] != reg.O_CONST then
     err.fatal(err.E_NOT_CONST)
   end
@@ -772,6 +755,33 @@ var critical_inner: byte = 0    ; how many of those are inside the nearest loop
 var with_function: byte = fbuf.NO_SLOT
 var with_loop: byte = fbuf.NO_SLOT
 pub var data_region: word = 0   ; the region of the table table_data() writes, or 0
+
+; What a loop keeps of the state around it while its body is compiled.
+type Outer = record
+  exit_label: word
+  next_label: word
+  critical_inner: byte
+  with_loop: byte
+end
+
+; A loop begins: the state around it is kept in `outer`, and no `critical` or `with` block is
+; open inside it yet.
+func enter_loop(outer: ^Outer)
+  outer.exit_label = exit_label
+  outer.next_label = next_label
+  outer.critical_inner = critical_inner
+  outer.with_loop = with_loop
+  critical_inner = 0
+  with_loop = fbuf.NO_SLOT
+end
+
+; The loop ends: the state around it is what `outer` kept.
+func leave_loop(outer: ^Outer)
+  exit_label = outer.exit_label
+  next_label = outer.next_label
+  critical_inner = outer.critical_inner
+  with_loop = outer.with_loop
+end
 
 const MAX_CASE = 256
 var case_value: [MAX_CASE]byte  ; the constants of the `case` statements being compiled
@@ -814,12 +824,10 @@ end
 ; "=" expression after a local's declaration: an assignment made on every entry.
 recursive func initial_assignment(s: word)
   parts.push_variable(s)
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   gen.store()
   here()
 end
@@ -832,8 +840,7 @@ forward recursive func initial_value(s: word, t: byte, level: byte)
 pub recursive func variable(more: byte, level: byte)
   var scope: byte
   var name: word
-  var line: word
-  var col: word
+  var place: err.Place
   var t: byte
   var flags: byte
   lex.next()
@@ -843,8 +850,7 @@ pub recursive func variable(more: byte, level: byte)
   end
   name = parts.new_name(scope)
   lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   t = type_spec()
   flags = placements() | more
   if flags & kernel.SF_IN != 0 then
@@ -854,7 +860,7 @@ pub recursive func variable(more: byte, level: byte)
     end
     flags = flags | kernel.SF_NOZP
   end
-  err.position(line, col)
+  err.position_at(@place)
   if flags & kernel.SF_ROWS != 0 then
     if not typetab.is_array(t) then
       err.fatal(err.E_TYPE)
@@ -983,16 +989,16 @@ end
 
 ; ---- Assignments and calls ---------------------------------------------------------------
 
-; assignOp expression, after the designator at `line`, `col`.
-recursive func assignment(line: word, col: word)
+; assignOp expression, after the designator at `start`.
+recursive func assignment(start: ^err.Place)
   var token: byte
-  target(line, col)
+  var place: err.Place
+  target(start)
   token = lex.tok
   lex.next()
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   if token == lex.T_ASSIGN then
     gen.store()
   else
@@ -1001,31 +1007,30 @@ recursive func assignment(line: word, col: word)
   here()
 end
 
-; "," designator "=" call, after the designator at `line`, `col`: the value and the status of a
-; call that gives both.
-recursive func pair_assignment(line: word, col: word)
-  target(line, col)
+; "," designator "=" call, after the designator at `start`: the value and the status of a call
+; that gives both.
+recursive func pair_assignment(start: ^err.Place)
+  var place: err.Place
+  target(start)
   lex.next()
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   designator()
-  target(line, col)
+  target(@place)
   lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   designator()
   callee()
   var i: byte
   i = reg.depth - 1
   if reg.op_kind[i] != reg.O_FUNC or kernel.byte_of(reg.op_var[i], kernel.C_RESULTS) != 2 then
-    err.position(line, col)
+    err.position_at(@place)
     err.fatal(err.E_RESULTS)
   end
   if lex.tok != lex.T_LPAREN then
     err.fatal(err.E_LPAREN_EXPECTED)
   end
   call(true)
-  err.position(line, col)
+  err.position_at(@place)
   gen.store_pair()
   here()
 end
@@ -1033,26 +1038,24 @@ end
 ; designator ( assignOp expression | "," designator "=" call | arguments ): the token after
 ; the designator says which.
 recursive func name_statement()
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   designator()
   callee()
   if reg.op_kind[reg.depth - 1] == reg.O_FUNC then
     if lex.tok != lex.T_LPAREN then
       err.fatal(err.E_LPAREN_EXPECTED)
     end
-    err.position(line, col)
+    err.position_at(@place)
     check_not_pending(reg.op_var[reg.depth - 1])    ; in an inline body, inside arguments
     here()
     call(false)                 ; a call used as a statement may ignore its results
   elif lex.tok == lex.T_LPAREN then
     err.fatal(err.E_NOT_FUNC)
   elif lex.tok == lex.T_COMMA then
-    pair_assignment(line, col)
+    pair_assignment(@place)
   elif lex.tok >= lex.T_ASSIGN and lex.tok <= lex.T_SHR_ASSIGN then
-    assignment(line, col)
+    assignment(@place)
   else
     err.fatal(err.E_SYNTAX)
   end
@@ -1063,12 +1066,10 @@ end
 ; An expression used as a test: goes on when it is true. Returns the label gone to when it is
 ; false.
 pub recursive func test(): word
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   var target: word
   target = gen.jump_false()
   here()
@@ -1122,17 +1123,9 @@ end
 
 ; "while" expression "do" NL body "end".
 recursive func while_statement()
-  var saved_exit: word
-  var saved_next: word
-  var saved_inner: byte
-  var saved_with: byte
+  var outer: Outer
   var top: byte
-  saved_exit = exit_label
-  saved_next = next_label
-  saved_inner = critical_inner
-  critical_inner = 0
-  saved_with = with_loop
-  with_loop = fbuf.NO_SLOT
+  enter_loop(@outer)
   lex.next()
   top = fbuf.new_label()
   reg.loop_label(top)
@@ -1148,26 +1141,15 @@ recursive func while_statement()
   end
   reg.label(byte(exit_label))
   gen.loop_end()
-  exit_label = saved_exit
-  next_label = saved_next
-  critical_inner = saved_inner
-  with_loop = saved_with
+  leave_loop(@outer)
 end
 
 ; "loop" NL body ( "end" | "until" expression ). `continue` goes to the test of `until`, or to
 ; the top if there is none.
 recursive func loop_statement()
-  var saved_exit: word
-  var saved_next: word
-  var saved_inner: byte
-  var saved_with: byte
+  var outer: Outer
   var top: byte
-  saved_exit = exit_label
-  saved_next = next_label
-  saved_inner = critical_inner
-  critical_inner = 0
-  saved_with = with_loop
-  with_loop = fbuf.NO_SLOT
+  enter_loop(@outer)
   lex.next()
   line_end()
   top = fbuf.new_label()
@@ -1189,22 +1171,17 @@ recursive func loop_statement()
   end
   reg.label(byte(exit_label))
   gen.loop_end()
-  exit_label = saved_exit
-  next_label = saved_next
-  critical_inner = saved_inner
-  with_loop = saved_with
+  leave_loop(@outer)
 end
 
 ; The expression after "to" or "downto", for a loop variable of type `t`: left on the stack as a
 ; constant or a variable, which is a temporary unless it was one already.
 recursive func limit_value(t: byte)
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   expression()
   gen.resolve(true)
-  err.position(line, col)
+  err.position_at(@place)
   reg.assignable(reg.depth - 1, t)
   if reg.in_registers(reg.depth - 1) then
     reg.spill(reg.depth - 1)
@@ -1218,30 +1195,20 @@ end
 ; (docs/codegen.md, "Statements"). With `until` the test, variable < limit, is at the top
 ; instead. A limit that is a variable is not copied: it is read at each test.
 recursive func for_statement()
-  var saved_exit: word
-  var saved_next: word
-  var saved_inner: byte
-  var saved_with: byte
+  var outer: Outer
   var s: word
   var t: byte
-  var line: word
-  var col: word
+  var place: err.Place
   nest()
-  saved_exit = exit_label
-  saved_next = next_label
-  saved_inner = critical_inner
-  critical_inner = 0
-  saved_with = with_loop
-  with_loop = fbuf.NO_SLOT
+  enter_loop(@outer)
   lex.next()
   s = parts.loop_variable()
   t = kernel.type_of(s)
   lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
   parts.push_variable(s)
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   var known: bool
   var first: word
   var down: bool
@@ -1297,29 +1264,24 @@ recursive func for_statement()
   gen.loop_end()
   reg.label(byte(exit_label))
   reg.pop()
-  exit_label = saved_exit
-  next_label = saved_next
-  critical_inner = saved_inner
-  with_loop = saved_with
+  leave_loop(@outer)
   unnest()
 end
 
 ; constExpr { "," constExpr }: compare the selector, operand `selector`, with each, and go to
 ; `chosen` if it is equal to one. Returns the label gone to if it is equal to none.
 recursive func case_constants(selector: byte, chosen: byte, base: word): byte
-  var line: word
-  var col: word
+  var place: err.Place
   var value: byte
   var n: word
   loop
-    line = lex.line
-    col = lex.col
+    parts.mark_place(@place)
     constant(reg.op_type[selector])
     value = lo(reg.op_value[reg.depth - 1])
     reg.pop()
     for n = base until case_count do
       if case_value[lo(n)] == value then
-        err.position(line, col)
+        err.position_at(@place)
         err.fatal(err.E_CASE_TWICE)
       end
     end
@@ -1352,13 +1314,11 @@ end
 ; variable at a fixed address may be a device, and is read once; an element is copied too, so
 ; that the register memory knows A holds it.
 recursive func case_statement()
-  var line: word
-  var col: word
+  var place: err.Place
   lex.next()
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   gen.as_value()
   var selector: byte
   var t: byte
@@ -1435,10 +1395,8 @@ end
 ; (-fREGION, parts.is_fixed) maps nothing: it is its body alone, held to the same rules, and the
 ; calls in it are not flagged unless a block around it mapped a bank.
 recursive func with_statement()
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   if kernel.flags_of(function) & inlines.SF_INTERRUPT != 0 then
     err.fatal(err.E_WITH_INTERRUPT)
   end
@@ -1446,9 +1404,7 @@ recursive func with_statement()
     err.fatal(err.E_INLINE_NOT_HERE)
   end
   lex.next()
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
+  parts.need_name()
   var region: word
   region = lex.value
   lex.next()
@@ -1499,7 +1455,7 @@ recursive func with_statement()
       used = parts.region_symbol(region)
     end
     if used == kernel.NO_OBJ then
-      err.position(line, col)
+      err.position_at(@place)
       err.fatal(err.E_WITH_UNKNOWN)
     end
     if temp != fbuf.NO_SLOT then
@@ -1519,15 +1475,13 @@ end
 ; "#if" constExpr NL. LEX passes over what is not to be compiled. The condition is a `bool`, or
 ; a number, which is true unless it is 0 (docs/language.md, "Conditional compilation").
 pub recursive func directive()
-  var line: word
-  var col: word
+  var place: err.Place
   lex.next()
-  line = lex.line
-  col = lex.col
+  parts.mark_place(@place)
   constant(typetab.NO_TYPE)
   var i: byte
   i = reg.depth - 1
-  err.position(line, col)
+  err.position_at(@place)
   if not typetab.is_number(reg.op_type[i]) and not typetab.is_untyped(reg.op_type[i]) and
       reg.op_type[i] != typetab.BOOL_TYPE then
     err.fatal(err.E_TYPE)
@@ -1537,7 +1491,7 @@ pub recursive func directive()
   if lex.tok != lex.T_NL then
     err.fatal(err.E_NL_EXPECTED)
   end
-  err.position(line, col)
+  err.position_at(@place)
   lex.choose(reg.op_value[i] != 0)
 end
 
@@ -1557,13 +1511,11 @@ end
 
 ; An expression whose value is returned in the carry flag.
 recursive func status()
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   gen.carry_wanted()
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   gen.carry()
   here()
 end
@@ -1579,20 +1531,18 @@ end
 
 ; expression "," expression after "return", or a call that gives both results.
 recursive func value_and_status(t: byte)
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   results_expression()
   if passed != reg.NONE then
     if not passes_on(t) then
-      err.position(line, col)
+      err.position_at(@place)
       err.fatal(err.E_RESULTS)
     end
     reg.pop()
     return
   end
-  err.position(line, col)
+  err.position_at(@place)
   gen.accept(t)
   here()
   lex.expect(lex.T_COMMA, err.E_RESULTS)
@@ -1625,12 +1575,10 @@ recursive func return_statement()
   elif results == 1 and kernel.member_value_of(first) == gen.REG_C and not keep then
     status()
   elif results == 1 then
-    var line: word
-    var col: word
-    line = lex.line
-    col = lex.col
+    var place: err.Place
+    parts.mark_place(@place)
     expression()
-    err.position(line, col)
+    err.position_at(@place)
     if not keep or gen.pend_op == 0 or gen.pend_type != t then
       gen.accept(t)
     end
@@ -1712,12 +1660,10 @@ end
 ; The argument for parameter `i` of inline function `f`: a value it can be given, which INLINE
 ; makes the parameter's symbol of (inlines.argument_symbol()).
 recursive func inline_argument(f: word, i: byte)
-  var line: word
-  var col: word
-  line = lex.line
-  col = lex.col
+  var place: err.Place
+  parts.mark_place(@place)
   expression()
-  err.position(line, col)
+  err.position_at(@place)
   gen.as_value()
   gen.accept(kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + i))
   inlines.argument_symbol(f, i)

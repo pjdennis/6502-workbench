@@ -49,14 +49,16 @@ def capacities(level=True):
     return found
 
 
-def source(module, small):
-    """The host module's source, with the small capacities if `small` (the 32K build's if 2)."""
+def source(module, small, values=None):
+    """The host module's source, with the small capacities if `small` (the 32K build's if 2), or
+    with `values` ({module: {NAME: value}}) if given."""
     with open(os.path.join(lathec_support.HOST, module + '.py')) as f:
         text = f.read()
-    if small:
-        for name, value in capacities(small).get(module, {}).items():
-            text, n = re.subn(r'^%s = [^\n#]*' % name, '%s = %d ' % (name, value), text, flags=re.M)
-            assert n == 1, (module, name)
+    if values is None:
+        values = capacities(small) if small else {}
+    for name, value in values.get(module, {}).items():
+        text, n = re.subn(r'^%s = [^\n#]*' % name, '%s = %d ' % (name, value), text, flags=re.M)
+        assert n == 1, (module, name)
     return text
 
 
@@ -74,3 +76,13 @@ def load(small):
                                      'exec')
         mod = importlib.import_module(module)
         exec(_compiled[key], mod.__dict__)
+
+
+def load_values(values):
+    """Run every linker module of lathe/host again with the capacities `values`, {module: {NAME:
+    value}}, any the twins give or not: a test's own sizes (test_lk_fixup_runs.py)."""
+    import importlib
+    for module in MODULES:
+        mod = importlib.import_module(module)
+        exec(compile(source(module, False, values), os.path.join(lathec_support.HOST, module + '.py'), 'exec'),
+             mod.__dict__)

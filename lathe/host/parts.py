@@ -36,6 +36,12 @@ fixed = [0] * MAX_FIXED         # their names
 fixed_count = 0
 
 
+def need_name():
+    """The current token must be a name: if not, that is error E_NAME_EXPECTED."""
+    if lex.tok != lex.T_NAME:
+        err.fatal(err.E_NAME_EXPECTED)
+
+
 def init():
     global map_symbol, unmap_symbol, fixed_count
     map_symbol = kernel.NO_OBJ
@@ -82,8 +88,7 @@ def basic_type(token):
 def named_symbol():
     """name [ "." name ]: the symbol a name means here, or module.name means in that module,
     which must export it (a type that it does not export is in its interface all the same)."""
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
+    need_name()
     s, found = inline.lookup(lex.value)
     if not found:
         err.fatal(err.E_UNDEFINED)
@@ -91,8 +96,7 @@ def named_symbol():
     if kernel.kind_of(s) == kernel.K_MODULE:
         m = s
         lex.expect(lex.T_DOT, err.E_DOT_EXPECTED)
-        if lex.tok != lex.T_NAME:
-            err.fatal(err.E_NAME_EXPECTED)
+        need_name()
         s, found = kernel.module_find(m, lex.value)
         if not found or kernel.flags_of(s) & kernel.SF_PUB == 0:
             err.fatal(err.E_UNDEFINED)
@@ -100,12 +104,11 @@ def named_symbol():
     return s
 
 
-def field(line, col):
-    """The name after the "." at `line`, `col`: a field of the record that the newest operand
+def field(place):
+    """The name after the "." at `place`: a field of the record that the newest operand
     is or points to."""
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
-    err.position(line, col)
+    need_name()
+    err.position_at(place)
     t = gen.record_of()
     err.position(lex.line, lex.col)
     f, found = kernel.sym_find(kernel.SCOPE_FIELDS + t, lex.value)
@@ -176,10 +179,10 @@ def relation_operator(token):
     return 0
 
 
-def apply(op, line, col):
-    """Do the operator `op`, which was at `line`, `col`, on the two newest operands. Operands
+def apply(op, place):
+    """Do the operator `op`, which was at `place`, on the two newest operands. Operands
     of the wrong type are reported there."""
-    err.position(line, col)
+    err.position_at(place)
     if op >= fold.EQ:
         gen.compare(op)
     else:
@@ -187,9 +190,9 @@ def apply(op, line, col):
     err.position(lex.line, lex.col)
 
 
-def test_operator(wanted, line, col, is_left):
-    """One side of the `and` (`wanted` True) or `or` (False) at `line`, `col` is complete."""
-    err.position(line, col)
+def test_operator(wanted, place, is_left):
+    """One side of the `and` (`wanted` True) or `or` (False) at `place` is complete."""
+    err.position_at(place)
     if is_left:
         if inline.copies_due():
             # The right side may not be run, so a call in it must not be what copies an
@@ -216,8 +219,7 @@ def push_variable(s):
 
 def loop_variable():
     """The name after "for": a variable of a number type. Returns its symbol."""
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
+    need_name()
     s, found = inline.lookup(lex.value)
     if not found:
         err.fatal(err.E_UNDEFINED)
@@ -335,14 +337,18 @@ def region_symbol(region):
 
 placed_at = 0           # the address after "at" in the declaration being parsed
 placed_region = 0       # the name after "in" in the declaration being parsed
-in_line = 0             # and where the "in" is
-in_col = 0
+in_line = 0             # and where the "in" is (the Lathe's record in_place: a list here
+in_col = 0              # would be counted as a table by memory_report)
+
+
+def mark_place():
+    """Where the current token is."""
+    return [lex.line, lex.col]
 
 
 def new_name(scope):
     """The name being declared, which `scope` must not have yet. It is passed over."""
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
+    need_name()
     name = lex.value
     _, found = kernel.sym_find(scope, name)
     if found:
@@ -357,8 +363,7 @@ def region_name():
     in_line = lex.line
     in_col = lex.col
     lex.next()
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
+    need_name()
     name = lex.value
     lex.next()
     return name

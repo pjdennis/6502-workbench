@@ -97,17 +97,27 @@ def open(name):
     return ok
 
 
+def put(value):
+    """A byte of the object file."""
+    kernel.put(stream, value)
+
+
+def put_word(value):
+    """A word of the object file, low byte first."""
+    kernel.put_word(stream, value)
+
+
 def begin_record(kind, length):
     """Begin a record whose body is `length` bytes."""
-    kernel.put(stream, kind)
-    kernel.put_word(stream, length)
+    put(kind)
+    put_word(length)
 
 
 def begin_module(cpu, name):
     """The first record: the module's name and the CPU it is compiled for (0 6502, 1 65C02)."""
     begin_record(R_MOD, 3 + kernel.name_length(name))
-    kernel.put(stream, VERSION)
-    kernel.put(stream, cpu)
+    put(VERSION)
+    put(cpu)
     kernel.put_name(stream, name)
 
 
@@ -131,13 +141,13 @@ def symbol(kind, module_name, inner, name):
     if inner != 0:
         length += kernel.name_length(inner) + 1
     begin_record(R_SYM, 2 + length)
-    kernel.put(stream, kind)
-    kernel.put(stream, length)
+    put(kind)
+    put(length)
     put_part(module_name)
     if inner != 0:
         put_part(inner)
     for i in range(0, kernel.name_length(name)):
-        kernel.put(stream, kernel.name_char(name, i))
+        put(kernel.name_char(name, i))
     symbol_count += 1
     return symbol_count - 1
 
@@ -145,28 +155,28 @@ def symbol(kind, module_name, inner, name):
 def put_part(name):
     """A name and the dot that follows it in a longer one."""
     for i in range(0, kernel.name_length(name)):
-        kernel.put(stream, kernel.name_char(name, i))
-    kernel.put(stream, C_DOT)
+        put(kernel.name_char(name, i))
+    put(C_DOT)
 
 
 def variable(symbol_number, size, zp_class, weight):
     """Define a variable that lives for the whole program."""
     begin_record(R_VAR, 7)
-    kernel.put_word(stream, symbol_number)
-    kernel.put_word(stream, size)
-    kernel.put(stream, zp_class)
-    kernel.put(stream, weight)
-    kernel.put(stream, 0)
+    put_word(symbol_number)
+    put_word(size)
+    put(zp_class)
+    put(weight)
+    put(0)
 
 
 def data(symbol_number, length):
     """Begin the constant data `symbol_number`: `length` calls of byte() follow."""
     begin_record(R_DATA, 2 + length)
-    kernel.put_word(stream, symbol_number)
+    put_word(symbol_number)
 
 
 def data_byte(value):
-    kernel.put(stream, value)
+    put(value)
 
 
 def table_begin(length):
@@ -205,11 +215,11 @@ def table_end(symbol_number, length):
         for where in range(0, length):
             for i in range(0, table_fix_count):
                 if table_fix_offset[i] == where:
-                    kernel.put_word(stream, where)
-                    kernel.put(stream, table_fix_kind[i])
-                    kernel.put_word(stream, table_fix_symbol[i])
-                    kernel.put(stream, table_fix_slot[i])
-                    kernel.put_word(stream, table_fix_addend[i])
+                    put_word(where)
+                    put(table_fix_kind[i])
+                    put_word(table_fix_symbol[i])
+                    put(table_fix_slot[i])
+                    put_word(table_fix_addend[i])
     data(symbol_number, length)
     for i in range(0, length):
         data_byte(table[i])
@@ -236,16 +246,16 @@ def pointer_class(symbol_number, flags, count):
     """Describe the pointer class `symbol_number`, which has `count` parameters: as many calls
     of class_parameter() follow, with their sizes in order."""
     begin_record(R_CLAS, 4 + 3 * count)
-    kernel.put_word(stream, symbol_number)
-    kernel.put(stream, flags)
-    kernel.put(stream, count)
+    put_word(symbol_number)
+    put(flags)
+    put(count)
 
 
 def class_parameter(size):
     """A parameter's size, and its name, which is empty: the compiler does not keep the names
     of a function type's parameters."""
-    kernel.put_word(stream, size)
-    kernel.put(stream, 0)
+    put_word(size)
+    put(0)
 
 
 def member(class_number, function_number):
@@ -261,24 +271,24 @@ def member(class_number, function_number):
     member_function[member_count] = function_number
     member_count += 1
     begin_record(R_MEMB, 4)
-    kernel.put_word(stream, class_number)
-    kernel.put_word(stream, function_number)
+    put_word(class_number)
+    put_word(function_number)
 
 
 def function_begin(symbol_number, flags):
     """Begin the records of a finished function. Its slots follow, then function_end()."""
     begin_record(R_FUNC, 3)
-    kernel.put_word(stream, symbol_number)
-    kernel.put(stream, flags)
+    put_word(symbol_number)
+    put(flags)
 
 
 def slot(size, zp_class, weight, kind, name):
     """The next slot of the function's frame."""
     begin_record(R_SLOT, 6 + kernel.name_length(name))
-    kernel.put_word(stream, size)
-    kernel.put(stream, zp_class)
-    kernel.put(stream, weight)
-    kernel.put(stream, kind)
+    put_word(size)
+    put(zp_class)
+    put(weight)
+    put(kind)
     kernel.put_name(stream, name)
 
 
@@ -286,9 +296,9 @@ def calls():
     global call_count
     for i in range(0, call_count):
         begin_record(R_CALL, 5)
-        kernel.put_word(stream, call_callee[i])
-        kernel.put(stream, call_flags[i])
-        kernel.put_word(stream, call_outer[i])
+        put_word(call_callee[i])
+        put(call_flags[i])
+        put_word(call_outer[i])
     call_count = 0
 
 
@@ -310,9 +320,9 @@ def weights():
         return
     begin_record(R_WGT, 4 * fbuf.weight_count)
     for i in range(0, fbuf.weight_count):
-        kernel.put_word(stream, fbuf.weight_symbol[i])
-        kernel.put(stream, fbuf.weight_slot[i])
-        kernel.put(stream, fbuf.weight_value[i])
+        put_word(fbuf.weight_symbol[i])
+        put(fbuf.weight_slot[i])
+        put(fbuf.weight_value[i])
 
 
 def function_end():
@@ -333,9 +343,9 @@ def is_foreign_variable(s):
 
 def foreign_weight(s):
     """The weight of variable `s` in the WGT record."""
-    kernel.put_word(stream, kernel.word_of(s, kernel.C_OBJ))
-    kernel.put(stream, fbuf.NO_SLOT)
-    kernel.put(stream, kernel.byte_of(s, kernel.C_WEIGHT))
+    put_word(kernel.word_of(s, kernel.C_OBJ))
+    put(fbuf.NO_SLOT)
+    put(kernel.byte_of(s, kernel.C_WEIGHT))
 
 
 def foreign_weights():

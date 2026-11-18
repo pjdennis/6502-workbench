@@ -8,6 +8,7 @@ import lathec_support as support  # noqa: E402
 import err  # noqa: E402
 import kernel  # noqa: E402
 import lex  # noqa: E402
+import parts  # noqa: E402
 import src  # noqa: E402
 
 KEYWORDS = ('and asm at bool break byte case const continue critical do downto elif else end '
@@ -336,6 +337,30 @@ class ExpectTest(LexTest):
             lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
         self.assertIn('error 25:', support.error_text())
         self.assertEqual((err.line, err.col), (1, 4))
+
+    def test_mark_place_gives_where_the_token_is(self):
+        start('a\n  bc')
+        lex.next()
+        lex.next()
+        lex.next()
+        place = parts.mark_place()
+        lex.next()
+        self.assertEqual((place[err.PLACE_LINE], place[err.PLACE_COL]), (2, 3))
+
+    def test_need_name_leaves_a_name_where_it_is(self):
+        start('total = 1')
+        lex.next()
+        parts.need_name()
+        self.assertEqual((lex.tok, lex.col), (lex.T_NAME, 1))
+
+    def test_need_name_reports_error_21_at_any_other_token(self):
+        start('x 12')
+        lex.next()
+        lex.next()
+        with self.assertRaises(SystemExit):
+            parts.need_name()
+        self.assertIn('error 21:', support.error_text())
+        self.assertEqual((err.line, err.col), (1, 3))
 
 
 def conditional(text, truth):

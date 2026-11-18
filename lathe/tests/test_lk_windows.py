@@ -478,7 +478,8 @@ def farcall_with(name='fc'):
 
 def user(calls=(), size=2, outside=()):
     """Module t: a variable and a constant in regions, and main, which maps the bank of `t.v`
-    (LDA #bank: kind 6), stores into it, makes the calls inside the block and puts the bank
+    (LDA #bank: kind 6) and then that of `t.k`, as the compiler's blocks would (a use of a region
+    whose bank no block has mapped is link error 62: test_lk_unmapped.py), stores into it, makes the calls inside the block and puts the bank
     back, calling rt_with.map and unmap, which the linker reads as the far-call module's; then
     the calls `outside`."""
     t = Obj('t')
@@ -491,6 +492,8 @@ def user(calls=(), size=2, outside=()):
     c = t.code()
     c.byte(0xA9, 6, t.v('v'))
     c.abs(0x20, t.f('rt_with.map'))
+    c.byte(0xA9, 6, t.d('k'))               # and the bank of `t.k`, a block inside the first
+    c.abs(0x20, t.f('rt_with.map'))
     c.abs(0xAD, t.d('k'))
     c.abs(0x8D, t.v('v'))
     for callee in calls:
@@ -499,7 +502,7 @@ def user(calls=(), size=2, outside=()):
     for callee in outside:
         c.abs(0x20, t.f(callee))
     c.raw(0x60)
-    t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY)] + [(t.f(x), WITH, NOBODY) for x in calls]
+    t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY)] * 2 + [(t.f(x), WITH, NOBODY) for x in calls]
            + [(t.f('rt_with.unmap'), 0, NOBODY)] + [(t.f(x), 0, NOBODY) for x in outside])
     return t
 

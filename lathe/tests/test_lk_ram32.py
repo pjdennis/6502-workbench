@@ -32,8 +32,11 @@ MODE4 = (('fbuftest',), 4)                    # 16,447 bytes
 MODE7 = (('lextest', 'errtest', 'copytest', 'e2e_compare'), 7)      # 25,034 bytes
 MORE = [(('kerneltest',), 7), (('kerneltest', 'copytest', 'e2e_compare'), 7), MODE4, MODE7]
 QUICK_CASES = ('hello', 'calls', 'rec_tree', 'reg_args', 'compare', 'record_copy')
-LARGER = (('lextest', 'errtest', 'copytest', 'e2e_compare', 'e2e_reg_args', 'e2e_record_copy'), 'link error 28'), \
-         (('srctest', 'typetest', 'copytest', 'errtest'), 'link error 11')
+LARGER = ((('lextest', 'errtest', 'copytest', 'e2e_compare', 'e2e_reg_args', 'e2e_record_copy', 'e2e_control'),
+           'link error 11'),
+          (('srctest', 'typetest', 'copytest', 'errtest'), 'link error 11'))
+# Test mains of 344 fix-ups each, more than a run of the 32K build holds (278).
+LONG = ('e2e_record_copy', 'e2e_arith_ops', 'e2e_bigarray_pages')
 
 
 def items(map_path):
@@ -90,8 +93,8 @@ class Capacities(unittest.TestCase):
     def setUpClass(cls):
         cls.dir = tempfile.mkdtemp(prefix='lathe-lk-ram32-cap-')
         cls.cache = os.path.join(cls.dir, 'cache')
-        names = list(dict.fromkeys(['e2e_' + c for c in QUICK_CASES] + [p for ps, _ in MORE + list(LARGER)
-                                                                          for p in ps]))
+        names = list(dict.fromkeys(['e2e_' + c for c in QUICK_CASES] + list(LONG)
+                                   + [p for ps, _ in MORE + list(LARGER) for p in ps]))
         if ALL:
             names = None
         cls.built = lk_ram32.build_programs(cls.cache, names)
@@ -119,7 +122,7 @@ class Capacities(unittest.TestCase):
 
     def test_the_corpus_links_as_at_full_capacities(self):
         chosen = [n for n in self.built if n.startswith('e2e_') or n in ('errtest', 'srctest', 'lextest')]
-        refused = {'e2e_for_ranges': 12, 'e2e_arith_ops': 28, 'e2e_bigarray_pages': 28, 'e2e_record_copy': 28}
+        refused = {'e2e_for_ranges': 12}
         for name in chosen:
             with self.subTest(program=name):
                 status, same = self.same_link(*lk_ram32.program(self.cache, name))
@@ -142,10 +145,9 @@ class Capacities(unittest.TestCase):
                 self.assertTrue(same)
 
     def test_what_stops_a_larger_program(self):
-        """A program of 29 KB, more than a 32K BBC holds: too many fix-ups in one function (a test
-        case's main, 344); and one made of small functions: too many functions (310 of 296; srctest,
-        typetest and copytest alone, 297 until the texts of the errors left err on 2026-11-18, are 296
-        now and link)."""
+        """A program of 31 KB, more than a 32K BBC holds: too many functions (310; 601 symbols in
+        object files too, until the texts left err); and one made of small functions: too many functions (srctest, typetest and copytest alone, 297
+        functions until the texts of the errors left err on 2026-11-18, are 296 now and link)."""
         for pieces, error in LARGER:
             with self.subTest(pieces=pieces):
                 main, objects = lk_ram32.glue(self.cache, pieces, tempfile.mkdtemp(dir=self.dir))
@@ -163,7 +165,8 @@ class OnTheBBC(unittest.TestCase):
         cls.dir = tempfile.mkdtemp(prefix='lathe-lk-ram32-bbc-')
         cls.image = lk_ram32.build_image(os.path.join(cls.dir, 'image'))[0]
         cls.cache = os.path.join(cls.dir, 'cache')
-        lk_ram32.build_programs(cls.cache, [p for ps, _ in ([(('lextest',), 7)] + (MORE if ALL else [])) for p in ps])
+        cls.chosen = [(('lextest',), 7), ((LONG[0],), 7)] + (MORE + [((p,), 7) for p in LONG[1:]] if ALL else [])
+        lk_ram32.build_programs(cls.cache, [p for ps, _ in cls.chosen for p in ps])
 
     @classmethod
     def tearDownClass(cls):
@@ -172,24 +175,39 @@ class OnTheBBC(unittest.TestCase):
     def test_it_links_as_the_host_linker_does(self):
         if REPORT:
             print('\nthe 32K build of the linker on the BBC:')
-        for pieces, mode in [(('lextest',), 7)] + (MORE if ALL else []):
+        for pieces, mode in self.chosen:
             with self.subTest(pieces=pieces):
                 work = tempfile.mkdtemp(dir=self.dir)
                 main, objects = lk_ram32.glue(self.cache, pieces, os.path.join(work, 'objects'))
-                status, error, use, size = lk_ram32.host_link(0, os.path.join(self.cache, 'measure.env'), main,
-                                                              objects)
-                env_path = lk_ram32.target_env(os.path.join(work, 'PROG.env'), size[0], size[1], mode)
-                said, written, (host_status, expected), cycles, traffic = lk_ram32.bbc_link(
-                    self.image, objects, main, env_path, work)
-                self.assertEqual((said, host_status), ((0, b'', b''), 0))
-                self.assertEqual(sorted(written), sorted(expected))
-                for f in expected:
-                    self.assertTrue(written[f] == expected[f], f + ' differs')
-                if REPORT:
-                    print('  %-40s %2d objects %6d bytes: code %5d, variables %5d; %11d cycles, %.2f minutes at '
-                          '2 MHz; files opened %d, bytes read %d, written %d' % (
-                              '+'.join(pieces), len(objects), lk_ram32.object_bytes(objects), size[0], size[1],
-                              cycles, cycles / 2e6 / 60, *traffic))
+                self.link_both(pieces, mode, main, objects, work)
+
+    def test_a_function_of_a_thousand_fix_ups(self):
+        """test_lk_fixup_runs.py's function of 1,006 fix-ups, in two contexts: four runs of the
+        32K build's, read again for each, and for the copy of the interrupt context."""
+        import test_lk_fixup_runs as runs
+        o, n = runs.program(220)
+        self.assertGreater(n, 3 * 278)
+        work = tempfile.mkdtemp(dir=self.dir)
+        path = os.path.join(work, 'BIG.lo')
+        with open(path, 'wb') as f:
+            f.write(o.to_bytes())
+        self.link_both(('a thousand fix-ups',), 7, 't', [path], work)
+
+    def link_both(self, pieces, mode, main, objects, work):
+        """Link on the BBC and by the host linker: every file the same."""
+        status, error, use, size = lk_ram32.host_link(0, os.path.join(self.cache, 'measure.env'), main, objects)
+        env_path = lk_ram32.target_env(os.path.join(work, 'PROG.env'), size[0], size[1], mode)
+        said, written, (host_status, expected), cycles, traffic = lk_ram32.bbc_link(
+            self.image, objects, main, env_path, work)
+        self.assertEqual((said, host_status), ((0, b'', b''), 0))
+        self.assertEqual(sorted(written), sorted(expected))
+        for f in expected:
+            self.assertTrue(written[f] == expected[f], f + ' differs')
+        if REPORT:
+            print('  %-40s %2d objects %6d bytes: code %5d, variables %5d; %11d cycles, %.2f minutes at '
+                  '2 MHz; files opened %d, bytes read %d, written %d' % (
+                      '+'.join(pieces), len(objects), lk_ram32.object_bytes(objects), size[0], size[1],
+                      cycles, cycles / 2e6 / 60, *traffic))
 
 
 @unittest.skipUnless(HAVE_TOOLS, 'emulator or compiler missing')

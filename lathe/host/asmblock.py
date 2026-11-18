@@ -207,8 +207,19 @@ def is_end_word():
     return True
 
 
-def fail_at(at_line, at_col, number):
-    err.position(at_line, at_col)
+def fail_at(place, number):
+    err.position_at(place)
+    err.fatal(number)
+
+
+def mark_char():
+    """Where the character being looked at is."""
+    return [src.line, src.col]
+
+
+def fail_here(number):
+    """Error `number`, at the character being looked at."""
+    err.position(src.line, src.col)
     err.fatal(number)
 
 
@@ -224,7 +235,7 @@ label_col = [0] * MAX_BLOCK_LABELS
 label_count = 0
 
 
-def label_find(name, at_line, at_col):
+def label_find(name, place):
     """The block's label called `name`, made if it is new."""
     global label_count
     for i in range(0, label_count):
@@ -235,17 +246,17 @@ def label_find(name, at_line, at_col):
     label_name[label_count] = name
     label_number[label_count] = fbuf.new_label()
     label_defined[label_count] = False
-    label_line[label_count] = at_line
-    label_col[label_count] = at_col
+    label_line[label_count] = place[err.PLACE_LINE]
+    label_col[label_count] = place[err.PLACE_COL]
     label_count += 1
     return label_count - 1
 
 
-def label_define(name, at_line, at_col):
+def label_define(name, place):
     """The label called `name` is here."""
-    i = label_find(name, at_line, at_col)
+    i = label_find(name, place)
     if label_defined[i]:
-        fail_at(at_line, at_col, err.E_DUPLICATE)
+        fail_at(place, err.E_DUPLICATE)
     label_defined[i] = True
     fbuf.place(label_number[i])
 
@@ -254,7 +265,8 @@ def labels_check():
     """Every label the block used must be defined in it."""
     for i in range(0, label_count):
         if not label_defined[i]:
-            fail_at(label_line[i], label_col[i], err.E_ASM_NO_LABEL)
+            err.position(label_line[i], label_col[i])
+            err.fatal(err.E_ASM_NO_LABEL)
 
 
 # ---- Lathe names -------------------------------------------------------------------------
@@ -365,8 +377,13 @@ x_symbol = 0
 x_slot = 0
 x_storage = 0
 x_function = False
-x_line = 0          # where the expression starts
-x_col = 0
+x_line = 0          # where the expression starts (the Lathe's record x_place: a list here
+x_col = 0           # would be counted as a table by memory_report)
+
+
+def x_place():
+    """Where the expression starts, as a place."""
+    return [x_line, x_col]
 
 
 def number_term():
@@ -396,9 +413,9 @@ def name_term():
         src.advance()
         read_word()
         if spelling_length == 0:
-            fail_at(x_line, x_col, err.E_NAME_EXPECTED)
+            fail_at(x_place(), err.E_NAME_EXPECTED)
         member = word_name()
-    err.position(x_line, x_col)
+    err.position_at(x_place())
     x_kind = name_operand(first, member)
     x_value = found_value
     x_symbol = found_symbol
@@ -419,9 +436,9 @@ def term(have_word):
         src.advance()
         read_word()
         if spelling_length == 0:
-            fail_at(x_line, x_col, err.E_NAME_EXPECTED)
+            fail_at(x_place(), err.E_NAME_EXPECTED)
         x_kind = X_LABEL
-        x_value = label_find(word_name(), x_line, x_col)
+        x_value = label_find(word_name(), x_place())
     elif lex.is_letter(src.ch):
         read_word()
         name_term()
@@ -441,11 +458,11 @@ def expression(have_word):
         skip_blanks()
         n = number_term()
         if x_kind == X_LABEL:
-            fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+            fail_at(x_place(), err.E_ASM_LABEL_USE)
         if x_kind == X_NUMBER and adding and n > 0xFFFF - x_value:
-            fail_at(x_line, x_col, err.E_ASM_RANGE)
+            fail_at(x_place(), err.E_ASM_RANGE)
         if x_kind == X_NUMBER and not adding and n > x_value:
-            fail_at(x_line, x_col, err.E_ASM_RANGE)
+            fail_at(x_place(), err.E_ASM_RANGE)
         if adding:
             x_value = (x_value + n) & 0xFFFF
         else:
@@ -463,12 +480,12 @@ def expression_here():
 # ---- Instructions ------------------------------------------------------------------------
 
 def fail_mode():
-    fail_at(x_line, x_col, err.E_ASM_MODE)
+    fail_at(x_place(), err.E_ASM_MODE)
 
 
 def use_storage(zero_page):
     if x_storage != NO_STORAGE:
-        err.position(x_line, x_col)
+        err.position_at(x_place())
         storage_used(x_storage, zero_page)
 
 
@@ -498,7 +515,7 @@ def branch(m):
     expression(False)
     op, _ = opcode(m, M_REL)
     if x_kind != X_LABEL:
-        fail_at(x_line, x_col, err.E_ASM_BRANCH)
+        fail_at(x_place(), err.E_ASM_BRANCH)
     fbuf.branch(op, label_number[x_value])
 
 
@@ -515,14 +532,14 @@ def immediate(m):
     expression_here()
     expression(False)
     if x_kind == X_LABEL:
-        fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+        fail_at(x_place(), err.E_ASM_LABEL_USE)
     if x_kind == X_ADDRESS:
         if selector == C_LESS:
             address_fix(op, fbuf.FIX_LOW)
         elif selector == C_GREATER:
             address_fix(op, fbuf.FIX_HIGH)
         else:
-            fail_at(x_line, x_col, err.E_ASM_RANGE)
+            fail_at(x_place(), err.E_ASM_RANGE)
         return
     value = x_value
     if selector == C_LESS:
@@ -530,7 +547,7 @@ def immediate(m):
     elif selector == C_GREATER:
         value = (value >> 8) & 0xFF
     elif value > 0xFF:
-        fail_at(x_line, x_col, err.E_ASM_RANGE)
+        fail_at(x_place(), err.E_ASM_RANGE)
     fbuf.op_byte(op, value)
 
 
@@ -577,7 +594,7 @@ def indirect(m):
     if not ok:
         fail_mode()
     if x_kind == X_LABEL:
-        fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+        fail_at(x_place(), err.E_ASM_LABEL_USE)
     if mode == M_IND:
         if x_kind == X_NUMBER:
             fbuf.op_word(op, x_value)
@@ -587,10 +604,10 @@ def indirect(m):
         return
     if x_kind == X_NUMBER:
         if x_value > 0xFF:
-            fail_at(x_line, x_col, err.E_ASM_RANGE)
+            fail_at(x_place(), err.E_ASM_RANGE)
         fbuf.op_byte(op, x_value)
     elif x_storage == NO_STORAGE:
-        fail_at(x_line, x_col, err.E_ASM_RANGE)       # a function is never in zero page
+        fail_at(x_place(), err.E_ASM_RANGE)           # a function is never in zero page
     else:
         address_fix(op, fbuf.FIX_ZERO_PAGE)
         use_storage(True)
@@ -612,7 +629,7 @@ def direct(m, have_word):
         fail_mode()
     if x_kind == X_LABEL:
         if abs_op != OP_JMP or zp_mode != M_ZP:
-            fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+            fail_at(x_place(), err.E_ASM_LABEL_USE)
         fbuf.jump(label_number[x_value])
     elif x_kind == X_NUMBER:
         if has_zp and x_value < 0x100:
@@ -620,14 +637,14 @@ def direct(m, have_word):
         elif has_abs:
             fbuf.op_word(abs_op, x_value)
         else:
-            fail_at(x_line, x_col, err.E_ASM_RANGE)
+            fail_at(x_place(), err.E_ASM_RANGE)
     elif has_abs:
         address_fix(abs_op, fbuf.FIX_ADDRESS)
         use_storage(False)
         if x_function and (abs_op == OP_JSR or abs_op == OP_JMP):
             out.call(x_symbol, 0, out.NO_OUTER)
     elif x_storage == NO_STORAGE:
-        fail_at(x_line, x_col, err.E_ASM_RANGE)
+        fail_at(x_place(), err.E_ASM_RANGE)
     else:
         # STX zp,Y and STY zp,X have no absolute form: the operand must be in zero page.
         address_fix(zp_op, fbuf.FIX_ZERO_PAGE)
@@ -660,7 +677,7 @@ def instruction(m):
         direct(m, False)
     skip_blanks()
     if not at_line_end():
-        fail_at(src.line, src.col, err.E_NL_EXPECTED)
+        fail_here(err.E_NL_EXPECTED)
 
 
 # ---- Lines -------------------------------------------------------------------------------
@@ -669,39 +686,38 @@ end_line = 0        # where the `end` that closed the block is
 end_col = 0
 
 
-def mnemonic_here(at_line, at_col):
+def mnemonic_here(place):
     """The instruction the word just read names; if none, an error at the word."""
     m, ok = find_mnemonic()
     if not ok:
-        fail_at(at_line, at_col, err.E_ASM_MNEMONIC)
+        fail_at(place, err.E_ASM_MNEMONIC)
     return m
 
 
-def label_line_rest(at_line, at_col):
+def label_line_rest(place):
     """A line that starts with a dot: a label, alone or before an instruction, or a directive,
     which blocks do not have. The dot has been passed over."""
     read_word()
     if spelling_length == 0:
-        fail_at(at_line, at_col, err.E_NAME_EXPECTED)
+        fail_at(place, err.E_NAME_EXPECTED)
     name = word_name()
     colon = src.ch == C_COLON
     if colon:
         src.advance()
     skip_blanks()
     if at_line_end():
-        label_define(name, at_line, at_col)
+        label_define(name, place)
         return
-    word_line = src.line
-    word_col = src.col
+    word_place = mark_char()
     if not lex.is_letter(src.ch):
-        fail_at(at_line, at_col, err.E_ASM_DIRECTIVE)
+        fail_at(place, err.E_ASM_DIRECTIVE)
     read_word()
     m, ok = find_mnemonic()
     if not ok and not colon:
-        fail_at(at_line, at_col, err.E_ASM_DIRECTIVE)
+        fail_at(place, err.E_ASM_DIRECTIVE)
     if not ok:
-        fail_at(word_line, word_col, err.E_ASM_MNEMONIC)
-    label_define(name, at_line, at_col)
+        fail_at(word_place, err.E_ASM_MNEMONIC)
+    label_define(name, place)
     instruction(m)
 
 
@@ -711,25 +727,24 @@ def asm_line():
     global end_line, end_col
     skip_blanks()
     if src.eof:
-        fail_at(src.line, src.col, err.E_END_EXPECTED)
+        fail_here(err.E_END_EXPECTED)
     if at_line_end():
         skip_line()
         return True
-    at_line = src.line
-    at_col = src.col
-    err.position(at_line, at_col)
+    place = mark_char()
+    err.position_at(place)
     if src.ch == C_DOT:
         src.advance()
-        label_line_rest(at_line, at_col)
+        label_line_rest(place)
     else:
         if not lex.is_letter(src.ch):
-            fail_at(at_line, at_col, err.E_ASM_MNEMONIC)
+            fail_at(place, err.E_ASM_MNEMONIC)
         read_word()
         if is_end_word():
-            end_line = at_line
-            end_col = at_col
+            end_line = place[err.PLACE_LINE]
+            end_col = place[err.PLACE_COL]
             return False
-        instruction(mnemonic_here(at_line, at_col))
+        instruction(mnemonic_here(place))
     skip_line()
     return True
 

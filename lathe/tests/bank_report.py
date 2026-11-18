@@ -355,7 +355,11 @@ def selfhost_report(out_dir, names, all_placed):
         budget_report(os.path.join(banked, 'work', 'lathec.map'))
     counting = os.path.join(out_dir, 'counting')
     os.makedirs(counting, exist_ok=True)
-    counting_copies(counting, 5)       # OPTIONS (three: memory_report.options_of) NAME.lth . farcalls
+    # The counting compiler is told where its count goes by the place of the argument that
+    # follows OPTIONS NAME.lth . : every module here is compiled with the same number of options
+    # (memory_report.options_of: the defines of lathe/src/compiler.env).
+    option_count = len(memory_report.options_of(os.path.join(support.SRC, (names[0] if names else 'lathec') + '.lth')))
+    counting_copies(counting, option_count + 2)
     cimage = os.path.join(counting, 'lathec.bin')
     make_env('lathec', os.path.join(counting, 'lathec.env'))
     lower_split(os.path.join(counting, 'lathec.env'), COUNTING_ROOM)
@@ -364,8 +368,8 @@ def selfhost_report(out_dir, names, all_placed):
     for name in names:
         options = tuple(memory_report.options_of(os.path.join(support.SRC, name + '.lth')))
         work = os.path.join(out_dir, 'work-' + name)
+        assert len(options) == option_count, options
         disk, host = selfhost.prepare(name, work, options)
-        assert len(options) == 3, options
         got = selfhost.run_lathe(image, disk, list(options) + [name + '.lth', '.'])
         same = got[:3] == host[:3] and got[3] == host[3]
         cdisk, _ = selfhost.prepare(name, os.path.join(out_dir, 'cwork-' + name), options)

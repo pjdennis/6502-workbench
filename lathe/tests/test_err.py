@@ -25,6 +25,14 @@ class ErrorReportTest(unittest.TestCase):
         err.position(12, 7)
         self.assertEqual(self.report(err.E_UNDEFINED), 'dir/prog.lth:12:7: error 40: undefined name\n')
 
+    def test_a_place_kept_for_later_is_where_the_error_is(self):
+        name, _ = support.put_text(b'dir/prog.lth')
+        err.set_file(name)
+        place = [12, 7]
+        err.position(30, 1)
+        err.position_at(place)
+        self.assertEqual(self.report(err.E_UNDEFINED), 'dir/prog.lth:12:7: error 40: undefined name\n')
+
     def test_report_without_a_position_names_only_the_file(self):
         name, _ = support.put_text(b'prog.lth')
         err.set_file(name)

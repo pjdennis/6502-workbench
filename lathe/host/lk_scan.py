@@ -26,6 +26,7 @@ obj_cpu = bytearray(lk_name.MAX_OBJECTS)        # its CPU, and OBJ_CLASSES
 obj_bank = bytearray(lk_name.MAX_OBJECTS)       # the bank its code is placed in + 1, or 0
 OBJ_CLASSES = 0x80                  # the file names a pointer class (lk_map.cparams)
 
+cur_obj = 0                         # the object file being read
 cur_fn = lk_tab.NONE                # the function whose records are being read
 cur_sym = 0                         # its symbol
 dfix_read = False                   # a DFIX record was just read: a DATA record must follow
@@ -56,9 +57,9 @@ def damaged():
     lk_rec.damaged()
 
 
-def read_sym(obj, kind):
+def read_sym(kind):
     """Read a symbol number from the record; the symbol must be of this kind."""
-    s = lk_name.global_sym(obj, lk_rec.get_word())
+    s = lk_name.global_sym(cur_obj, lk_rec.get_word())
     if lk_sym.kind_of(s) != kind:
         damaged()
     return s
@@ -129,22 +130,22 @@ def define(s):
         lk_name.fail(lk_err.E_DUPLICATE, s)
 
 
-def rec_sym(obj):
+def rec_sym():
     kind = lk_rec.get_byte()
     if kind < lk_sym.FUNCTION or kind > lk_sym.CLASS:
         damaged()
     if kind == lk_sym.CLASS:
-        obj_cpu[obj] |= OBJ_CLASSES
+        obj_cpu[cur_obj] |= OBJ_CLASSES
     read_name()
     if lk_name.local_count == lk_name.MAX_LOCALS:
         lk_err.fail(lk_err.E_LOCALS)
     lk_name.set_local(lk_name.local_count, lk_name.symbol(kind))
     lk_name.local_count += 1
-    lk_name.obj_first[obj + 1] = lk_name.local_count
+    lk_name.obj_first[cur_obj + 1] = lk_name.local_count
 
 
-def rec_var(obj):
-    s = read_sym(obj, lk_sym.VARIABLE)
+def rec_var():
+    s = read_sym(lk_sym.VARIABLE)
     define(s)
     size = lk_rec.get_word()
     zp_class = lk_rec.get_byte()
@@ -154,7 +155,7 @@ def rec_var(obj):
         damaged()
     # Flag bit 0 once meant "an initial value follows". Initialisers are code now (lk_boot).
     if (flags & 1) != 0:
-        lk_file.fail(lk_err.E_VERSION, lk_file.ARG_OBJECT + obj)
+        lk_file.fail(lk_err.E_VERSION, lk_file.ARG_OBJECT + cur_obj)
     if rgn_read and zp_class != 2:
         damaged()                   # a variable in a region is never in zero page
     d = lk_tab.new_def(zp_class)
@@ -165,21 +166,21 @@ def rec_var(obj):
     lk_name.bind(s, lk_tab.def_ref(d))
 
 
-def rec_data(obj):
-    s = read_sym(obj, lk_sym.CONSTANT)
+def rec_data():
+    s = read_sym(lk_sym.CONSTANT)
     define(s)
     d = lk_tab.new_def(lk_tab.D_CONST)
     in_region(d)
-    lk_tab.def_a[d] = obj           # until it is placed (lk_graph.keep_referenced)
+    lk_tab.def_a[d] = cur_obj       # until it is placed (lk_graph.keep_referenced)
     lk_tab.def_b[d] = lk_rec.left()
     lk_name.bind(s, lk_tab.def_ref(d))
 
 
-def rec_func(obj):
+def rec_func():
     global cur_fn, cur_sym
     if cur_fn != lk_tab.NONE:
         damaged()
-    s = read_sym(obj, lk_sym.FUNCTION)
+    s = read_sym(lk_sym.FUNCTION)
     define(s)
     flags = lk_rec.get_byte() & (lk_tab.F_RECURSIVE | lk_tab.F_INTERRUPT)
     if lk_name.is_init_sym(s):
@@ -203,10 +204,10 @@ def rec_slot():
     lk_tab.new_slot(cur_fn, size, zp_class, kind == 0, weight)
 
 
-def rec_call(obj):
+def rec_call():
     if cur_fn == lk_tab.NONE:
         damaged()
-    callee = lk_name.global_sym(obj, lk_rec.get_word())
+    callee = lk_name.global_sym(cur_obj, lk_rec.get_word())
     flags = lk_rec.get_byte()
     outer = lk_rec.get_word()
     wanted = lk_sym.FUNCTION
@@ -221,7 +222,7 @@ def rec_call(obj):
         edge = lk_tab.E_NOSAVE
     lk_tab.add_own(cur_fn, lk_sym.edge_bits(callee), edge)
     if outer != 0xFFFF:
-        outer = lk_name.global_sym(obj, outer)
+        outer = lk_name.global_sym(cur_obj, outer)
         kind = lk_sym.kind_of(outer)
         if kind != lk_sym.FUNCTION and kind != lk_sym.CLASS:
             damaged()
@@ -247,8 +248,8 @@ def in_block(s):
         lk_tab.fn_flags[lk_sym.row_of(r)] |= lk_tab.F_FIXED
 
 
-def rec_clas(obj):
-    s = read_sym(obj, lk_sym.CLASS)
+def rec_clas():
+    s = read_sym(lk_sym.CLASS)
     lk_rec.get_byte()        # flags: see lk_graph.check_cycles for why they are not needed
     np = lk_rec.get_byte()
     fresh = not lk_sym.is_defined(lk_name.now(s))
@@ -269,9 +270,9 @@ def rec_clas(obj):
         skip_string()
 
 
-def rec_memb(obj):
-    k = read_sym(obj, lk_sym.CLASS)
-    lk_tab.new_member(k, read_sym(obj, lk_sym.FUNCTION))
+def rec_memb():
+    k = read_sym(lk_sym.CLASS)
+    lk_tab.new_member(k, read_sym(lk_sym.FUNCTION))
 
 
 def heavier(weight, amount):
@@ -280,13 +281,13 @@ def heavier(weight, amount):
     return weight + amount
 
 
-def rec_wgt(obj):
+def rec_wgt():
     """Weights this module adds to variables and slots: entries of symbol (2), slot, weight."""
     global pend_count
     if cur_fn != lk_tab.NONE or lk_rec.left() % 4 != 0:
         damaged()
     while lk_rec.left() > 0:
-        s = lk_name.global_sym(obj, lk_rec.get_word())
+        s = lk_name.global_sym(cur_obj, lk_rec.get_word())
         slot = lk_rec.get_byte()
         weight = lk_rec.get_byte()
         kind = lk_sym.kind_of(s)
@@ -316,7 +317,7 @@ def rec_wgt(obj):
             lk_tab.set_wk(PEND_SYM + pend_count, s)
             lk_tab.set_wk(PEND_SLOT + pend_count, slot)
             lk_tab.set_wk(PEND_WEIGHT + pend_count, weight)
-            lk_tab.set_wk(PEND_OBJ + pend_count, obj)
+            lk_tab.set_wk(PEND_OBJ + pend_count, cur_obj)
             pend_count += 1
         else:
             damaged()
@@ -335,7 +336,7 @@ def add_pending_weights():
             lk_tab.set_slot_weight(slot, heavier(lk_tab.slot_weight_of(slot), lk_tab.wk(PEND_WEIGHT + i)))
 
 
-def rec_fixes(obj):
+def rec_fixes():
     """A FIX or DFIX record: check its entries. What they keep is worked out later, by reading
     them again (lk_graph.keep_referenced). A function with a kind 6 fix-up, the bank of a region
     for `with`, is marked (lk_tab.F_WITH); constant data has none."""
@@ -347,13 +348,13 @@ def rec_fixes(obj):
             if cur_fn == lk_tab.NONE:
                 damaged()
             lk_tab.fn_flags[cur_fn] |= lk_tab.F_WITH
-        lk_name.global_sym(obj, lk_rec.get_word())
+        lk_name.global_sym(cur_obj, lk_rec.get_word())
         lk_rec.get_byte()
         lk_rec.get_word()
 
 
-def take_record(obj, kind):
-    """Take in one record of object file obj."""
+def take_record(kind):
+    """Take in one record of the object file being read (cur_obj)."""
     global cur_fn, dfix_read
     fixed = dfix_read
     dfix_read = False
@@ -362,33 +363,33 @@ def take_record(obj, kind):
     if rgn_read and kind != lk_rec.R_VAR and kind != lk_rec.R_DFIX and kind != lk_rec.R_DATA:
         damaged()               # a RGN record belongs to the VAR or DATA record after it
     if kind == lk_rec.R_SYM:
-        rec_sym(obj)
+        rec_sym()
     elif kind == lk_rec.R_VAR:
-        rec_var(obj)
+        rec_var()
     elif kind == lk_rec.R_DATA:
-        rec_data(obj)
+        rec_data()
     elif kind == lk_rec.R_FUNC:
-        rec_func(obj)
+        rec_func()
     elif kind == lk_rec.R_SLOT:
         rec_slot()
     elif kind == lk_rec.R_CALL:
-        rec_call(obj)
+        rec_call()
     elif kind == lk_rec.R_ENDF:
         cur_fn = lk_tab.NONE
     elif kind == lk_rec.R_CLAS:
-        rec_clas(obj)
+        rec_clas()
     elif kind == lk_rec.R_MEMB:
-        rec_memb(obj)
+        rec_memb()
     elif kind == lk_rec.R_WGT:
-        rec_wgt(obj)
+        rec_wgt()
     elif kind == lk_rec.R_FIX:
         if cur_fn == lk_tab.NONE:
             damaged()
-        rec_fixes(obj)
+        rec_fixes()
     elif kind == lk_rec.R_DFIX:
         if cur_fn != lk_tab.NONE:
             damaged()
-        rec_fixes(obj)
+        rec_fixes()
         dfix_read = True
     elif kind == lk_rec.R_RGN:
         if cur_fn != lk_tab.NONE or rgn_read:
@@ -398,7 +399,7 @@ def take_record(obj, kind):
         damaged()
 
 
-def module_place(obj):
+def module_place():
     """The MOD record's module name: if the environment file places the module, its code goes
     in that bank or overlay. The name is read into lk_envf's token, which a longer name than
     any entry can hold does not match."""
@@ -407,13 +408,13 @@ def module_place(obj):
         c = lk_rec.get_byte()
         if i < lk_envf.TOKEN_SIZE:
             lk_envf.token[i] = c
-    obj_bank[obj] = 0
+    obj_bank[cur_obj] = 0
     if size > lk_envf.TOKEN_SIZE:
         return
     lk_envf.token_len = size
     for i in range(0, lk_envf.place_count):
         if lk_envf.is_token(lk_envf.place_name[i]):
-            obj_bank[obj] = (lk_envf.place_bank[i] & lk_envf.P_BANK) + 1
+            obj_bank[cur_obj] = (lk_envf.place_bank[i] & lk_envf.P_BANK) + 1
             lk_envf.place_bank[i] |= lk_envf.P_LINKED
 
 
@@ -462,8 +463,9 @@ def def_bank(d):
 
 def scan(obj):
     """Read object file obj."""
-    global cur_fn, dfix_read, rgn_read
+    global cur_obj, cur_fn, dfix_read, rgn_read
     lk_rec.open_object(obj)
+    cur_obj = obj
     lk_name.obj_first[obj] = lk_name.local_count
     lk_name.obj_first[obj + 1] = lk_name.local_count
     lk_name.obj_fn[obj] = lk_tab.fn_count
@@ -473,13 +475,13 @@ def scan(obj):
     obj_cpu[obj] = lk_rec.get_byte()
     if obj_cpu[obj] > lk_envf.cpu:
         lk_file.fail(lk_err.E_NEEDS_65C02, lk_file.ARG_OBJECT + obj)
-    module_place(obj)
+    module_place()
     cur_fn = lk_tab.NONE
     dfix_read = False
     rgn_read = False
     kind = lk_rec.advance()
     while kind != lk_rec.R_END:
-        take_record(obj, kind)
+        take_record(kind)
         kind = lk_rec.advance()
     if cur_fn != lk_tab.NONE or dfix_read or rgn_read:
         damaged()

@@ -1,5 +1,6 @@
 ; config fixedblk_banks.env
 ; config fixedblk_fixed.env
+; config fixedblk_untold.env
 ; config fixedblk_host.env
 ; A region in fixed memory that the compiler is told of (`define FIXED_REGIONS 1`, which gives
 ; -ffwork: lathe/host/README.md, "Command lines"). In fixedblk_banks.env the region fwork is in
@@ -7,8 +8,10 @@
 ; one with a pointer into the region, are kept in fixed memory. In fixedblk_fixed.env the region
 ; is in fixed memory and the compiler knows it: the blocks map nothing, no call in them is
 ; flagged, and the linker keeps nothing, so all of libfixb is in bank 3, add8 reading the region
-; through its pointer from there. The output is the same in every configuration, and all in one
-; (fixedblk_host.env).
+; through its pointer from there. In fixedblk_untold.env the region is fixed but the compiler is
+; not told: the blocks map nothing, and their functions are kept as in the banks. The output is
+; the same in every configuration, and all in one (fixedblk_host.env). The compiler told and the
+; region in a bank is link error 62 (lathe/tests/test_lk_unmapped.py).
 module fixedblk
 
 import libfco

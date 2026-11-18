@@ -62,6 +62,7 @@ pub var obj_cpu: [lk_name.MAX_OBJECTS]byte      ; its CPU, and OBJ_CLASSES
 pub var obj_bank: [lk_name.MAX_OBJECTS]byte     ; the bank its code is placed in + 1, or 0
 pub const OBJ_CLASSES = $80     ; the file names a pointer class (lk_map.cparams)
 
+var cur_obj: byte = 0           ; the object file being read
 var cur_fn: word = lk_tab.NONE  ; the function whose records are being read
 var cur_sym: word = 0           ; its symbol
 var dfix_read: bool = false     ; a DFIX record was just read: a DATA record must follow
@@ -99,9 +100,9 @@ func damaged()
 end
 
 ; Read a symbol number from the record; the symbol must be of this kind.
-func read_sym(obj: byte, kind: byte): word
+func read_sym(kind: byte): word
   var s: word
-  s = lk_name.global_sym(obj, lk_rec.get_word())
+  s = lk_name.global_sym(cur_obj, lk_rec.get_word())
   if lk_sym.kind_of(s) != kind then
     damaged()
   end
@@ -135,14 +136,14 @@ func define(s: word)
   end
 end
 
-func rec_sym(obj: byte)
+func rec_sym()
   var kind: byte
   kind = lk_rec.get_byte()
   if kind < lk_sym.FUNCTION or kind > lk_sym.CLASS then
     damaged()
   end
   if kind == lk_sym.CLASS then
-    obj_cpu[obj] |= OBJ_CLASSES
+    obj_cpu[cur_obj] |= OBJ_CLASSES
   end
   read_name()
   if lk_name.local_count == lk_name.MAX_LOCALS then
@@ -150,7 +151,7 @@ func rec_sym(obj: byte)
   end
   lk_name.set_local(lk_name.local_count, lk_name.symbol(kind))
   lk_name.local_count += 1
-  lk_name.obj_first[obj + 1] = lk_name.local_count
+  lk_name.obj_first[cur_obj + 1] = lk_name.local_count
 end
 
 forward func heavier(weight: word, amount: byte): byte
@@ -213,14 +214,14 @@ pub func region_of(d: word): byte
   return 0
 end
 
-func rec_var(obj: byte)
+func rec_var()
   var s: word
   var size: word
   var zp_class: byte
   var weight: byte
   var flags: byte
   var d: word
-  s = read_sym(obj, lk_sym.VARIABLE)
+  s = read_sym(lk_sym.VARIABLE)
   define(s)
   size = lk_rec.get_word()
   zp_class = lk_rec.get_byte()
@@ -231,7 +232,7 @@ func rec_var(obj: byte)
   end
   ; Flag bit 0 once meant "an initial value follows". Initialisers are code now (lk_boot).
   if (flags & 1) != 0 then
-    lk_file.fail(lk_err.E_VERSION, lk_file.ARG_OBJECT + obj)
+    lk_file.fail(lk_err.E_VERSION, lk_file.ARG_OBJECT + cur_obj)
   end
   if rgn_read and zp_class != 2 then
     damaged()                   ; a variable in a region is never in zero page
@@ -244,25 +245,25 @@ func rec_var(obj: byte)
   lk_name.bind(s, lk_tab.def_ref(d))
 end
 
-func rec_data(obj: byte)
+func rec_data()
   var s: word
   var d: word
-  s = read_sym(obj, lk_sym.CONSTANT)
+  s = read_sym(lk_sym.CONSTANT)
   define(s)
   d = lk_tab.new_def(lk_tab.D_CONST)
   in_region(d)
-  lk_tab.def_a[d] = obj         ; until it is placed (lk_graph.keep_referenced)
+  lk_tab.def_a[d] = cur_obj     ; until it is placed (lk_graph.keep_referenced)
   lk_tab.def_b[d] = lk_rec.left()
   lk_name.bind(s, lk_tab.def_ref(d))
 end
 
-func rec_func(obj: byte)
+func rec_func()
   var s: word
   var flags: byte
   if cur_fn != lk_tab.NONE then
     damaged()
   end
-  s = read_sym(obj, lk_sym.FUNCTION)
+  s = read_sym(lk_sym.FUNCTION)
   define(s)
   flags = lk_rec.get_byte() & (lk_tab.F_RECURSIVE | lk_tab.F_INTERRUPT)
   if lk_name.is_init_sym(s) then
@@ -309,7 +310,7 @@ func in_block(s: word)
   end
 end
 
-pub func rec_call(obj: byte)
+pub func rec_call()
   var callee: word
   var flags: byte
   var outer: word
@@ -320,7 +321,7 @@ pub func rec_call(obj: byte)
   if cur_fn == lk_tab.NONE then
     damaged()
   end
-  callee = lk_name.global_sym(obj, lk_rec.get_word())
+  callee = lk_name.global_sym(cur_obj, lk_rec.get_word())
   flags = lk_rec.get_byte()
   outer = lk_rec.get_word()
   wanted = lk_sym.FUNCTION
@@ -339,7 +340,7 @@ pub func rec_call(obj: byte)
   end
   lk_tab.add_own(cur_fn, lk_sym.edge_bits(callee), edge)
   if outer != $FFFF then
-    outer = lk_name.global_sym(obj, outer)
+    outer = lk_name.global_sym(cur_obj, outer)
     kind = lk_sym.kind_of(outer)
     if kind != lk_sym.FUNCTION and kind != lk_sym.CLASS then
       damaged()
@@ -356,7 +357,7 @@ pub func rec_call(obj: byte)
   end
 end
 
-func rec_clas(obj: byte)
+func rec_clas()
   var s: word
   var np: byte
   var fresh: bool
@@ -364,7 +365,7 @@ func rec_clas(obj: byte)
   var i: byte
   var size: word
   var p: byte
-  s = read_sym(obj, lk_sym.CLASS)
+  s = read_sym(lk_sym.CLASS)
   lk_rec.get_byte()             ; flags: see lk_graph.check_cycles for why they are not needed
   np = lk_rec.get_byte()
   fresh = not lk_sym.is_defined(lk_name.now(s))
@@ -389,10 +390,10 @@ func rec_clas(obj: byte)
   end
 end
 
-func rec_memb(obj: byte)
+func rec_memb()
   var k: word
-  k = read_sym(obj, lk_sym.CLASS)
-  lk_tab.new_member(k, read_sym(obj, lk_sym.FUNCTION))
+  k = read_sym(lk_sym.CLASS)
+  lk_tab.new_member(k, read_sym(lk_sym.FUNCTION))
 end
 
 func heavier(weight: word, amount: byte): byte
@@ -403,7 +404,7 @@ func heavier(weight: word, amount: byte): byte
 end
 
 ; Weights this module adds to variables and slots: entries of symbol (2), slot, weight.
-func rec_wgt(obj: byte)
+func rec_wgt()
   var s: word
   var slot: byte
   var weight: byte
@@ -418,7 +419,7 @@ func rec_wgt(obj: byte)
     damaged()
   end
   while lk_rec.left() > 0 do
-    s = lk_name.global_sym(obj, lk_rec.get_word())
+    s = lk_name.global_sym(cur_obj, lk_rec.get_word())
     slot = lk_rec.get_byte()
     weight = lk_rec.get_byte()
     kind = lk_sym.kind_of(s)
@@ -452,7 +453,7 @@ func rec_wgt(obj: byte)
       lk_tab.set_wk(PEND_SYM + pend_count, s)
       lk_tab.set_wk(PEND_SLOT + pend_count, slot)
       lk_tab.set_wk(PEND_WEIGHT + pend_count, weight)
-      lk_tab.set_wk(PEND_OBJ + pend_count, obj)
+      lk_tab.set_wk(PEND_OBJ + pend_count, cur_obj)
       pend_count += 1
     else
       damaged()
@@ -482,7 +483,7 @@ end
 
 ; A FIX or DFIX record: check its entries. What they keep is worked out later, by reading them
 ; again (lk_graph.keep_referenced).
-func rec_fixes(obj: byte)
+func rec_fixes()
   if lk_rec.left() mod 8 != 0 then
     damaged()
   end
@@ -494,14 +495,14 @@ func rec_fixes(obj: byte)
       end
       lk_tab.fn_flags[cur_fn] |= lk_tab.F_WITH
     end
-    lk_name.global_sym(obj, lk_rec.get_word())
+    lk_name.global_sym(cur_obj, lk_rec.get_word())
     lk_rec.get_byte()
     lk_rec.get_word()
   end
 end
 
-; Take in one record of object file obj.
-func take_record(obj: byte, kind: byte)
+; Take in one record of the object file being read (cur_obj).
+func take_record(kind: byte)
   var fixed: bool
   fixed = dfix_read
   dfix_read = false
@@ -513,35 +514,35 @@ func take_record(obj: byte, kind: byte)
   end
   case kind
   of lk_rec.R_SYM
-    rec_sym(obj)
+    rec_sym()
   of lk_rec.R_VAR
-    rec_var(obj)
+    rec_var()
   of lk_rec.R_DATA
-    rec_data(obj)
+    rec_data()
   of lk_rec.R_FUNC
-    rec_func(obj)
+    rec_func()
   of lk_rec.R_SLOT
     rec_slot()
   of lk_rec.R_CALL
-    rec_call(obj)
+    rec_call()
   of lk_rec.R_ENDF
     cur_fn = lk_tab.NONE
   of lk_rec.R_CLAS
-    rec_clas(obj)
+    rec_clas()
   of lk_rec.R_MEMB
-    rec_memb(obj)
+    rec_memb()
   of lk_rec.R_WGT
-    rec_wgt(obj)
+    rec_wgt()
   of lk_rec.R_FIX
     if cur_fn == lk_tab.NONE then
       damaged()
     end
-    rec_fixes(obj)
+    rec_fixes()
   of lk_rec.R_DFIX
     if cur_fn != lk_tab.NONE then
       damaged()
     end
-    rec_fixes(obj)
+    rec_fixes()
     dfix_read = true
   of lk_rec.R_RGN
     if cur_fn != lk_tab.NONE or rgn_read then
@@ -557,7 +558,7 @@ end
 ; The MOD record's module name: if the environment file places the module, its code goes in that
 ; bank or overlay. The name is read into lk_envf's token, which a longer name than any entry can
 ; hold does not match.
-func module_place(obj: byte)
+func module_place()
   var size: byte
   var i: byte
   var c: byte
@@ -568,14 +569,14 @@ func module_place(obj: byte)
       lk_envf.token[i] = c
     end
   end
-  obj_bank[obj] = 0
+  obj_bank[cur_obj] = 0
   if size > lk_envf.TOKEN_SIZE then
     return
   end
   lk_envf.token_len = size
   for i = 0 until lk_envf.place_count do
     if lk_envf.is_token(lk_envf.place_name[i]) then
-      obj_bank[obj] = (lk_envf.place_bank[i] & lk_envf.P_BANK) + 1
+      obj_bank[cur_obj] = (lk_envf.place_bank[i] & lk_envf.P_BANK) + 1
       lk_envf.place_bank[i] |= lk_envf.P_LINKED
     end
   end
@@ -634,6 +635,7 @@ end
 func scan(obj: byte)
   var kind: byte
   lk_rec.open_object(obj)
+  cur_obj = obj
   lk_name.obj_first[obj] = lk_name.local_count
   lk_name.obj_first[obj + 1] = lk_name.local_count
   lk_name.obj_fn[obj] = lk_tab.fn_count
@@ -645,13 +647,13 @@ func scan(obj: byte)
   if obj_cpu[obj] > lk_envf.cpu then
     lk_file.fail(lk_err.E_NEEDS_65C02, lk_file.ARG_OBJECT + obj)
   end
-  module_place(obj)
+  module_place()
   cur_fn = lk_tab.NONE
   dfix_read = false
   rgn_read = false
   kind = lk_rec.advance()
   while kind != lk_rec.R_END do
-    take_record(obj, kind)
+    take_record(kind)
     kind = lk_rec.advance()
   end
   if cur_fn != lk_tab.NONE or dfix_read or rgn_read then

@@ -120,6 +120,7 @@ pub const E_REGION_WINDOW = 58
 pub const E_REGION_NO_FILE = 59
 pub const E_REGION_ROM = 60
 pub const E_COMMAND_FILE = 61
+pub const E_UNMAPPED = 62
 
 #if IN_MODULE
 #else
@@ -153,7 +154,7 @@ const MESSAGES = "usage: link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...\n"
                  "zero page is full\n"
                  "variables do not fit in the data range\n"
                  "code does not fit in the code range\n"
-                 "too many fix-ups in one function or table\n"
+                 "too many fix-ups in one table\n"
                  "bad fix-up\n"
 const MESSAGES2 = "address must be in zero page\n"
                   "call of a function that was not linked\n"
@@ -187,6 +188,7 @@ const MESSAGES2 = "address must be in zero page\n"
                   "constant data in a region is in a bank that has no file\n"
                   "a variable in a region is in a read-only bank\n"
                   "command file: too many arguments, or too long\n"
+                  "code uses a region in a bank where it maps none\n"
 #end
 
 const PREFIX: [11]byte = "link error "

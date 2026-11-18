@@ -328,6 +328,8 @@ def next_call(r, e):
 
 
 def run_start(r):
+    """Where the calls of function or class r start: its entry of fn_edge or cls_edge, which while
+    the chains are built is its newest call + 1 (head_of)."""
     if lk_sym.kind_of(r) == lk_sym.CLASS:
         return cls_edge[lk_sym.row_of(r)]
     return fn_edge[lk_sym.row_of(r)]
@@ -399,9 +401,8 @@ def chain_next(e):
 
 
 def head_of(r):
-    if lk_sym.kind_of(r) == lk_sym.CLASS:
-        return cls_edge[lk_sym.row_of(r)]
-    return fn_edge[lk_sym.row_of(r)]
+    """The newest call of r's chain + 1: the same entry as run_start's."""
+    return run_start(r)
 
 
 def set_head(r, e):

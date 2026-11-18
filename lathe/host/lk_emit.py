@@ -33,18 +33,18 @@ import lk_win
 def value(n, op):
     """The address the fix-up at lk_fix's cursor stands for in the copy that is node n, addend
     included. op is the opcode of the instruction it is in."""
-    i = lk_fix.cursor
     ctx = lk_tab.ctx_of(n)
-    kind = lk_tab.wk(lk_fix.FX_KIND + i)
-    add = lk_tab.wk(lk_fix.FX_ADD + i)
-    own = lk_tab.wk(lk_fix.FX_SLOT + i) == 0xFF and lk_tab.wk(lk_fix.FX_SYM + i) == lk_fix.cur_sym
+    lk_fix.check_mapped(lk_fix.held(lk_fix.FX_SYM))
+    kind = lk_fix.held(lk_fix.FX_KIND)
+    add = lk_fix.held(lk_fix.FX_ADD)
+    own = lk_fix.held(lk_fix.FX_SLOT) == 0xFF and lk_fix.held(lk_fix.FX_SYM) == lk_fix.cur_sym
     # A fix-up to the function's own symbol is a label: an offset into the code as written.
     # The one exception is `@f` inside f, which like any `@f` may mean another context's copy.
     if own and (lk_fix.is_word(kind) or add != 0):
-        moved = add - lk_fix.removed_before(add, ctx)
+        moved = add - lk_fix.removed(add, ctx)
         return (lk_tab.wk(lk_tab.W_ADDR + n) + moved) & 0xFFFF
     is_call = kind == lk_fix.K_WORD and (op == lk_op.OP_JSR or op == lk_op.OP_JMP)
-    return (lk_fix.target(ctx, lk_tab.wk(lk_fix.FX_SYM + i), lk_tab.wk(lk_fix.FX_SLOT + i), is_call) + add) & 0xFFFF
+    return (lk_fix.target(ctx, lk_fix.held(lk_fix.FX_SYM), lk_fix.held(lk_fix.FX_SLOT), is_call) + add) & 0xFFFF
 
 
 def branch(next_at, displacement, ctx):
@@ -55,7 +55,7 @@ def branch(next_at, displacement, ctx):
     if displacement >= 0x80:
         dest -= 0x100
     dest &= 0xFFFF
-    moved = (dest - lk_fix.removed_before(dest, ctx)) - (next_at - lk_fix.removed_before(next_at, ctx))
+    moved = (dest - lk_fix.removed(dest, ctx)) - (next_at - lk_fix.removed(next_at, ctx))
     return moved & 0xFF
 
 
@@ -67,16 +67,15 @@ def instruction(obj, n, pos):
     if lk_rec.left() < size - 1:
         lk_rec.damaged()
     more = lk_fix.more()
-    i = lk_fix.cursor
-    if more and lk_tab.wk(lk_fix.FX_AT + i) <= pos:
+    if more and lk_fix.held(lk_fix.FX_AT) <= pos:
         lk_fix.bad()
-    if more and lk_tab.wk(lk_fix.FX_AT + i) == pos + 1 and lk_fix.is_word(lk_tab.wk(lk_fix.FX_KIND + i)):
+    if more and lk_fix.held(lk_fix.FX_AT) == pos + 1 and lk_fix.is_word(lk_fix.held(lk_fix.FX_KIND)):
         # Kind 5 exactly where the instruction has a zero page form (object-format.md).
-        if size != 3 or lk_op.can_shrink(op) != (lk_tab.wk(lk_fix.FX_KIND + i) == lk_fix.K_SHRINK):
+        if size != 3 or lk_op.can_shrink(op) != (lk_fix.held(lk_fix.FX_KIND) == lk_fix.K_SHRINK):
             lk_fix.bad()
         lk_rec.get_word()
         address = value(n, op)
-        if lk_fix.shrinks(i, ctx):
+        if lk_fix.shrinks(lk_fix.cursor, ctx):
             lk_out.put(lk_op.zp_opcode(op))
             lk_out.put(address & 0xFF)
         else:
@@ -87,12 +86,12 @@ def instruction(obj, n, pos):
     lk_out.put(op)
     for k in range(1, size):
         b = lk_rec.get_byte()
-        if lk_fix.more() and lk_tab.wk(lk_fix.FX_AT + lk_fix.cursor) == pos + k:
-            kind = lk_tab.wk(lk_fix.FX_KIND + lk_fix.cursor)
+        if lk_fix.more() and lk_fix.held(lk_fix.FX_AT) == pos + k:
+            kind = lk_fix.held(lk_fix.FX_KIND)
             if lk_fix.is_word(kind):
                 lk_fix.bad()
             if kind == lk_fix.K_BANK:
-                b = lk_fix.bank_value(lk_tab.wk(lk_fix.FX_SYM + lk_fix.cursor))
+                b = lk_fix.bank_value(lk_fix.held(lk_fix.FX_SYM))
                 if b > 0xFF:
                     lk_fix.bad()
             else:
@@ -108,7 +107,7 @@ def emit_copy(obj, n):
     """MAIN is at the function's CODE record: write the copy that is node n."""
     lk_out.seek(lk_tab.wk(lk_tab.W_ADDR + n))
     before = lk_out.written
-    planned = lk_rec.left() - lk_fix.shrunk(lk_tab.ctx_of(n))
+    planned = lk_rec.left() - lk_fix.lost(lk_tab.ctx_of(n))
     lk_fix.rewind()
     pos = 0
     while lk_rec.left() > 0:
@@ -143,25 +142,24 @@ def emit_data(obj, dest):
     pos = 0
     while lk_rec.left() > 0:
         b = lk_rec.get_byte()
-        i = lk_fix.cursor
-        if lk_fix.more() and lk_tab.wk(lk_fix.FX_AT + i) < pos:
+        if lk_fix.more() and lk_fix.held(lk_fix.FX_AT) < pos:
             lk_fix.bad()
-        if lk_fix.more() and lk_tab.wk(lk_fix.FX_AT + i) == pos:
-            address = lk_fix.target(lk_fix.NO_CONTEXT, lk_tab.wk(lk_fix.FX_SYM + i), lk_tab.wk(lk_fix.FX_SLOT + i), False)
-            address = (address + lk_tab.wk(lk_fix.FX_ADD + i)) & 0xFFFF
-            if lk_tab.wk(lk_fix.FX_KIND + i) >= lk_fix.K_BANK:
+        if lk_fix.more() and lk_fix.held(lk_fix.FX_AT) == pos:
+            address = lk_fix.target(lk_fix.NO_CONTEXT, lk_fix.held(lk_fix.FX_SYM), lk_fix.held(lk_fix.FX_SLOT), False)
+            address = (address + lk_fix.held(lk_fix.FX_ADD)) & 0xFFFF
+            if lk_fix.held(lk_fix.FX_KIND) >= lk_fix.K_BANK:
                 lk_fix.bad()            # the bank of a region is for `with` blocks, and an
                                         # address only reached is formed by code
-            if lk_tab.wk(lk_fix.FX_KIND + i) == lk_fix.K_WORD:
+            if lk_fix.held(lk_fix.FX_KIND) == lk_fix.K_WORD:
                 if lk_rec.left() == 0:
                     lk_fix.bad()
                 lk_rec.get_byte()
                 lk_out.put_word(address)
                 pos += 2
-            elif lk_tab.wk(lk_fix.FX_KIND + i) == lk_fix.K_SHRINK:
+            elif lk_fix.held(lk_fix.FX_KIND) == lk_fix.K_SHRINK:
                 lk_fix.bad()            # only an instruction can shrink
             else:
-                lk_out.put(lk_fix.part(address, lk_tab.wk(lk_fix.FX_KIND + i)))
+                lk_out.put(lk_fix.part(address, lk_fix.held(lk_fix.FX_KIND)))
                 pos += 1
             lk_fix.next_fix()
         else:

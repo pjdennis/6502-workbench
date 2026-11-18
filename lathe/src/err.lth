@@ -46,6 +46,8 @@
 ;   |                                       | (sys.error_text), packed into it|                   |
 ;   |                                       | from MESSAGES by lathe/host/    |                   |
 ;   |                                       | driver/msgpack.py               |                   |
+;   | a place: a list [line, col],          | Place: a record; position_at()  | a record is not a |
+;   | PLACE_LINE and PLACE_COL its indexes  | takes a pointer to one          | parameter         |
 module err
 
 #if PORTS == 2
@@ -392,6 +394,18 @@ end
 pub func position(new_line: word, new_col: word)
   line = new_line
   col = new_col
+end
+
+; Where a token is, kept for an error found later: parts.mark_place() fills it in.
+pub type Place = record
+  line: word
+  col: word
+end
+
+; Say that an error found from now on is at `place`.
+pub func position_at(place: ^Place)
+  line = place.line
+  col = place.col
 end
 
 pub func put_decimal(n: word)

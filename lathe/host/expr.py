@@ -104,23 +104,21 @@ def type_spec():
             typetab.prefix(typetab.FORM_POINTER, 0)
         else:
             lex.next()
-            line = lex.line
-            col = lex.col
+            place = parts.mark_place()
             n = constant_number()
             if n == 0:
-                err.position(line, col)
+                err.position_at(place)
                 err.fatal(err.E_RANGE)
             lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
             typetab.prefix(typetab.FORM_ARRAY, n)
     t = parts.basic_type(lex.tok)
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     if t != typetab.NO_TYPE:
         lex.next()
     elif lex.tok == lex.T_NAME:
         s = parts.named_symbol()
         if kernel.kind_of(s) != kernel.K_TYPE:
-            err.position(line, col)
+            err.position_at(place)
             err.fatal(err.E_TYPE_EXPECTED)
         t = kernel.type_of(s)
     elif lex.tok == lex.T_RECORD:
@@ -134,10 +132,9 @@ def type_spec():
 
 def value_type():
     """The type of a parameter or a result: not an array or a record, which are not values."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     t = type_spec()
-    err.position(line, col)
+    err.position_at(place)
     if typetab.is_array(t):
         err.fatal(err.E_ARRAY_VALUE)
     if typetab.is_record(t):
@@ -154,10 +151,9 @@ def builtin(which):
     if which == B_SIZEOF:
         gen.size_of(type_spec())
     else:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         expression()
-        err.position(line, col)
+        err.position_at(place)
         if which == B_LEN:
             gen.length()
         else:
@@ -169,14 +165,13 @@ def builtin(which):
 def designator():
     """designator = name { "." name | "[" expression "]" }. Pushes an operand for what it
     names. A named type followed by "(" is a conversion."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     s = parts.named_symbol()
     kind = kernel.kind_of(s)
     if kind == kernel.K_FUNC:
         gen.function(s)
     elif kind == kernel.K_CONST and typetab.is_array(kernel.type_of(s)):
-        err.position(line, col)         # a table in a region is used only inside `with`
+        err.position_at(place)          # a table in a region is used only inside `with`
         gen.table(s)
         here()
     elif kind == kernel.K_CONST:
@@ -184,35 +179,34 @@ def designator():
     elif kind == kernel.K_LOCAL:
         gen.local(kernel.type_of(s), kernel.value_of(s))
     elif kind == kernel.K_VAR:
-        err.position(line, col)
+        err.position_at(place)
         gen.variable(s)
         here()
     elif kind == kernel.K_TYPE:
-        conversion(kernel.type_of(s), line, col)
+        conversion(kernel.type_of(s), place)
     else:
         builtin(kernel.value_of(s))
     while lex.tok == lex.T_LBRACKET or lex.tok == lex.T_DOT:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         if lex.tok == lex.T_DOT:
             lex.next()
-            parts.field(line, col)
+            parts.field(place)
         else:
             lex.next()
             expression()
             lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
-            err.position(line, col)
+            err.position_at(place)
             gen.index()
             here()
 
 
-def target(line, col):
-    """Check that the newest operand, which the designator at `line`, `col` gave, is a variable
-    that can be assigned to."""
+def target(place):
+    """Check that the newest operand, which the designator at `place` gave, is a variable that
+    can be assigned to."""
     i = reg.depth - 1
     if reg.op_kind[i] != reg.O_VAR or reg.op_flags[i] & reg.F_DATA != 0 \
             or (reg.op_flags[i] & reg.F_TEMP != 0 and reg.op_mode[i] != reg.M_POINTER):
-        err.position(line, col)
+        err.position_at(place)
         err.fatal(err.E_NOT_VAR)
 
 
@@ -220,10 +214,9 @@ def argument(t, stored):
     """One argument for a parameter of type `t`. If `stored`, the parameter is the newest
     operand and the argument is stored in it; if not, the argument is left on the stack. One
     that does not fit is reported at its start."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expression()
-    err.position(line, col)
+    err.position_at(place)
     if stored:
         gen.store()
     else:
@@ -321,15 +314,16 @@ def callee():
         gen.through_pointer()
 
 
-def call_value(line, col):
+def call_value(start):
     """A call where a value is wanted, of the function whose operand is on top of the stack
-    and whose name is at `line`, `col`. One that gives a value and a status needs `-> v` after
-    it, which stores the value and leaves the status."""
+    and whose name is at `start`. One that gives a value and a status needs `-> v` after it,
+    which stores the value and leaves the status. (The Lathe copies `start` first.)"""
     global passed
+    place = start
     f = reg.op_var[reg.depth - 1]
     if lex.tok != lex.T_LPAREN:
         err.fatal(err.E_LPAREN_EXPECTED)
-    err.position(line, col)
+    err.position_at(place)
     check_not_pending(f)
     here()
     call(True)
@@ -337,27 +331,27 @@ def call_value(line, col):
         if kernel.byte_of(f, kernel.C_RESULTS) != 2:
             err.fatal(err.E_RESULTS)
         lex.next()
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         designator()
-        target(line, col)
-        err.position(line, col)
+        target(place)
+        err.position_at(place)
         gen.store_arrow()
         here()
     elif kernel.byte_of(f, kernel.C_RESULTS) == 2 and passing:
         passed = gen.mark()
     elif kernel.byte_of(f, kernel.C_RESULTS) == 0:
-        err.position(line, col)
+        err.position_at(place)
         err.fatal(err.E_RESULTS)        # a status beside a value may be ignored: v = f()
 
 
 # ---- Expressions -------------------------------------------------------------------------
 
-def conversion(t, line, col):
-    """"(" expression ")" after typeKw, or after "^" type: a conversion to type `t`."""
+def conversion(t, start):
+    """"(" expression ")" after typeKw, or after "^" type at `start`: a conversion to type `t`.
+    (The Lathe copies `start` first, as in call_value().)"""
     lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
     expression()
-    err.position(line, col)
+    err.position_at(start)
     gen.convert(t)
     here()
     lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
@@ -376,19 +370,18 @@ def primary():
         expression()
         lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
         return
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     if lex.tok == lex.T_NAME:
         designator()
         callee()
         if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
-            call_value(line, col)
+            call_value(place)
     elif lex.tok == lex.T_CARET:
-        conversion(type_spec(), line, col)
+        conversion(type_spec(), place)
     elif parts.basic_type(lex.tok) != typetab.NO_TYPE:
         t = parts.basic_type(lex.tok)
         lex.next()
-        conversion(t, line, col)
+        conversion(t, place)
     elif lex.tok == lex.T_STRING:
         parts.string()
         lex.next()
@@ -403,15 +396,14 @@ def factor():
     if lex.tok != lex.T_MINUS and lex.tok != lex.T_TILDE and lex.tok != lex.T_ADDRESS:
         primary()
         return
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     if lex.tok == lex.T_MINUS or lex.tok == lex.T_TILDE:
         minus = lex.tok == lex.T_MINUS
         lex.next()
         nest()
         factor()
         unnest()
-        err.position(line, col)
+        err.position_at(place)
         if minus:
             gen.negate()
         else:
@@ -423,7 +415,7 @@ def factor():
         gen.address_of = reg.depth
         designator()
         gen.address_of = outer
-        err.position(line, col)
+        err.position_at(place)
         i = reg.depth - 1
         if reg.op_kind[i] == reg.O_FUNC and kernel.flags_of(reg.op_var[i]) & inline.SF_INTERRUPT != 0:
             gen.code_address(reg.op_var[i])     # a ^byte, never a value of a function type
@@ -441,11 +433,10 @@ def term():
     factor()
     op = parts.term_operator(lex.tok)
     while op != 0:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         lex.next()
         factor()
-        parts.apply(op, line, col)
+        parts.apply(op, place)
         op = parts.term_operator(lex.tok)
 
 
@@ -454,11 +445,10 @@ def addition():
     term()
     op = parts.sum_operator(lex.tok)
     while op != 0:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         lex.next()
         term()
-        parts.apply(op, line, col)
+        parts.apply(op, place)
         op = parts.sum_operator(lex.tok)
 
 
@@ -467,12 +457,11 @@ def relation():
     addition()
     op = parts.relation_operator(lex.tok)
     if op != 0:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         lex.next()
         gen.as_value()             # a `bool` on the left cannot wait in the flags
         addition()
-        parts.apply(op, line, col)
+        parts.apply(op, place)
 
 
 def inverse():
@@ -480,13 +469,12 @@ def inverse():
     if lex.tok != lex.T_NOT:
         relation()
         return
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     lex.next()
     nest()
     inverse()
     unnest()
-    err.position(line, col)
+    err.position_at(place)
     gen.invert()
     here()
 
@@ -495,12 +483,11 @@ def both():
     """andExpr = notExpr { "and" notExpr }. The right side is reached only if the left is true."""
     inverse()
     while lex.tok == lex.T_AND:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         lex.next()
-        parts.test_operator(True, line, col, True)
+        parts.test_operator(True, place, True)
         inverse()
-        parts.test_operator(True, line, col, False)
+        parts.test_operator(True, place, False)
 
 
 def expression():
@@ -509,12 +496,11 @@ def expression():
     nest()
     both()
     while lex.tok == lex.T_OR:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         lex.next()
-        parts.test_operator(False, line, col, True)
+        parts.test_operator(False, place, True)
         both()
-        parts.test_operator(False, line, col, False)
+        parts.test_operator(False, place, False)
     unnest()
 
 
@@ -534,10 +520,9 @@ def constant(t):
     """constExpr: an expression that is known now, a number or an address. Unless `t` is
     typetab.NO_TYPE it must be one a `t` can be given, and takes that type. The constant is
     left on the stack."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expression()
-    err.position(line, col)
+    err.position_at(place)
     gen.as_value()
     if reg.op_kind[reg.depth - 1] != reg.O_CONST and reg.op_kind[reg.depth - 1] != reg.O_ADDR:
         err.fatal(err.E_NOT_CONST)
@@ -549,11 +534,10 @@ def constant(t):
 def constant_number():
     """constExpr where a number that is not below zero is wanted, as for an address. Returns
     its value."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     constant(typetab.NO_TYPE)
     i = reg.depth - 1
-    err.position(line, col)
+    err.position_at(place)
     if reg.op_kind[i] != reg.O_CONST:
         err.fatal(err.E_NOT_CONST)
     if reg.op_type[i] == typetab.BOOL_TYPE:
@@ -584,6 +568,22 @@ critical_inner = 0      # how many of those are inside the nearest loop
 with_function = fbuf.NO_SLOT
 with_loop = fbuf.NO_SLOT
 data_region = 0         # the region of the table table_data() writes, or 0
+
+def enter_loop():
+    """A loop begins: returns what it keeps of the state around it while its body is compiled;
+    no `critical` or `with` block is open inside it yet."""
+    global critical_inner, with_loop
+    outer = [exit_label, next_label, critical_inner, with_loop]
+    critical_inner = 0
+    with_loop = fbuf.NO_SLOT
+    return outer
+
+
+def leave_loop(outer):
+    """The loop ends: the state around it is what `outer` kept."""
+    global exit_label, next_label, critical_inner, with_loop
+    exit_label, next_label, critical_inner, with_loop = outer
+
 
 MAX_CASE = 256
 case_value = bytearray(MAX_CASE)    # the constants of the `case` statements being compiled
@@ -626,10 +626,9 @@ def placements():
 def initial_assignment(s):
     """"=" expression after a local's declaration: an assignment made on every entry."""
     parts.push_variable(s)
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expression()
-    err.position(line, col)
+    err.position_at(place)
     gen.store()
     here()
 
@@ -643,8 +642,7 @@ def variable(more, level):
         scope = kernel.SCOPE_MODULE
     name = parts.new_name(scope)
     lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     t = type_spec()
     flags = placements() | more
     if flags & kernel.SF_IN != 0:
@@ -652,7 +650,7 @@ def variable(more, level):
         if flags & (kernel.SF_AT | kernel.SF_ZP) != 0 or level == LEVEL_LOCAL or lex.tok == lex.T_ASSIGN:
             parts.not_in_region()
         flags = flags | kernel.SF_NOZP
-    err.position(line, col)
+    err.position_at(place)
     if flags & kernel.SF_ROWS != 0:
         if not typetab.is_array(t):
             err.fatal(err.E_TYPE)
@@ -751,15 +749,14 @@ def table_data(t, symbol):
 
 # ---- Assignments and calls ---------------------------------------------------------------
 
-def assignment(line, col):
-    """assignOp expression, after the designator at `line`, `col`."""
-    target(line, col)
+def assignment(start):
+    """assignOp expression, after the designator at `start`."""
+    target(start)
     token = lex.tok
     lex.next()
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expression()
-    err.position(line, col)
+    err.position_at(place)
     if token == lex.T_ASSIGN:
         gen.store()
     else:
@@ -767,28 +764,26 @@ def assignment(line, col):
     here()
 
 
-def pair_assignment(line, col):
-    """"," designator "=" call, after the designator at `line`, `col`: the value and the
-    status of a call that gives both."""
-    target(line, col)
+def pair_assignment(start):
+    """"," designator "=" call, after the designator at `start`: the value and the status of a
+    call that gives both."""
+    target(start)
     lex.next()
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     designator()
-    target(line, col)
+    target(place)
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     designator()
     callee()
     i = reg.depth - 1
     if reg.op_kind[i] != reg.O_FUNC or kernel.byte_of(reg.op_var[i], kernel.C_RESULTS) != 2:
-        err.position(line, col)
+        err.position_at(place)
         err.fatal(err.E_RESULTS)
     if lex.tok != lex.T_LPAREN:
         err.fatal(err.E_LPAREN_EXPECTED)
     call(True)
-    err.position(line, col)
+    err.position_at(place)
     gen.store_pair()
     here()
 
@@ -796,23 +791,22 @@ def pair_assignment(line, col):
 def name_statement():
     """designator ( assignOp expression | "," designator "=" call | arguments ): the token
     after the designator says which."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     designator()
     callee()
     if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
         if lex.tok != lex.T_LPAREN:
             err.fatal(err.E_LPAREN_EXPECTED)
-        err.position(line, col)
+        err.position_at(place)
         check_not_pending(reg.op_var[reg.depth - 1])   # in an inline body, inside arguments
         here()
         call(False)                # a call used as a statement may ignore its results
     elif lex.tok == lex.T_LPAREN:
         err.fatal(err.E_NOT_FUNC)
     elif lex.tok == lex.T_COMMA:
-        pair_assignment(line, col)
+        pair_assignment(place)
     elif lex.tok >= lex.T_ASSIGN and lex.tok <= lex.T_SHR_ASSIGN:
-        assignment(line, col)
+        assignment(place)
     else:
         err.fatal(err.E_SYNTAX)
 
@@ -822,10 +816,9 @@ def name_statement():
 def test():
     """An expression used as a test: goes on when it is true. Returns the label gone to when
     it is false."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expression()
-    err.position(line, col)
+    err.position_at(place)
     target = gen.jump_false()
     here()
     return target
@@ -868,12 +861,7 @@ def if_statement():
 def while_statement():
     """"while" expression "do" NL body "end"."""
     global exit_label, next_label, critical_inner, with_loop
-    saved_exit = exit_label
-    saved_next = next_label
-    saved_inner = critical_inner
-    critical_inner = 0
-    saved_with = with_loop
-    with_loop = fbuf.NO_SLOT
+    outer = enter_loop()
     lex.next()
     top = fbuf.new_label()
     reg.loop_label(top)
@@ -888,22 +876,14 @@ def while_statement():
         reg.jump(top)
     reg.label(exit_label)
     gen.loop_end()
-    exit_label = saved_exit
-    next_label = saved_next
-    critical_inner = saved_inner
-    with_loop = saved_with
+    leave_loop(outer)
 
 
 def loop_statement():
     """"loop" NL body ( "end" | "until" expression ). `continue` goes to the test of `until`,
     or to the top if there is none."""
     global exit_label, next_label, critical_inner, with_loop
-    saved_exit = exit_label
-    saved_next = next_label
-    saved_inner = critical_inner
-    critical_inner = 0
-    saved_with = with_loop
-    with_loop = fbuf.NO_SLOT
+    outer = enter_loop()
     lex.next()
     line_end()
     top = fbuf.new_label()
@@ -923,20 +903,16 @@ def loop_statement():
             reg.jump(top)
     reg.label(exit_label)
     gen.loop_end()
-    exit_label = saved_exit
-    next_label = saved_next
-    critical_inner = saved_inner
-    with_loop = saved_with
+    leave_loop(outer)
 
 
 def limit_value(t):
     """The expression after "to" or "downto", for a loop variable of type `t`: left on the
     stack as a constant or a variable, which is a temporary unless it was one already."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expression()
     gen.resolve(True)
-    err.position(line, col)
+    err.position_at(place)
     reg.assignable(reg.depth - 1, t)
     if reg.in_registers(reg.depth - 1):
         reg.spill(reg.depth - 1)
@@ -951,21 +927,15 @@ def for_statement():
     instead. A limit that is a variable is not copied: it is read at each test."""
     global exit_label, next_label, critical_inner, with_loop
     nest()
-    saved_exit = exit_label
-    saved_next = next_label
-    saved_inner = critical_inner
-    critical_inner = 0
-    saved_with = with_loop
-    with_loop = fbuf.NO_SLOT
+    outer = enter_loop()
     lex.next()
     s = parts.loop_variable()
     t = kernel.type_of(s)
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
     parts.push_variable(s)
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expression()
-    err.position(line, col)
+    err.position_at(place)
     known = gen.pend_op == 0 and reg.op_kind[reg.depth - 1] == reg.O_CONST
     if known:
         reg.assignable(reg.depth - 1, t)
@@ -1008,10 +978,7 @@ def for_statement():
     gen.loop_end()
     reg.label(exit_label)
     reg.pop()
-    exit_label = saved_exit
-    next_label = saved_next
-    critical_inner = saved_inner
-    with_loop = saved_with
+    leave_loop(outer)
     unnest()
 
 
@@ -1020,14 +987,13 @@ def case_constants(selector, chosen, base):
     go to `chosen` if it is equal to one. Returns the label gone to if it is equal to none."""
     global case_count
     while True:
-        line = lex.line
-        col = lex.col
+        place = parts.mark_place()
         constant(reg.op_type[selector])
         value = reg.op_value[reg.depth - 1] & 0xFF
         reg.pop()
         for n in range(base, case_count):
             if case_value[n] == value:
-                err.position(line, col)
+                err.position_at(place)
                 err.fatal(err.E_CASE_TWICE)
         if case_count == MAX_CASE:
             err.fatal(err.E_LABELS_FULL)
@@ -1055,10 +1021,9 @@ def case_statement():
     element is copied too, so that the register memory knows A holds it."""
     global case_count
     lex.next()
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expression()
-    err.position(line, col)
+    err.position_at(place)
     gen.as_value()
     selector = reg.depth - 1
     t = reg.op_type[selector]
@@ -1125,15 +1090,13 @@ def with_statement():
     in fixed memory (-fREGION, parts.is_fixed) maps nothing: it is its body alone, held to the
     same rules, and the calls in it are not flagged unless a block around it mapped a bank."""
     global with_function, with_loop
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     if kernel.flags_of(function) & inline.SF_INTERRUPT != 0:
         err.fatal(err.E_WITH_INTERRUPT)
     if inline.level > 0:
         err.fatal(err.E_INLINE_NOT_HERE)
     lex.next()
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
+    parts.need_name()
     region = lex.value
     lex.next()
     lex.expect(lex.T_DO, err.E_DO_EXPECTED)
@@ -1169,7 +1132,7 @@ def with_statement():
         if used == kernel.NO_OBJ:
             used = parts.region_symbol(region)
         if used == kernel.NO_OBJ:
-            err.position(line, col)
+            err.position_at(place)
             err.fatal(err.E_WITH_UNKNOWN)
         if temp != fbuf.NO_SLOT:
             if entry != reg.NONE:
@@ -1187,11 +1150,10 @@ def directive():
     `bool`, or a number, which is true unless it is 0 (docs/language.md, "Conditional
     compilation")."""
     lex.next()
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     constant(typetab.NO_TYPE)
     i = reg.depth - 1
-    err.position(line, col)
+    err.position_at(place)
     if not typetab.is_number(reg.op_type[i]) and not typetab.is_untyped(reg.op_type[i]) \
             and reg.op_type[i] != typetab.BOOL_TYPE:
         err.fatal(err.E_TYPE)
@@ -1199,7 +1161,7 @@ def directive():
     here()
     if lex.tok != lex.T_NL:
         err.fatal(err.E_NL_EXPECTED)
-    err.position(line, col)
+    err.position_at(place)
     lex.choose(reg.op_value[i] != 0)
 
 
@@ -1217,11 +1179,10 @@ def jump_statement(target):
 
 def status():
     """An expression whose value is returned in the carry flag."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     gen.carry_wanted()
     expression()
-    err.position(line, col)
+    err.position_at(place)
     gen.carry()
     here()
 
@@ -1236,16 +1197,15 @@ def passes_on(t):
 
 def value_and_status(t):
     """expression "," expression after "return", or a call that gives both results."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     results_expression()
     if passed != reg.NONE:
         if not passes_on(t):
-            err.position(line, col)
+            err.position_at(place)
             err.fatal(err.E_RESULTS)
         reg.pop()
         return
-    err.position(line, col)
+    err.position_at(place)
     gen.accept(t)
     here()
     lex.expect(lex.T_COMMA, err.E_RESULTS)
@@ -1267,15 +1227,14 @@ def return_statement():
     # it goes where a call leaves it, and the `return` is a jump to the expansion's end.
     keep = inline.level > 0 and inline.leaves_operand()
     t = kernel.member_type_of(first)
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     if results == 2:
         value_and_status(t)
     elif results == 1 and kernel.member_value_of(first) == gen.REG_C and not keep:
         status()
     elif results == 1:
         expression()
-        err.position(line, col)
+        err.position_at(place)
         if not keep or gen.pend_op == 0 or gen.pend_type != t:
             gen.accept(t)
         here()
@@ -1350,10 +1309,9 @@ def body():
 def inline_argument(f, i):
     """The argument for parameter `i` of inline function `f`: a value it can be given, which
     INLINE makes the parameter's symbol of (inline.argument_symbol())."""
-    line = lex.line
-    col = lex.col
+    place = parts.mark_place()
     expression()
-    err.position(line, col)
+    err.position_at(place)
     gen.as_value()
     gen.accept(kernel.member_type_of(kernel.word_of(f, kernel.C_MEMBERS) + i))
     inline.argument_symbol(f, i)

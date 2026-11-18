@@ -126,7 +126,7 @@ Each step reads the object files from start to end; there is no seek. Reading a 
 | Pass 1, what is kept | `FUNC`, `FIX`, `DFIX` and the symbol of `DATA`: every file, then each file again that has something kept after the reading passed it. | The entries of one `DFIX` record until its `DATA` says whose they are. |
 | Pass 1, sizes and placement | `FUNC`, `FIX` (counting the kind 5 entries whose address is in zero page, per context), the length of `CODE`, and `DATA` for its size. | Nothing about a function once it is placed. |
 | The map | `SYM` and the records of the map's lines: a reading of each file for the functions, one for the constant data and one for the variables, of the files that have some; after the image, of the files that name a class, for the class parameters. | The names one file's lines need. |
-| Pass 2 | Every record. A kept function's `FIX` entries are held while its `CODE` is written, a `DFIX` record's while its `DATA` is written. | The fix-ups of one function or one table (at most 512); the names of the file's kept functions that have slots, for the map. |
+| Pass 2 | Every record. A kept function's `FIX` entries are held while its `CODE` is written, a `DFIX` record's while its `DATA` is written. | The fix-ups of one table (at most 512 at full capacities), or of one function in runs of as many, its FIX record read again for each run after the first and for what its code loses before an offset the run does not cover (since 2026-11-18: no function is refused for its number of fix-ups); the names of the file's kept functions that have slots, for the map. |
 
 A function linked for several contexts is written once for each, its `CODE` record read again for each copy after the first: the only time a file is read twice in one pass.
 

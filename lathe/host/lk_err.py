@@ -70,6 +70,7 @@ E_REGION_WINDOW = 58
 E_REGION_NO_FILE = 59
 E_REGION_ROM = 60
 E_COMMAND_FILE = 61
+E_UNMAPPED = 62
 
 # One message per line, in the order of the numbers above.
 MESSAGES = (
@@ -100,7 +101,7 @@ MESSAGES = (
     b"zero page is full\n"
     b"variables do not fit in the data range\n"
     b"code does not fit in the code range\n"
-    b"too many fix-ups in one function or table\n"
+    b"too many fix-ups in one table\n"
     b"bad fix-up\n"
     b"address must be in zero page\n"
     b"call of a function that was not linked\n"
@@ -134,6 +135,7 @@ MESSAGES = (
     b"constant data in a region is in a bank that has no file\n"
     b"a variable in a region is in a read-only bank\n"
     b"command file: too many arguments, or too long\n"
+    b"code uses a region in a bank where it maps none\n"
 )
 
 PREFIX = b"link error "

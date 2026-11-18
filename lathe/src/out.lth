@@ -129,17 +129,27 @@ pub func open(name: ^byte): bool
   return ok
 end
 
+; A byte of the object file.
+func put(value: byte)
+  kernel.put(stream, value)
+end
+
+; A word of the object file, low byte first.
+func put_word(value: word)
+  kernel.put_word(stream, value)
+end
+
 ; Begin a record whose body is `length` bytes.
 func begin_record(kind: byte, length: word)
-  kernel.put(stream, kind)
-  kernel.put_word(stream, length)
+  put(kind)
+  put_word(length)
 end
 
 ; The first record: the module's name and the CPU it is compiled for (0 6502, 1 65C02).
 pub func begin_module(cpu: byte, name: word)
   begin_record(R_MOD, 3 + kernel.name_length(name))
-  kernel.put(stream, VERSION)
-  kernel.put(stream, cpu)
+  put(VERSION)
+  put(cpu)
   kernel.put_name(stream, name)
 end
 
@@ -165,14 +175,14 @@ pub func symbol(kind: byte, module_name: word, inner: word, name: word): word
     length += kernel.name_length(inner) + 1
   end
   begin_record(R_SYM, 2 + length)
-  kernel.put(stream, kind)
-  kernel.put(stream, length)
+  put(kind)
+  put(length)
   put_part(module_name)
   if inner != 0 then
     put_part(inner)
   end
   for i = 0 until kernel.name_length(name) do
-    kernel.put(stream, kernel.name_char(name, i))
+    put(kernel.name_char(name, i))
   end
   symbol_count += 1
   return symbol_count - 1
@@ -182,29 +192,29 @@ end
 func put_part(name: word)
   var i: byte
   for i = 0 until kernel.name_length(name) do
-    kernel.put(stream, kernel.name_char(name, i))
+    put(kernel.name_char(name, i))
   end
-  kernel.put(stream, C_DOT)
+  put(C_DOT)
 end
 
 ; Define a variable that lives for the whole program.
 pub func variable(symbol_number: word, size: word, zp_class: byte, weight: byte)
   begin_record(R_VAR, 7)
-  kernel.put_word(stream, symbol_number)
-  kernel.put_word(stream, size)
-  kernel.put(stream, zp_class)
-  kernel.put(stream, weight)
-  kernel.put(stream, 0)
+  put_word(symbol_number)
+  put_word(size)
+  put(zp_class)
+  put(weight)
+  put(0)
 end
 
 ; Begin the constant data `symbol_number`: `length` calls of byte() follow.
 pub func data(symbol_number: word, length: word)
   begin_record(R_DATA, 2 + length)
-  kernel.put_word(stream, symbol_number)
+  put_word(symbol_number)
 end
 
 pub func data_byte(value: byte)
-  kernel.put(stream, value)
+  put(value)
 end
 
 ; Start a constant table of `length` bytes, all 0 until they are given.
@@ -256,11 +266,11 @@ pub func table_end(symbol_number: word, length: word)
       for where = 0 until length do
         for i = 0 until table_fix_count do
           if table_fix_offset[byte(i)] == where then
-            kernel.put_word(stream, where)
-            kernel.put(stream, table_fix_kind[byte(i)])
-            kernel.put_word(stream, table_fix_symbol[byte(i)])
-            kernel.put(stream, table_fix_slot[byte(i)])
-            kernel.put_word(stream, table_fix_addend[byte(i)])
+            put_word(where)
+            put(table_fix_kind[byte(i)])
+            put_word(table_fix_symbol[byte(i)])
+            put(table_fix_slot[byte(i)])
+            put_word(table_fix_addend[byte(i)])
           end
         end
       end
@@ -299,16 +309,16 @@ end
 ; of class_parameter() follow, with their sizes in order.
 pub func pointer_class(symbol_number: word, flags: byte, count: byte)
   begin_record(R_CLAS, 4 + 3 * word(count))
-  kernel.put_word(stream, symbol_number)
-  kernel.put(stream, flags)
-  kernel.put(stream, count)
+  put_word(symbol_number)
+  put(flags)
+  put(count)
 end
 
 ; A parameter's size, and its name, which is empty: the compiler does not keep the names
 ; of a function type's parameters.
 pub func class_parameter(size: word)
-  kernel.put_word(stream, size)
-  kernel.put(stream, 0)
+  put_word(size)
+  put(0)
 end
 
 ; The module takes the address of function `function_number` as pointer class
@@ -327,24 +337,24 @@ pub func member(class_number: word, function_number: word)
   member_function[member_count] = function_number
   member_count += 1
   begin_record(R_MEMB, 4)
-  kernel.put_word(stream, class_number)
-  kernel.put_word(stream, function_number)
+  put_word(class_number)
+  put_word(function_number)
 end
 
 ; Begin the records of a finished function. Its slots follow, then function_end().
 pub func function_begin(symbol_number: word, flags: byte)
   begin_record(R_FUNC, 3)
-  kernel.put_word(stream, symbol_number)
-  kernel.put(stream, flags)
+  put_word(symbol_number)
+  put(flags)
 end
 
 ; The next slot of the function's frame.
 pub func slot(size: word, zp_class: byte, weight: byte, kind: byte, name: word)
   begin_record(R_SLOT, 6 + kernel.name_length(name))
-  kernel.put_word(stream, size)
-  kernel.put(stream, zp_class)
-  kernel.put(stream, weight)
-  kernel.put(stream, kind)
+  put_word(size)
+  put(zp_class)
+  put(weight)
+  put(kind)
   kernel.put_name(stream, name)
 end
 
@@ -352,9 +362,9 @@ func calls()
   var i: byte
   for i = 0 until call_count do
     begin_record(R_CALL, 5)
-    kernel.put_word(stream, call_callee[i])
-    kernel.put(stream, call_flags[i])
-    kernel.put_word(stream, call_outer[i])
+    put_word(call_callee[i])
+    put(call_flags[i])
+    put_word(call_outer[i])
   end
   call_count = 0
 end
@@ -379,9 +389,9 @@ func weights()
   end
   begin_record(R_WGT, 4 * word(fbuf.weight_count))
   for i = 0 until fbuf.weight_count do
-    kernel.put_word(stream, fbuf.weight_symbol[i])
-    kernel.put(stream, fbuf.weight_slot[i])
-    kernel.put(stream, fbuf.weight_value[i])
+    put_word(fbuf.weight_symbol[i])
+    put(fbuf.weight_slot[i])
+    put(fbuf.weight_value[i])
   end
 end
 
@@ -405,9 +415,9 @@ end
 ; it used any.
 ; The weight of variable `s` in the WGT record.
 func foreign_weight(s: word)
-  kernel.put_word(stream, kernel.word_of(s, kernel.C_OBJ))
-  kernel.put(stream, fbuf.NO_SLOT)
-  kernel.put(stream, kernel.byte_of(s, kernel.C_WEIGHT))
+  put_word(kernel.word_of(s, kernel.C_OBJ))
+  put(fbuf.NO_SLOT)
+  put(kernel.byte_of(s, kernel.C_WEIGHT))
 end
 
 ; A WGT record of the weight this module's uses gave the variables of other modules, if

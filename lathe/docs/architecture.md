@@ -238,7 +238,7 @@ This is the largest piece of new mechanism in stage B and has its own spike (L3)
 | calls | 5 (8,192) | 2: the flags in the top three bits of the callee; a function's or class's calls are a run (3,600) |
 | nodes | 15 fixed + 12 graph + 10 storage (1,280) | 6 + 14 in the work area (900) |
 | references named by fix-ups | 4 (2,048) | none: read again |
-| fix-ups held | 9 (1,024) | 12 in the work area (512) |
+| fix-ups held | 9 (1,024) | 12 in the work area (512); a function's in runs of as many since 2026-11-18 (lk_fix) |
 | variables and constants | 2 (1,024) | 5: address (a variable's weight until it has one), size, flags (800) |
 | classes, parameters, members | 12 (64), 8 (256), 4 (256) | 14 (32), 6 (128), 4 (128) |
 | weights waiting | 5 (256) | none: in the work area while the files are read (64) |
