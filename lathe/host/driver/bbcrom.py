@@ -67,6 +67,8 @@ import msgpack  # noqa: E402
 import pyasm  # noqa: E402
 
 MODULE_ASM = os.path.join(ROOT, 'lathe', 'rt', 'bbc', 'module.asm')
+TEXTS_ASM = os.path.join(ROOT, 'lathe', 'rt', 'bbc', 'texts.asm')
+MOST_PARTS = 4                          # the texts of the errors in at most this many parts
 LOADER_ASM = os.path.join(ROOT, 'lathe', 'rt', 'bbc', 'loadmod.asm')
 LOADER_LOAD = 0x1900                    # LOADMOD is loaded and entered at PAGE
 BANKS = 16                              # the sixteen-bank image, scheme direct16
@@ -252,27 +254,50 @@ def tables(programs, lists, check_himem=False):
     return '\n'.join(out) + '\n'
 
 
-_texts = []
+_tables = {}
 
 
-def error_texts():
-    """The asm text of the packed texts of the tools' errors (msgpack.py), which every image holds
-    after the module's tables: packed once."""
-    if not _texts:
-        _texts.append(msgpack.tables()[0])
-    return _texts[0]
+def text_part(first, last, at, claim):
+    """A part of the texts of the tools' errors, the texts first to last (lathe/rt/bbc/texts.asm
+    with msgpack.py's tables of them), assembled to be at `at` in its bank, `claim` the module's
+    return from a service call: its bytes."""
+    if (first, last) not in _tables:
+        _tables[(first, last)] = msgpack.tables(first, last)[0]
+    with open(TEXTS_ASM) as fh:
+        source = fh.read()
+    code, labels = assemble(f'part_at: = ${at:04X}\nclaim: = ${claim:04X}\n' + source + _tables[(first, last)],
+                            'lathe/rt/bbc/texts.asm')
+    return code
 
 
-def module_code(programs, lists, home=0, at=FIRST):
+def parts_table(parts):
+    """The asm text of the table of the parts of the texts [(first text, bank, address)], in the
+    order of their first texts, for module.asm's `text`."""
+    out = [f'text_parts: = {len(parts)}', 'part_first:']
+    out += [f'  .byte {first}' for first, bank, at in parts]
+    out += ['part_bank:'] + [f'  .byte ${bank:02X}' for first, bank, at in parts]
+    out += ['part_entry_low:'] + [f'  .byte ${(at - 1) & 0xFF:02X}' for first, bank, at in parts]
+    out += ['part_entry_high:'] + [f'  .byte ${(at - 1) >> 8:02X}' for first, bank, at in parts]
+    return '\n'.join(out) + '\n'
+
+
+def module_code(programs, lists, home=0, at=FIRST, parts=((0, 0, FIRST),)):
     """The module's code assembled with its home bank `home` and its code and tables at `at` there,
-    with the check of HIMEM if a program has a top (image(check_himem=True)): (the reserved bytes,
-    the code and tables, the global labels)."""
+    with the check of HIMEM if a program has a top (image(check_himem=True)), and the table of the
+    parts of the texts of the errors, [(first text, bank, address)]: (the reserved bytes, the code
+    and tables, the global labels)."""
     with open(MODULE_ASM) as fh:
         source = fh.read()
     check_himem = any(p.top for p in programs)
     head = f'home: = ${home:02X}\nhome_at: = ${at:04X}\n'
     head += 'check_himem: = $01\nentry_rest: = $07\n' if check_himem else 'entry_rest: = $05\n'
-    code, labels = assemble(head + source + tables(programs, lists, check_himem) + error_texts())
+    at_home = len(parts) == 1 and parts[0][1] == home
+    if at_home:
+        head += f'part_at_home: = ${parts[0][2]:04X}\n'     # the one part is in the home bank: no table
+    else:
+        head += 'parts_away: = $01\n' + ('several_parts: = $01\n' if len(parts) > 1 else 'one_part_away: = $01\n')
+    code, labels = assemble(head + source + tables(programs, lists, check_himem)
+                            + ('' if at_home else parts_table(parts)))
     if labels['reserved_end'] != FIRST or len(code) > LAST - WINDOW + 1:
         raise ImageError(f'module.asm: the reserved bytes must end at ${FIRST:04X}, and its code fit a bank')
     return code[:RESERVED], code[at - WINDOW:], labels
@@ -323,13 +348,14 @@ class Layout:
     code_end: dict              # bank -> the first address after the program's code in it
     home: int = 0               # the home bank
     home_at: int = FIRST        # where the module's code and tables are in it
+    parts: list = field(default_factory=list)   # the texts of the errors: [(first, last, bank, address, bytes)]
     reserved: bytes = b''       # $8000-$804F of every bank (its number at $804F apart)
     code: bytes = b''           # the module's code and tables
     placed: list = field(default_factory=list)
     areas: list = field(default_factory=list)   # what is left free, [[bank, first, last]]
 
 
-def layout(programs, banks=BANKS, tails=None):
+def layout(programs, banks=BANKS, tails=None, parts=1):
     """Where everything goes (lathe/docs/bbc.md, "The 128 KB module"): each program's code in its
     banks from $8050; the module's code and tables in the home bank, after the code there (bank
     0, at $8050, in the sixteen-bank image, where no program may use bank 0; with tails the bank
@@ -342,6 +368,10 @@ def layout(programs, banks=BANKS, tails=None):
     banks after them in order, so that the image uses as few banks as it can. Without it (the
     sixteen-bank image's default, which it had before the eight-bank one), in the home bank to
     $BFDF and then in the banks no program's code is in, in order.
+
+    The texts of the Lathe tools' errors (msgpack.py) go in `parts` parts or more, as few as fit
+    (at most MOST_PARTS), each whole in one bank, before the pieces: one part in the home bank if
+    it has room, else wherever there is (module.asm, "An error's text"; texts.asm).
 
     Returns a Layout; ImageError (with .over, the bytes over) if they do not fit."""
     if tails is None:
@@ -382,23 +412,76 @@ def layout(programs, banks=BANKS, tails=None):
             return [[lay.home, lay.home_at + size, LAST]] + [[n, FIRST, LAST] for n in range(banks)
                                                               if n not in owner and n != lay.home]
         held = [[n, starts[n] + (size if n == lay.home else 0), TOP] for n in range(last_held + 1)]
-        held.sort(key=lambda a: (a[1] - a[2], a[0]))
-        return held + [[n, FIRST, TOP] for n in range(last_held + 1, banks)]
+        return in_order(held + [[n, FIRST, TOP] for n in range(last_held + 1, banks)])
 
-    # The code depends on the copy lists only through their length (the number of pieces), and
-    # that on the room the code leaves: lay it out with no pieces, then again until it settles.
+    def in_order(areas):
+        """With tails, the areas in the order the pieces take them: those of the banks the image
+        holds anyway, the one with the most room left first, then the banks after them in order."""
+        if tails:
+            areas.sort(key=lambda a: (a[0] > last_held, a[0] if a[0] > last_held else a[1] - a[2], a[0]))
+        return areas
+
+    # The texts of the errors go in parts, each whole in one bank, wherever there is room: in as
+    # few as fit (msgpack.split), each the code of texts.asm and its own tables.
+    for count in range(parts, MOST_PARTS + 1):
+        ranges = msgpack.split(count)
+        try:
+            size = settle(lay, programs, blobs, tails, ranges, areas_after, in_order)
+            break
+        except PartsError as e:
+            if count == MOST_PARTS:
+                raise over_error(f'the texts of the errors do not fit in {MOST_PARTS} parts in the room the '
+                                 f'banks leave: a part of {e.size} bytes has no room', e.size) from None
+    if len(lay.code) < size:                # a piece fewer than laid out for: a gap after the tables
+        lay.code += bytes([FILL]) * (size - len(lay.code))
+    return lay
+
+
+class PartsError(Exception):
+    def __init__(self, size):
+        self.size = size
+
+
+def place_parts(ranges, areas, claim, home):
+    """Each part of the texts (ranges [(first, last)]), the largest first, whole at the start of
+    an area: the home bank's if it holds it (a part there is entered with a JMP and needs no table),
+    else the first area that holds it, in the order the pieces take the areas (so that the parts
+    and the pieces fill the same areas first): [(first, last, bank, address, bytes)] in the order
+    of the ranges. PartsError if one has no room."""
+    sizes = [len(text_part(first, last, FIRST, claim)) for first, last in ranges]
+    found = [None] * len(ranges)
+    for k in sorted(range(len(ranges)), key=lambda k: -sizes[k]):
+        fits = [a for a in areas if a[2] - a[1] + 1 >= sizes[k]]
+        if not fits:
+            raise PartsError(sizes[k])
+        area = ([a for a in fits if a[0] == home] + fits)[0]
+        first, last = ranges[k]
+        found[k] = (first, last, area[0], area[1], text_part(first, last, area[1], claim))
+        area[1] += sizes[k]
+    return found
+
+
+def settle(lay, programs, blobs, tails, ranges, areas_after, in_order):
+    """The module's code, the parts of the texts (ranges) and the pieces laid out in lay until the
+    code's size settles: returns that size. The code depends on the copy lists only through their
+    length (the number of pieces) and on the parts only through their number; the pieces and the
+    parts on the room the code leaves: lay it out with none, then again until it settles."""
     lists = [[] for _ in programs]
+    parts = [(first, lay.home, lay.home_at) for first, last in ranges]    # one part: in the home bank, if it fits
     size = None
     for _ in range(8):
-        lay.reserved, lay.code, labels = module_code(programs, lists, lay.home, lay.home_at)
+        lay.reserved, lay.code, labels = module_code(programs, lists, lay.home, lay.home_at, parts)
         if size is not None and len(lay.code) <= size:
-            break
+            return size
         size = len(lay.code)
         if lay.home_at + size - 1 > LAST:
             over = lay.home_at + size - 1 - LAST
             raise over_error(f'the module\'s code and tables ({size} bytes) do not fit bank {lay.home} after '
                              f'its program\'s code: {over} bytes over', over)
         lay.areas = areas_after(size)
+        lay.parts = place_parts(ranges, lay.areas, labels['claim'], lay.home)
+        in_order(lay.areas)             # the parts took room: the pieces take what is left
+        parts = [(first, bank, at) for first, last, bank, at, data in lay.parts]
         try:
             lay.placed = place(blobs, lay.areas, tails)
         except ImageError as e:
@@ -409,19 +492,15 @@ def layout(programs, banks=BANKS, tails=None):
         lists = [[(addr, dest, len(data), bank, unit)
                   for what, bank, addr, data, unit, dest in lay.placed if what.startswith(p.command + ' ')]
                  for p in programs]
-    else:
-        raise ImageError('the home bank did not settle')
-    if len(lay.code) < size:                # a piece fewer than laid out for: a gap after the tables
-        lay.code += bytes([FILL]) * (size - len(lay.code))
-    return lay
+    raise ImageError('the home bank did not settle')
 
 
-def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_himem=True):
+def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_himem=True, parts=1):
     """Writes the module image `out` (banks of 16 KB: sixteen, 262,144 bytes, scheme direct16, or
     eight, 131,072 bytes, scheme direct8) for the programs specs, [(command, resident image,
     environment[, map])], and the listing (text) to `listing` if given; with `short`, also the
     image's banks from 0 to the last one in use (the home bank, a program's code or a piece), to
-    that file; tails as layout() has it. With check_himem (the default) a command is refused with the MOS error
+    that file; tails and parts as layout() has them. With check_himem (the default) a command is refused with the MOS error
     `Mode 7 needed` when HIMEM is below the top of its program's memory (the end of the highest
     of its `code`, `data` and `more` ranges, + 1): module.asm, step 0. Returns the listing."""
     if banks not in SCHEMES:
@@ -436,13 +515,15 @@ def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_h
     for p in programs:
         if [q.command for q in programs].count(p.command) > 1:
             raise ImageError(f'the command {p.command} is given twice')
-    lay = layout(programs, banks, tails)
+    lay = layout(programs, banks, tails, parts)
     data = [bytearray([FILL]) * BANK_SIZE for _ in range(banks)]
     for n in range(banks):
         data[n][:RESERVED] = lay.reserved
         data[n][NUMBER_AT] = n
     at = lay.home_at - WINDOW
     data[lay.home][at:at + len(lay.code)] = lay.code
+    for first, last, bank, addr, part in lay.parts:
+        data[bank][addr - WINDOW:addr - WINDOW + len(part)] = part
     for p in programs:
         for b in p.banks:
             if b.value & 0x80:
@@ -451,7 +532,7 @@ def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_h
         data[bank][addr - WINDOW:addr - WINDOW + len(piece)] = piece
     with open(out, 'wb') as fh:
         fh.write(b''.join(data))
-    used = max([lay.home] + list(lay.owner) + [e[1] for e in lay.placed])
+    used = max([lay.home] + list(lay.owner) + [e[1] for e in lay.placed] + [e[2] for e in lay.parts])
     if short:
         with open(short, 'wb') as fh:
             fh.write(b''.join(data[:used + 1]))
@@ -480,6 +561,10 @@ def describe(out, programs, lay):
         if n == lay.home:
             parts.append(f'${lay.home_at:04X}-${lay.home_at + len(lay.code) - 1:04X} the module\'s code and '
                          f'tables ({len(lay.code)} bytes)')
+        for first, last, bank, addr, part in lay.parts:
+            if bank == n:
+                parts.append(f'${addr:04X}-${addr + len(part) - 1:04X} the texts {first} to {last} of the errors '
+                             f'({len(part)} bytes)')
         for what, bank, addr, data, unit, dest in sorted(lay.placed, key=lambda e: e[2]):
             if bank == n:
                 parts.append(f'${addr:04X}-${addr + len(data) - 1:04X} {what}, to '

@@ -4,8 +4,8 @@
 ; for n 0 to 7, $BFF8-$BFFF their mirror). lathe/host/driver/bbcrom.py assembles this file with
 ; asm/pyasm.py, with two constants before it, `home` (the bank that holds the module's own code
 ; and tables, the home bank) and `home_at` (their address there), and its own tables (the command
-; table, the copy lists, the *HELP text, then the texts of the errors, lathe/host/driver/
-; msgpack.py's) after the line `; ---- the tables ----` at the end, and
+; table, the copy lists, the *HELP text, then the table of the parts of the texts of the errors,
+; "An error's text" below) after the line `; ---- the tables ----` at the end, and
 ; puts the reserved bytes in every bank. Written for the repository's own assembler: upper-case
 ; mnemonics, constants before their use. bbcrom.py also gives `entry_rest`, the bytes of a command's
 ; entry in the table after its name's zero (5, or 7 with the check below), and `check_himem` when
@@ -27,8 +27,9 @@
 ; $F4) and Y as given, or claimed with A = 0.
 ;
 ; The home bank holds, at home_at (after its program's code, if a program has code in it; bank 0
-; and $8050 in the sixteen-bank image), the code below and the tables, and after them the packed
-; texts of the compiler's and the linker's errors, in every image; the programs' resident
+; and $8050 in the sixteen-bank image), the code below and the tables; the parts of the packed
+; texts of the compiler's and the linker's errors (lathe/rt/bbc/texts.asm), in every image, are in
+; this bank or others, wherever there is room, and the programs' resident
 ; parts and their regions' constants are in the ends of the banks, in pieces, wherever there is
 ; room. For a command of its table it:
 ;
@@ -136,6 +137,7 @@ service:
 back:
   PLA
   TAX
+switch:
   LDA latch,X                  ; the bank of entry: the rest is its, the same
   PLA
   LDX romcopy
@@ -398,61 +400,51 @@ too_low_end:
 ; bbc.lth, error_text), and the module writes ": " and the text with OSWRCH and claims the call;
 ; when no ROM claims it, nothing is written, and the error is its number alone. Text n is the
 ; compiler's error n, text 255 - n the linker's. The texts (lathe/host/driver/msgpack.py packs
-; them from the host's tables; bbcrom.py puts them after the tables below) are in text_texts in
-; order from 0, each its codes ended by a zero; a code is a character, or a pair of codes, which
-; text_first and text_second give at the code plus $80 if that is below their length.
+; them from the host's tables) are in one part or more, each the code of lathe/rt/bbc/texts.asm
+; and its tables, which bbcrom.py puts wherever there is room, in this bank or another: the table
+; of the parts, after the tables below, gives for each the first text it holds, its bank and its
+; entry less 1, in order of their first texts (the first part's is 0). bbcrom.py defines which
+; way it is entered: `part_at_home`, the part's address, when there is one part and it is in this
+; bank (a JMP to it); else `parts_away`, and `one_part_away` for one part in another bank or
+; `several_parts` for more, when the part is looked for. This finds the part of
+; text Y and enters its bank there with Y the texts before it in the part: the return address
+; and a byte pushed, it jumps to `switch`, the read of $BFF0 + X in the reserved bytes, after
+; which the same bytes of the part's bank pull the byte and return to the part. The part ends
+; through `claim`, which selects the bank of entry again.
 text:
   LDA #$3A                     ; ": "
   JSR oswrch
   LDA #$20
   JSR oswrch
-  LDA #<text_texts
-  STA w0
-  LDA #>text_texts
-  STA w1
+  .ifdef part_at_home
+  JMP part_at_home             ; the one part, in this bank: Y is the texts before it
+  .endif
+  .ifdef several_parts
+  LDX #text_parts-1
+.part:
   TYA
-  TAX                          ; the texts before it
-  LDY #$00
-  CPX #$00
-  BEQ .write
-.pass:
-  LDA (w0),Y
-  INY
-  BNE .same
-  INC w1
-.same:
-  CMP #$00
-  BNE .pass                    ; to the end of this text
+  CMP part_first,X
+  BCS .found                   ; Y is the part's first text or after it
   DEX
-  BNE .pass
-.write:
-  LDA (w0),Y
-  BEQ .done
-  JSR put_code
-  INY
-  BNE .write
-  INC w1
-  BNE .write                   ; always
-.done:
-  JMP claim
-
-; One code: a character, or a pair, its first code and then its second (the 6502's stack holds
-; the second while the first is written: three bytes a level, at most eight levels).
-put_code:
-  CLC
-  ADC #$80
-  CMP #text_second-text_first
-  BCS .character
-  TAX
-  LDA text_second,X
+  BPL .part                    ; always found: the first part's first text is 0
+.found:
+  SEC
+  SBC part_first,X
+  TAY                          ; the texts before it in the part
+  .endif
+  .ifdef one_part_away
+  LDX #$00                     ; one part, from text 0: Y is the texts before it
+  .endif
+  .ifdef parts_away
+  LDA part_entry_high,X
   PHA
-  LDA text_first,X
-  JSR put_code
-  PLA
-  JMP put_code
-.character:
-  SBC #$80                     ; the carry is set: the code as it was
-  JMP oswrch
+  LDA part_entry_low,X
+  PHA                          ; the part's entry less 1, for the RTS after switch
+  PHA                          ; a byte for its PLA
+  LDA part_bank,X
+  TAX
+  JMP switch
+  .endif
 
 ; The stub, copied to $07F0 (above).
 stub:

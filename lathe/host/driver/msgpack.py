@@ -149,15 +149,29 @@ def unpack(first, second, codes):
     return bytes(out)
 
 
-def tables():
-    """(the asm text of the tables, their bytes), for lathe/rt/bbc/module.asm."""
-    first, second, seqs = pack(texts())
+def tables(first_text=0, last_text=TEXTS - 1):
+    """(the asm text of the tables of the texts first_text to last_text, packed by themselves,
+    their bytes), for a part of the texts in a module image (lathe/rt/bbc/texts.asm)."""
+    first, second, seqs = pack(texts()[first_text:last_text + 1])
     stream = []
     for s in seqs:
         stream += s + [0]
-    lines = ['; The texts of the errors (lathe/host/driver/msgpack.py)', 'text_first:']
+    lines = [f'; The texts {first_text} to {last_text} of the errors (lathe/host/driver/msgpack.py)',
+             'text_first:']
     lines += _bytes(first) + ['text_second:'] + _bytes(second) + ['text_texts:'] + _bytes(stream)
     return '\n'.join(lines) + '\n', len(first) + len(second) + len(stream)
+
+
+def split(parts):
+    """The texts in `parts` parts of about the same length, each a run of numbers: [(first, last)],
+    the first part's first 0 and the last part's last 255."""
+    lengths = [len(t) + 1 for t in texts()]
+    total, cuts, done = sum(lengths), [0], 0
+    for n, length in enumerate(lengths):
+        if done >= total * len(cuts) / parts and len(cuts) < parts:
+            cuts.append(n)
+        done += length
+    return [(a, b - 1) for a, b in zip(cuts, cuts[1:] + [TEXTS])]
 
 
 def _bytes(values):
@@ -167,7 +181,7 @@ def _bytes(values):
 def main(argv):
     ap = argparse.ArgumentParser(prog='msgpack.py', description='The packed texts of the Lathe tools\' '
                                  'errors, as the module image holds them.')
-    ap.add_argument('-o', dest='out', help='where to write the asm text of the tables')
+    ap.add_argument('-o', dest='out', help='where to write the asm text of the tables (all the texts, one part)')
     a = ap.parse_args(argv)
     text, size = tables()
     if a.out:

@@ -203,11 +203,13 @@ class RomImage:
         return d
 
     def command(self, command, args=(), **options):
-        """(status, output, error output, the emulator's report) of *COMMAND ARGS."""
+        """(status, output, error output, the emulator's report) of *COMMAND ARGS (from the image
+        `image`, by default the class's)."""
         disk = options.pop('disk', None) or self.disk()
         board = options.pop('board', BOARD)
+        image = options.pop('image', self.image)
         options.setdefault('scheme', bbcrom.SCHEMES[self.BANKS])
-        status, out, err, _ = boards.run_module(board, self.image, disk, command, args, raw=True,
+        status, out, err, _ = boards.run_module(board, image, disk, command, args, raw=True,
                                                 **options)
         report = err.decode('latin-1')
         said = ''.join(line for line in report.splitlines(True) if not line.startswith('bbcbplus: '))

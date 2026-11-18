@@ -6,10 +6,10 @@ function stays fixed for a `with` block and all the compiler's code but fold is 
 banks; the capacities are the small build's with RAM32's own where they differ (SMALL 1 and
 `#if RAM32` in the twins, script_host.RAM32).
 
-The 32K image is the module's sixteen-bank form (scheme direct16): both tools' 32K forms with the
-texts of their errors (bbcrom.py, "The texts in the module") need one bank with 4,227 bytes free
-after its code for the module's code and the texts, and in the eight-bank form the fullest tools
-leave at most 3,357 (EightBanks, below; 3,230 before FBUF left out the stores nothing reads).
+The 32K image is the module's eight-bank form (scheme direct8, the 128 KB EPROM): the compiler's
+32K form in banks 0 to 4, the linker's in 5 to 7, and the texts of both tools' errors (bbcrom.py,
+"The texts in the module") in two parts in two banks, since no bank has room after its code for
+them whole (EightBanks, below).
 
 What is tested here, by default:
 
@@ -17,13 +17,14 @@ What is tested here, by default:
 - the compiler's 32K form with the DFS's names: nothing in sideways RAM, nothing kept fixed,
   everything in $1900-$7BFF and $0401-$06FF; with LATHE_BBC_RAM32_REPORT=1 its account of main
   RAM and of the image;
-- the module image of both tools' 32K forms (the compiler in banks 1 to 5, the linker in 6 to
-  10), which refuses a command where HIMEM is below the tool's memory (ScreenMode);
+- the module image of both tools' 32K forms (the compiler in banks 0 to 4, the linker in 5 to
+  7), which refuses a command where HIMEM is below the tool's memory (ScreenMode);
 - on the Model B (boards.BOARDS['bbc32']: --bbc-model b, --bbc-fs dfs) with --fill-ram, from that
   image: both tools' errors with their texts and nothing on the disc; cases/e2e-config's farcall
   (six modules, banked) compiled by *LATHE, linked by *LLINK @LINKARG and run, every file the host
   tools' and the output the case's;
-- that the eight-bank form has no bank with room for the module's code and texts.
+- that the eight-bank image holds the texts of the errors in parts, every one of the 256 texts
+  the module writes from them the host's, from several power-on banks and through LOADMOD.
 
 With LATHE_BBC_RAM32=1 it also compiles every module of lathe/src and lathe/rt the 32K form's
 capacities take (the host compiler at those capacities decides which) and checks each against
@@ -54,7 +55,7 @@ import test_bbc_rom as tbr  # noqa: E402
 ALL = os.environ.get('LATHE_BBC_RAM32') == '1'
 REPORT = os.environ.get('LATHE_BBC_RAM32_REPORT') == '1'
 HAVE_TOOLS = tbr.HAVE_TOOLS
-BANKS = 16                  # the 32K image: the eight-bank form has no bank with room for the texts
+BANKS = 8                   # the 32K image: the 128 KB EPROM, the texts of the errors in parts
 FIRST_BANK = 1              # a sixteen-bank image keeps bank 0 for the module's own code
 BOARD = boards.BOARDS['bbc32']
 COMPILER_ENV = os.path.join(support.SRC, 'lathec-bbc.env')
@@ -89,7 +90,7 @@ def build_tools(out_dir, linker=True, banks=BANKS):
 
 
 def build_image(out_dir, linker=True, check_himem=True):
-    """The sixteen-bank module image of the tools (build_tools) in out_dir/MODULE, with the banks in
+    """The eight-bank module image of the tools (build_tools) in out_dir/MODULE, with the banks in
     use alone in MODULE.disc and LOADMOD beside it: (image, the tools, the listing's text). With
     check_himem, a command whose program's memory reaches above HIMEM is refused (bbcrom.image)."""
     tools = build_tools(out_dir, linker)
@@ -120,7 +121,7 @@ def main_ram(map_path):
     return {'code': code, 'variables': variables, 'free': room - code - variables, 'top': top}
 
 
-def run(image, disk, lines, cap=CAP, mode=7, ram=False):
+def run(image, disk, lines, cap=CAP, mode=7, ram=False, bank=None):
     """The * commands on the Model B (BOARD) in screen mode `mode` with the module image in ROM,
     scheme direct8, in disk: (status, output, what the MOS said, CPU cycles, the emulator's
     report)."""
@@ -128,7 +129,8 @@ def run(image, disk, lines, cap=CAP, mode=7, ram=False):
     board = dataclasses.replace(BOARD, options=BOARD.options + ('--bbc-mode', str(mode)))
     command, _, tail = lines[-1].partition(' ')
     code, out, err, cycles = boards.run_module(board, image, disk, command, tail=tail, before=lines[:-1],
-                                               raw=True, cap=cap, scheme=bbcrom.SCHEMES[BANKS], ram=ram)
+                                               raw=True, cap=cap, scheme=bbcrom.SCHEMES[BANKS], ram=ram,
+                                               **({} if bank is None else {'bank': bank}))
     text = err.decode('latin-1')
     status, said, cycles = boards.bbc_status(code, text)
     return status, boards.bbc_output(out), said, cycles, text
@@ -184,23 +186,56 @@ class ScreenMode(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_TOOLS, 'compiler or emulator missing')
 class EightBanks(unittest.TestCase):
-    """Both tools' 32K forms in the eight-bank form (the compiler in banks 0 to 4, the linker in 5
-    to 7): their code fits the banks, but no bank has room after its code for the module's code
-    and the texts of the errors, which must be in one bank (the home bank): the image is refused."""
+    """Both tools' 32K forms in the eight-bank image (the compiler in banks 0 to 4, the linker in 5
+    to 7): no bank has room after its code for the texts of the errors whole, so bbcrom.py puts
+    them in two parts in two banks, which the home bank enters there; every text the module writes
+    is the host's, from several power-on banks, and through LOADMOD in the module's RAM form."""
 
-    def test_no_bank_has_room_for_the_module_code_and_texts(self):
-        with tempfile.TemporaryDirectory(prefix='lathe-bbc-ram32-8-') as d:
-            tools = build_tools(d, banks=8)
-            programs = [bbcrom.load_program(bbcrom.Program(c, r, e, m), 8) for c, r, e, m in tools]
-            code = bbcrom.module_code(programs, [[] for _ in programs])[1]
-            room = max(bbcrom.TOP - bbcrom.FIRST + 1 - len(b.data) for p in programs for b in p.banks
-                       if b.value & 0x80)
-            self.assertLess(room, len(code))
-            with self.assertRaises(bbcrom.ImageError):
-                bbcrom.image(tools, os.path.join(d, 'MODULE'), banks=8)
-            if REPORT:
-                print('\nthe eight-bank form: the module\'s code and texts %d bytes, the most room after a '
-                      'bank\'s code %d' % (len(code), room))
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp(prefix='lathe-bbc-ram32-8-')
+        cls.image, cls.tools, cls.listing = build_image(os.path.join(cls.dir, 'image'), linker=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_the_texts_are_in_parts_in_banks_with_room(self):
+        programs = [bbcrom.load_program(bbcrom.Program(c, r, e, m), BANKS) for c, r, e, m in self.tools]
+        room = max(bbcrom.TOP - bbcrom.FIRST + 1 - len(b.data) for p in programs for b in p.banks
+                   if b.value & 0x80)
+        parts = re.findall(r'bank +(\d+): [^\n]*the texts (\d+) to (\d+) of the errors \((\d+) bytes\)', self.listing)
+        self.assertEqual(len(parts), 2)
+        self.assertLess(room, sum(int(p[3]) for p in parts))
+        self.assertEqual([(int(p[1]), int(p[2])) for p in sorted(parts, key=lambda p: int(p[1]))],
+                         [(0, int(min(parts, key=lambda p: int(p[1]))[2])),
+                          (int(min(parts, key=lambda p: int(p[1]))[2]) + 1, 255)])
+        if REPORT:
+            print('\nthe eight-bank image: ' + re.search(r'free: \d+ bytes', self.listing).group(0)
+                  + '; the texts in banks ' + ', '.join(p[0] for p in parts)
+                  + ' (%s bytes); the most room after a bank\'s code %d' % (' and '.join(p[3] for p in parts), room))
+
+    def test_the_module_writes_every_text_of_the_errors(self):
+        import test_msgpack
+        compiler, linker = test_msgpack.host_compiler_texts(), test_msgpack.host_linker_texts()
+        want = [b': ' + compiler.get(n, linker.get(255 - n, b'')) for n in range(256)]
+        for bank, ram in ((0, False), (7, False), (3, True)):
+            with self.subTest(bank=bank, ram=ram):
+                disk = tempfile.mkdtemp(dir=self.dir)
+                programs = [('TEXTS', tbr.TEXTS_CODE)]
+                if ram:
+                    with open(os.path.join(self.dir, 'image', 'LOADMOD'), 'rb') as f:
+                        programs.append(('LOADMOD', f.read()))
+                    with open(self.image + '.disc', 'rb') as f:
+                        dfs.put(disk, 'MODULE', f.read())
+                for name, code in programs:         # under the DFS's names, $.NAME
+                    dfs.put(disk, name, code)
+                    with open(bbcfs.host_path(disk, name) + '.inf', 'w') as f:
+                        f.write(boards.inf_text('$.' + name, 0x1900, len(code)))
+                lines = ['RUN LOADMOD MODULE', 'RUN TEXTS'] if ram else ['RUN TEXTS']
+                status, out, said, cycles, report = run(self.image, disk, lines, ram=ram, bank=bank)
+                self.assertEqual((status, said), (0, b''))
+                self.assertEqual(out.split(b'\n')[:-1], want)
 
 
 class RomEnv(unittest.TestCase):
@@ -253,9 +288,9 @@ class Ram32(unittest.TestCase):
         self.assertGreaterEqual(main_ram(self.map)['free'], 0)
 
     def test_the_image_holds_both_tools_32k_forms(self):
-        self.assertIn('16 banks of 16 KB, scheme direct16', self.listing)
-        self.assertEqual(re.findall(r'\*LATHE: .*; banks ([0-9, ]+);', self.listing), ['1, 2, 3, 4, 5'])
-        self.assertEqual(re.findall(r'\*LLINK: .*; banks ([0-9, ]+);', self.listing), ['6, 7, 8, 9, 10'])
+        self.assertIn('8 banks of 16 KB, scheme direct8', self.listing)
+        self.assertEqual(re.findall(r'\*LATHE: .*; banks ([0-9, ]+);', self.listing), ['0, 1, 2, 3, 4'])
+        self.assertEqual(re.findall(r'\*LLINK: .*; banks ([0-9, ]+);', self.listing), ['5, 6, 7'])
         self.assertEqual(re.findall(r'regions in ([a-z]+);', self.listing), ['none', 'none'])
         self.assertEqual(os.path.getsize(self.image), BANKS * 0x4000)
 
@@ -514,7 +549,7 @@ class Assessment(unittest.TestCase):
 def account(map_path, listing):
     """The 32K form's account of main RAM, as text."""
     ram = main_ram(map_path)
-    lines = ['The compiler, 32K form (RAM32 1, BBCFS 1), sixteen-bank ROM form:',
+    lines = ['The compiler, 32K form (RAM32 1, BBCFS 1), eight-bank ROM form:',
              '  main RAM: code, constants and stubs from $1900 %d bytes; variables and frames %d; '
              'free %d; the variables end at $%04X' % (ram['code'], ram['variables'], ram['free'], ram['top'])]
     lines += ['  ' + l for l in listing.splitlines() if l.startswith('bank ') or 'free' in l or l.startswith('*')]

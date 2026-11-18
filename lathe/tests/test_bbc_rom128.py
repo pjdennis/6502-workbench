@@ -105,14 +105,32 @@ class Layout(unittest.TestCase):
         self.assertNotIn(6, {e[1] for e in lay.placed})
         self.assertTrue({1, 2, 3, 4, 5} & {e[1] for e in lay.placed})
 
+    def test_the_texts_go_in_parts_where_no_bank_holds_them_whole(self):
+        """With 13,000 bytes of code in each of the eight banks no bank has room for the texts of
+        the errors whole (3.7 KB with their code): they go in two parts, each whole in a bank of
+        its own, in the room after the code, together every text from 0 to 255. With room for
+        them, one part, in the home bank."""
+        lay = bbcrom.layout([program('A', {n: 13000 for n in range(8)}, 100)], 8)
+        self.assertEqual(len(lay.parts), 2)
+        self.assertEqual([(p[0], p[1]) for p in lay.parts], [(0, lay.parts[1][0] - 1), (lay.parts[1][0], 255)])
+        self.assertNotEqual(lay.parts[0][2], lay.parts[1][2])
+        for first, last, bank, addr, data in lay.parts:
+            self.assertGreaterEqual(addr, bbcrom.FIRST + 13000)
+            self.assertLessEqual(addr + len(data) - 1, bbcrom.TOP)
+        lay = bbcrom.layout([program('A', {n: 11000 for n in range(8)}, 100)], 8)
+        self.assertEqual([(p[0], p[1], p[2]) for p in lay.parts], [(0, 255, lay.home)])
+        self.assertEqual(lay.parts[0][3], lay.home_at + len(lay.code))
+        lay = bbcrom.layout([program('A', {n: 11000 for n in range(8)}, 100)], 8, parts=3)
+        self.assertEqual(len(lay.parts), 3)
+
     def test_the_bytes_over(self):
-        """Eight banks of code leave 8 * (TAIL - 11000) bytes; the module's code and tables (with
-        the texts of the errors, 4 KB) and its eight entries a piece take some of it; what does
-        not fit is the error's .over."""
+        """Eight banks of code leave 8 * (TAIL - 11000) bytes; the module's code and tables, the
+        texts of the errors (4 KB, in one part here) and its eight entries a piece take some of it;
+        what does not fit is the error's .over."""
         codes = {n: 11000 for n in range(8)}
         room = 8 * (TAIL - 11000)
         lay = bbcrom.layout([program('A', codes, 100)], 8)
-        code = len(lay.code)
+        code = len(lay.code) + sum(len(part[4]) for part in lay.parts)
         fits = room - code - 7 * bbcrom.ENTRY      # eight pieces: the first entry is in `code`
         lay = bbcrom.layout([program('A', codes, fits)], 8)
         self.assertEqual(sum(a[2] - a[1] + 1 for a in lay.areas), 0)
@@ -202,6 +220,22 @@ class RomModule8(tbr.RomImage, unittest.TestCase):
                                                              ram=True, before=['RUN LOADMOD MODIMG %d' % slot])
                     self.assertEqual((status, out, said), self.expected(command, args))
                     self.assertIn('module: slot %d, direct8 RAM' % slot, report)
+
+    def test_the_texts_in_three_parts(self):
+        """The same programs' image with the texts in three parts (bbcrom.image(parts=3)), which
+        the home bank enters in their banks: every text from banks 0 and 7, and through LOADMOD."""
+        image = os.path.join(self.dir, 'MODPARTS')
+        listing = bbcrom.image(self.specs, image, banks=self.BANKS, parts=3)
+        self.assertEqual(len(re.findall(r'the texts \d+ to \d+ of the errors', listing)), 3)
+        for bank in (0, 7):
+            with self.subTest(bank=bank):
+                self.assert_the_hosts_texts(bank=bank, image=image)
+        bbcrom.loader(os.path.join(self.dir, 'LOADMOD'))
+        disk = self.disk()
+        for name in ('LOADMOD', 'LOADMOD.inf'):
+            shutil.copy(os.path.join(self.dir, name), disk)
+        shutil.copy(image, os.path.join(disk, 'MODIMG'))
+        self.assert_the_hosts_texts(disk=disk, ram=True, slot=4, bank=2, before=['RUN LOADMOD MODIMG'])
 
     def test_the_module_writes_every_text_of_the_errors(self):
         """As test_bbc_rom.py's sixteen-bank image: from the home bank and another, and through
@@ -416,6 +450,19 @@ class Rom128(unittest.TestCase):
         import test_bbc_texts
         with scheme():
             test_bbc_texts.check_runs(self, self.image, self.dir)
+
+    def test_errors_from_the_128k_image_with_the_texts_in_three_parts(self):
+        """The same with the texts in three parts in other banks (bbcrom.image(parts=3)), which
+        the home bank enters there: error 5, raised inside lex's `with STRING` (sideways slot 13),
+        among them."""
+        self.need_image()
+        import test_bbc_texts
+        image = os.path.join(self.dir, 'MODPARTS')
+        listing = bbcrom.image([t[:4] for t in self.tools], image, banks=BANKS, parts=3)
+        self.assertEqual(len(re.findall(r'the texts \d+ to \d+ of the errors', listing)), 3)
+        work = tempfile.mkdtemp(dir=self.dir)
+        with scheme():
+            test_bbc_texts.check_runs(self, image, work)
 
     def need_image(self):
         if self.image is None:
