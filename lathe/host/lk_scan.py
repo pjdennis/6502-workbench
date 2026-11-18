@@ -6,7 +6,10 @@ names them, because naming them from what is kept keeps them (lk_graph).
 An object file numbers its symbols from 0; lk_name.local says what each number stands for.
 
 A WGT record adds weight to a variable or a slot defined elsewhere (object-format.md). A weight
-for a slot of a function not read yet waits in the pend_ table until every file is read.
+for a slot of a function not read yet waits in the pend_ table until every file is read; if more
+wait than the table holds, none is taken from it: the WGT records of the files that gave one are
+read again then, and every weight that waited is added from them (reread_weights). A weight is a
+saturating sum, the same in any order, so the order the files are named in decides nothing.
 
 Once every file is read, finish() merges pointer classes that share a member, adds the calls
 that only exist because of classes and adds the weights that waited. A symbol need not be defined unless something kept uses
@@ -25,6 +28,7 @@ MAX_PENDING = 64                    # weights for slots of functions not read ye
 obj_cpu = bytearray(lk_name.MAX_OBJECTS)        # its CPU, and OBJ_CLASSES
 obj_bank = bytearray(lk_name.MAX_OBJECTS)       # the bank its code is placed in + 1, or 0
 OBJ_CLASSES = 0x80                  # the file names a pointer class (lk_map.cparams)
+OBJ_WEIGHTS = 0x40                  # a weight it gives waited for a function not read yet
 
 cur_obj = 0                         # the object file being read
 cur_fn = lk_tab.NONE                # the function whose records are being read
@@ -43,6 +47,8 @@ rdef_bank = bytearray(MAX_REGION_DEFS)  # the bank + 1
 # The weights waiting, in lk_tab.work, which nothing else uses while the files are read: where
 # each column starts.
 pend_count = 0
+weights_lost = False                # more waited than the table holds: they are read again
+late_before = lk_tab.NONE           # while they are (reread_weights): the record's next function
 PEND_SYM = 0                        # a function
 PEND_SLOT = MAX_PENDING
 PEND_WEIGHT = 2 * MAX_PENDING
@@ -50,7 +56,7 @@ PEND_OBJ = 3 * MAX_PENDING          # the object file whose WGT record gave it
 
 
 def cpu_of(obj):
-    return obj_cpu[obj] & (0xFF ^ OBJ_CLASSES)
+    return obj_cpu[obj] & (0xFF ^ OBJ_CLASSES ^ OBJ_WEIGHTS)
 
 
 def damaged():
@@ -282,8 +288,10 @@ def heavier(weight, amount):
 
 
 def rec_wgt():
-    """Weights this module adds to variables and slots: entries of symbol (2), slot, weight."""
-    global pend_count
+    """Weights this module adds to variables and slots: entries of symbol (2), slot, weight. Read
+    again by reread_weights (late_before is then the first function read after the record), it
+    adds only those that waited."""
+    global pend_count, weights_lost
     if cur_fn != lk_tab.NONE or lk_rec.left() % 4 != 0:
         damaged()
     while lk_rec.left() > 0:
@@ -292,7 +300,10 @@ def rec_wgt():
         weight = lk_rec.get_byte()
         kind = lk_sym.kind_of(s)
         r = lk_name.now(s)
-        if kind == lk_sym.VARIABLE and slot == 0xFF:
+        if late_before != lk_tab.NONE and (kind != lk_sym.FUNCTION or slot == 0xFF
+                                           or not lk_sym.is_defined(r) or lk_sym.row_of(r) < late_before):
+            pass                        # added the first time, or nothing defines it
+        elif kind == lk_sym.VARIABLE and slot == 0xFF:
             if lk_sym.is_defined(r):
                 d = lk_sym.row_of(r)
                 lk_tab.def_a[d] = heavier(lk_tab.def_w(d), weight)
@@ -306,34 +317,62 @@ def rec_wgt():
             p = lk_tab.cls_par[k] + slot
             lk_tab.cp_weight[p] = heavier(lk_tab.cp_weight[p], weight)
         elif kind == lk_sym.FUNCTION and slot != 0xFF and lk_sym.is_defined(r):
-            f = lk_sym.row_of(r)
-            if slot >= lk_tab.fn_nslots(f):
-                damaged()
-            i = lk_tab.fn_slot[f] + slot
-            lk_tab.set_slot_weight(i, heavier(lk_tab.slot_weight_of(i), weight))
+            add_weight(lk_sym.row_of(r), slot, weight)
         elif kind == lk_sym.FUNCTION and slot != 0xFF:
+            obj_cpu[cur_obj] |= OBJ_WEIGHTS
             if pend_count == MAX_PENDING:
-                lk_err.fail(lk_err.E_WEIGHTS)
-            lk_tab.set_wk(PEND_SYM + pend_count, s)
-            lk_tab.set_wk(PEND_SLOT + pend_count, slot)
-            lk_tab.set_wk(PEND_WEIGHT + pend_count, weight)
-            lk_tab.set_wk(PEND_OBJ + pend_count, cur_obj)
-            pend_count += 1
+                weights_lost = True
+            else:
+                lk_tab.set_wk(PEND_SYM + pend_count, s)
+                lk_tab.set_wk(PEND_SLOT + pend_count, slot)
+                lk_tab.set_wk(PEND_WEIGHT + pend_count, weight)
+                lk_tab.set_wk(PEND_OBJ + pend_count, cur_obj)
+                pend_count += 1
         else:
             damaged()
 
 
+def add_weight(f, slot, weight):
+    """The object file cur_obj weights slot `slot` of function f."""
+    if slot >= lk_tab.fn_nslots(f):
+        lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + cur_obj)
+    i = lk_tab.fn_slot[f] + slot
+    lk_tab.set_slot_weight(i, heavier(lk_tab.slot_weight_of(i), weight))
+
+
 def add_pending_weights():
-    """The weights given for slots of functions before the functions were read."""
+    """The weights given for slots of functions before the functions were read, each from the
+    object file that gave it (cur_obj, once every file is read)."""
+    global cur_obj
     for i in range(0, pend_count):
         s = lk_tab.wk(PEND_SYM + i)
         # A function nothing defines is reported if something kept calls it (lk_graph).
         if lk_sym.is_defined(s):
-            f = lk_sym.row_of(s)
-            if lk_tab.wk(PEND_SLOT + i) >= lk_tab.fn_nslots(f):
-                lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + lk_tab.wk(PEND_OBJ + i))
-            slot = lk_tab.fn_slot[f] + lk_tab.wk(PEND_SLOT + i)
-            lk_tab.set_slot_weight(slot, heavier(lk_tab.slot_weight_of(slot), lk_tab.wk(PEND_WEIGHT + i)))
+            cur_obj = lk_tab.wk(PEND_OBJ + i)
+            add_weight(lk_sym.row_of(s), lk_tab.wk(PEND_SLOT + i), lk_tab.wk(PEND_WEIGHT + i))
+
+
+def reread_weights():
+    """More weights waited than the table holds: read again the WGT records of the files that gave
+    one, and add each weight for a slot of a function read after the record (one that waited),
+    those the table holds among them, which it then forgets. Before lk_name.resolve: once `local`
+    holds what the symbols stand for, lk_name.now no longer applies to them. No WGT record is read
+    after it."""
+    global late_before, cur_obj, pend_count
+    pend_count = 0
+    for obj in range(0, lk_name.object_count):
+        if (obj_cpu[obj] & OBJ_WEIGHTS) != 0:
+            cur_obj = obj
+            lk_rec.open_object(obj)
+            late_before = lk_name.obj_fn[obj]   # the functions read before the record
+            kind = lk_rec.advance()
+            while kind != lk_rec.R_END:
+                if kind == lk_rec.R_FUNC:
+                    late_before += 1
+                elif kind == lk_rec.R_WGT:
+                    rec_wgt()
+                kind = lk_rec.advance()
+            lk_rec.close()
 
 
 def rec_fixes():
@@ -642,6 +681,8 @@ def finish():
     """What can only be done once every object file has been read: from here on a symbol is
     what it stands for (lk_name.resolve)."""
     keep_members()
+    if weights_lost:
+        reread_weights()            # while the records' symbols are still symbols
     lk_name.resolve()
     for i in range(0, pend_count):
         lk_tab.set_wk(PEND_SYM + i, lk_name.now(lk_tab.wk(PEND_SYM + i)))

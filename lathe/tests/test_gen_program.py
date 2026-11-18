@@ -48,11 +48,11 @@ LINK_FILE = 'LINKARG'
 # The targets: (name, modules, functions a module, screen mode whose memory it must fit, body).
 # A side of a DFS disc holds 31 files: the program's modules, the main and the four run-time
 # modules each write an object and an interface on drive 1, so a program has at most 10 modules
-# of its own. The first three have the generator's usual functions (about 130 bytes, 3 calls);
-# the 25 KB program fewer and larger (body 4: about 145 bytes, the same calls), since at the usual
-# size it is more functions, slots and calls than the 32K linker holds (link error 13, the calls).
+# of its own. The first four have the generator's usual functions (about 130 bytes, 3 calls; the
+# 25 KB one links since the 32K linker's capacities were retuned to its calls, 2026-11-18: before,
+# link error 13); the last the same size in fewer and larger functions (body 4: about 190 bytes).
 TARGETS = (('8 KB', 3, 22, 4, None), ('16 KB', 6, 21, 4, None), ('20 KB', 7, 23, 7, None),
-           ('25 KB', 8, 17, 7, 4))
+           ('25 KB', 8, 26, 7, None), ('25 KB larger', 8, 17, 7, 4))
 
 
 def target_env(path, size, mode):
@@ -88,7 +88,8 @@ def link_order(objects):
     record weights the parameters of the functions it calls; for a function not read yet the
     weight waits in a table of 16 in the linker's 32K build (lk_scan.MAX_PENDING), which a program
     whose every module multiplies and divides fills when rt_math, which build.py lists last, is
-    read after them (link error 41). Read first, nothing waits."""
+    read after them: link error 41 until 2026-11-18; now the weights that do not fit are read again
+    from their files (lk_scan.reread_weights), about 4 % more cycles. Read first, nothing waits."""
     first = [o for o in objects if os.path.basename(o).startswith('rt_')]
     return first + [o for o in objects if o not in first]
 

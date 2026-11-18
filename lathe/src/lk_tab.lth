@@ -61,9 +61,10 @@ import lk_sym (CLASS, CONSTANT, edge_bits, edge_ref, FUNCTION, is_defined, kind_
 ; LKSMALL 1 is the small build of the test programs; the BBC (lathe/src/linker-bbc.env) and the
 ; banked build of Wendy 2 at full size (linker-full.env) have the full capacities, with the large
 ; tables in regions. LKSMALL 2 is the build for a 32K BBC Model B (linker-bbc.env with RAM32 1),
-; whose tables are all in main RAM beside the resident part and fill it: balanced on real
-; programs of 16 to 25 KB, which use about 1.0 node, 2.5 slots, 1.9 calls and 2.0 symbols in
-; object files a function (lathe/docs/bbc.md, "The linker on a 32K BBC"). (The B+128's own
+; whose tables are all in main RAM beside the resident part and fill it: balanced on programs of
+; 16 to 25 KB, real and generated of the tools' shape, which use about 1.0 node, 2.5 to 2.9 slots,
+; 1.9 to 3.0 calls and 1.8 to 2.1 symbols in object files a function, the calls the most (lathe/
+; docs/bbc.md, "The linker on a 32K BBC", "Capacities retuned"). (The B+128's own
 ; capacities, which had that number from 2026-11-15, were dropped on 2026-11-16, when the work
 ; area went into regions.) A word column of 256 rows or fewer would need a byte index, so the
 ; word columns have more. The work area must hold what each phase puts there: below W_OWN the
@@ -73,8 +74,8 @@ import lk_sym (CLASS, CONSTANT, edge_bits, edge_ref, FUNCTION, is_defined, kind_
 ; chains (256 + 2 * MAX_EDGES + MAX_FUNCS <= 10 * MAX_NODES); test_src_lk.py checks them.
 #if LKSMALL == 2
 pub const MAX_FUNCS = 296
-pub const MAX_SLOTS = 800
-pub const MAX_EDGES = 576
+pub const MAX_SLOTS = 848
+pub const MAX_EDGES = 768
 pub const MAX_NODES = 300
 pub const MAX_DEFS = 257
 pub const MAX_FIXES = 278

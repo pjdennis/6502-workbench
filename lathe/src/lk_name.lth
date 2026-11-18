@@ -60,7 +60,7 @@ import sys (write)
 
 pub const MAX_OBJECTS = 40
 #if LKSMALL == 2
-pub const MAX_LOCALS = 592
+pub const MAX_LOCALS = 640
 #else
 #if LKSMALL
 pub const MAX_LOCALS = 1400

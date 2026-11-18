@@ -248,11 +248,12 @@ class ObjectFiles(ErrorTest):
         self.assertError(link([o], ENV), 6, 'object file is damaged', 'm0.lo')
 
     def test_weights_for_functions_not_read_yet(self):
+        # Link error 41 is retired: what the table of waiting weights does not hold is read again
+        # (test_lk_weights.py).
         o = simple()
         for i in range(257):
             o.wgt((o.f('f%d' % i), 0, 1))
-        self.assertEqual(link([o], ENV).errors,
-                         'link error 41: too many weights for slots of functions not read yet\n')
+        self.assertEqual(link([o], ENV).errors, '')
 
     def test_unknown_record(self):
         o = simple()

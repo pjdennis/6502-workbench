@@ -49,7 +49,7 @@ E_SIZE = 37
 E_REFS = 38                         # no longer reported: what fix-ups name is not held
 E_STOP_6502 = 39
 E_MEMBER_CYCLE = 40
-E_WEIGHTS = 41
+E_WEIGHTS = 41                      # no longer reported: the weights are read again (lk_scan)
 E_ENV_UNKNOWN = 42
 E_ENV_TWICE = 43
 E_PLACE_UNLINKED = 44
@@ -114,7 +114,7 @@ MESSAGES = (
     b"too many symbols named by fix-ups\n"                  # 38: no longer reported
     b"environment file: exit stop needs cpu 65c02\n"
     b"functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through\n"
-    b"too many weights for slots of functions not read yet\n"
+    b"too many weights for slots of functions not read yet\n"  # 41: no longer reported
     b"environment file: no such window, bank, overlay or define\n"
     b"environment file: named twice\n"
     b"a module the environment file places is not linked\n"

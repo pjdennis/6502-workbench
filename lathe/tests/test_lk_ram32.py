@@ -144,6 +144,22 @@ class Capacities(unittest.TestCase):
                 status, same = self.same_link(main, objects)
                 self.assertTrue(same)
 
+    def test_generated_programs_of_25_kb_link(self):
+        """gen_program's programs for mode 7 (lathe/docs/bbc.md, "Capacities retuned"): 8 modules of
+        26 functions of the usual shape (125 bytes, 2.8 calls a function: 24.6 KB) and of 21 of the
+        tools' (157 bytes, 3.7 calls: 24.7 KB), which ask the calls most of all. (25.0 and 24.9 KB
+        until the compiler's source refactorings made its code 2 to 3 % smaller.)"""
+        import test_gen_program as tg
+        for modules, functions, calls in ((8, 26, 2.0), (8, 21, 3.5)):
+            with self.subTest(functions=functions, calls=calls):
+                work = tempfile.mkdtemp(dir=self.dir)
+                main, env, size, p = tg.make(work, modules, functions, 7, calls=calls)
+                self.assertIsNotNone(env, size)
+                self.assertGreater(size[0] + size[1], 24500)
+                link = tg.recorded(main, env, os.path.join(work, 'steps'))[-1]
+                status, said, use, linked = lk_ram32.host_link(2, link[1], link[2], list(link[3]))
+                self.assertEqual((status, said), (0, ''))
+
     def test_what_stops_a_larger_program(self):
         """A program of 31 KB, more than a 32K BBC holds: too many functions (310; 601 symbols in
         object files too, until the texts left err); and one made of small functions: too many functions (srctest, typetest and copytest alone, 297
@@ -192,6 +208,20 @@ class OnTheBBC(unittest.TestCase):
         with open(path, 'wb') as f:
             f.write(o.to_bytes())
         self.link_both(('a thousand fix-ups',), 7, 't', [path], work)
+
+    def test_more_weights_waiting_than_the_table_holds(self):
+        """gen_program's 6 modules of 12 functions in build.py's order, rt_math last, which every
+        module calls: more weights wait for it than the 32K build's table holds (16), which was
+        link error 41; they are read again (test_lk_weights.py)."""
+        import test_bbc_toolchain as toolchain
+        import test_gen_program as tg
+        work = tempfile.mkdtemp(dir=self.dir)
+        p = tg.gen_program.Program(6, 12, 2.0, 1, None)
+        main = p.write(os.path.join(work, 'src'))
+        link = toolchain.recorded(main, tg.measure_env(os.path.join(work, 'm.env')), os.path.join(work, 'steps'))[-1]
+        self.assertEqual(os.path.basename(link[3][-1]), 'rt_math.lo')
+        self.assertGreater(lk_ram32.host_link(0, link[1], link[2], list(link[3]))[2]['pending weights'], 16)
+        self.link_both(('weights waiting',), 7, link[2], list(link[3]), work)
 
     def link_both(self, pieces, mode, main, objects, work):
         """Link on the BBC and by the host linker: every file the same."""

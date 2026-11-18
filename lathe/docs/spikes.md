@@ -1099,6 +1099,8 @@ The time of a link on the emulated BBC, 158 to 287 million cycles (1.3 to 2.4 mi
 
 Link error 62 (an object compiled for a region in fixed memory, `-fREGION`, linked with the region in a bank; [`bbc.md`](bbc.md), "Link error 62") costs the linker's bank 1 139 bytes as judged in every eight-bank build (the ADFS build's `link` moved to bank 2 again to make room), 2 bytes of variables, and a look for the region of each variable and constant a fix-up of code names.
 
+The 32K linker's capacities retuned to its free main RAM (2026-11-18; [`bbc.md`](bbc.md), "Capacities retuned"): calls 576 to 768, slots 800 to 848, symbols 592 to 640, 576 bytes; generated programs of 25 KB of the usual shape (2.8 calls a function) and of the tools' (3.4 to 3.7) link where calls refused them, the real programs as before. Weights that wait beyond the table read again from their WGT records ([`bbc.md`](bbc.md), "The order of the object files"): link error 41 retired, 103 bytes of bank 2 as judged, +4.1 % of cycles for a 16 KB generated program in `build.py`'s order (255,209,076 to 265,729,605 against `rt_math` first), nothing for an order whose weights fit.
+
 ## Error messages back in the ROM, measured (2026-11-18)
 
 The owner's request: the texts of both tools' errors back in the 128 KB module, so that it stands alone without `LATHERR`, at as little cost as can be had, on a machine with sideways RAM (the B+128) and on one without (the `RAM32` build for a 32K Model B: nothing may be copied to a sideways RAM slot). From 8dd784a, where the gate (`test_bbc_rom128.py`) has 5,815 bytes free with `BBCFS 0` and 4,610 in the ADFS build. "Measured" is a build or a run; "estimated" says how.
