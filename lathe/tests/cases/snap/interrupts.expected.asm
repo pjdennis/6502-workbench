@@ -20,7 +20,7 @@ interrupts__spend
     RTS
 
 ; function interrupts.handler: interrupt
-;   slot 0 n: size 1, class 1 (either), local, weight 1
+;   slot 0 n: size 1, class 1 (either), local, weight 0
 ;   calls interrupts.spend
 interrupts__handler
     PHA
@@ -30,23 +30,22 @@ interrupts__handler
     PHA
     CLD
     LDA #$02
-    STA interrupts__handler__n
     INC interrupts__ticks
-    BNE .L0013
+    BNE .L0010
     INC interrupts__ticks+$01
-.L0013
+.L0010
     JSR interrupts__spend
-    BCC .L0028
+    BCC .L0025
     PHP
     SEI
     INC interrupts__ticks
-    BNE .L0022
+    BNE .L001F
     INC interrupts__ticks+$01
-.L0022
+.L001F
     PLP
     LDA #$01
     JSR interrupts__spend
-.L0028
+.L0025
     PLA
     TAY
     PLA

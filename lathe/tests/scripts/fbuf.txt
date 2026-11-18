@@ -3,7 +3,8 @@
 ; label (prints its number); labels N (makes N, prints the last); place L; arrive L;
 ; branch OPCODE L; jump L; call L; join L OTHER; same L; written 0|1; keep; tail; runs;
 ; used; finish OWN TEMP_BASE (prints code length: code | fix-ups | weights); nops N;
-; fixes N (N LDA abs of symbol 0 plus 0, 1, ...).
+; fixes N (N LDA abs of symbol 0 plus 0, 1, ...); read SLOT (after finish: does an
+; instruction read it).
 ; Fix-up kinds: 1 address, 2 low, 3 high, 4 zero page (5, shrinks, is FBUF's own choice).
 ; Opcodes: $AD LDA abs, $A9 LDA #, $8D STA abs, $20 JSR, $60 RTS, $4C JMP, $6C JMP (ind),
 ; $40 RTI, $80 BRA, $D0 BNE, $F0 BEQ, $90 BCC, $B0 BCS, $10 BPL, $30 BMI, $50 BVC, $70 BVS.
@@ -667,3 +668,62 @@ label
 branch $D0 0
 op $60
 finish 0 0
+== stores into slots of the function that nothing reads are left out
+fix $8D 1 7 0 0            ; STA abs of local 0: nothing reads it
+fix $8E 1 7 0 1            ; STX abs, its second byte
+fix $84 4 7 1 0            ; STY zp of parameter 1: nothing reads it
+fix $8D 1 7 $80 0          ; STA of a temporary: nothing reads it
+fix $8D 1 7 2 0            ; local 2: read below, by one byte
+fix $AD 1 7 2 1
+fix $8D 1 3 0 0            ; another function's slot: kept
+fix $8D 1 7 $FF 0          ; the function's own symbol: kept
+fix $8D 1 5 $FF 0          ; a variable: kept
+op $60
+finish 7 3
+read 0
+read 1
+read 2
+read $80
+== every use but a plain store is a read
+fix $8D 1 7 0 0
+fix $BD 1 7 0 0            ; LDA abs,X
+fix $8D 1 7 1 0
+fix $91 4 7 1 0            ; STA (zp),Y
+fix $8D 1 7 2 0
+fix $EE 1 7 2 0            ; INC abs
+fix $8D 1 7 3 0
+fix $CE 1 7 3 0            ; DEC abs
+fix $8D 1 7 4 0
+fix $A9 2 7 4 0            ; LDA #<: its address
+fix $8D 1 7 5 0
+fix $19 1 7 5 $FFFA        ; ORA abs,Y: a saving call's list entry
+fix $8D 1 7 6 0
+fix $6C 1 7 6 0            ; JMP (ind): called through
+fix $85 4 7 7 0
+fix $CD 1 7 7 0            ; CMP abs
+op $60
+finish 7 8
+read 0
+read 3
+read 7
+== a function with an asm block keeps every store; the next is looked at again
+written 1
+op $EA
+written 0
+fix $8D 1 7 0 0
+op $60
+finish 7 1
+read 0
+begin
+fix $8D 1 7 0 0
+op $60
+finish 7 1
+read 0
+== the labels and branches around a dropped store
+label
+place 0
+fix $8D 1 7 0 0
+op $E8
+branch $D0 0
+op $60
+finish 7 1

@@ -58,7 +58,7 @@ records__addresses
     RTS
 
 ; function records.copy
-;   slot 0 local: size 2, class 2 (not zp), local, weight 2
+;   slot 0 local: size 2, class 2 (not zp), local, weight 0
 records__copy
     LDA records__s
     STA records__t
@@ -87,9 +87,7 @@ records__copy
     LDA records__s+$0C
     STA records__t+$0C
     LDA records__s+$02
-    STA records__copy__local
     LDX records__s+$03
-    STX records__copy__local+$01
     STA records__t+$02
     STX records__t+$03
     RTS

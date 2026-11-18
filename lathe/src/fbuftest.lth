@@ -5,9 +5,9 @@
 module fbuftest
 
 import err (init)
-import fbuf (arrive, as_written, begin, branch, call_label, finish, FIX_ADDRESS, join, jump,
-             keep_as_written, new_label, NO_SLOT, op, op_byte, op_fix, op_word, place, runs_on,
-             same, tail_call, used)
+import fbuf (arrive, as_written, begin, branch, call_label, finish, FIX_ADDRESS, is_read, join,
+             jump, keep_as_written, new_label, NO_SLOT, op, op_byte, op_fix, op_word, place,
+             runs_on, same, tail_call, used)
 import kernel (init)
 import listing
 import script (command, end_line, flag, next, number, open, show_bool, show_byte, show_word, small)
@@ -27,7 +27,7 @@ pub func main()
   fbuf.begin()
   script.open()
   while script.next() do
-    case script.command("begin op opb opw fix label labels place arrive branch jump call join same written keep tail runs used finish nops fixes ")
+    case script.command("begin op opb opw fix label labels place arrive branch jump call join same written keep tail runs used finish nops fixes read ")
     of 0
       fbuf.begin()
     of 1
@@ -90,6 +90,8 @@ pub func main()
       for n = 0 until d do
         fbuf.op_fix(OP_LDA, fbuf.FIX_ADDRESS, 0, fbuf.NO_SLOT, n)
       end
+    of 22
+      script.show_bool(fbuf.is_read(script.small()))
     end
     script.end_line()
   end

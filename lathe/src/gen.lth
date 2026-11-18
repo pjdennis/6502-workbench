@@ -54,7 +54,7 @@ module gen
 import cond (carry, compare, invert, jump_false, left, push, right, value, wanted_in_carry)
 import err (E_ARRAY_VALUE, E_BYTE_INDEX, E_CALLS_FULL, E_ELEMENT_SIZE, E_INITS_FULL, E_NO_ADDRESS,
             E_NOT_INDEXED, E_NOT_RECORD, E_OPERANDS_FULL, E_RANGE, E_TWO_INDEXES, E_TYPE, fatal)
-import fbuf (begin, call_label, finish, FIRST_TEMP, FIX_ADDRESS, FIX_LOW, keep_as_written,
+import fbuf (begin, call_label, finish, FIRST_TEMP, FIX_ADDRESS, FIX_LOW, is_read, keep_as_written,
              new_label, NO_SLOT, op, op_byte, op_fix, OP_JMP_INDIRECT, OP_JSR, op_word, runs_on,
              tail_call, used)
 import fold (ADD, BAND, BOR, BXOR, DIV, exact, GE, LT, MUL, NE, REM, SHL, SHR, SUB, typed)
@@ -2351,11 +2351,17 @@ pub func function_begin(symbol: word)
   held_count = 0
 end
 
+; The SLOT records of the function FBUF has finished: a slot that none of its instructions
+; reads, whose stores FBUF left out, weighs nothing for zero page.
 func slots(first: byte, count: byte)
   var n: byte
+  var weight: byte
   for n = first until first + count do
-    out.slot(reg.slot_size[n], reg.slot_class[n], reg.slot_weight[n], reg.slot_kind[n],
-        reg.slot_name[n])
+    weight = 0
+    if fbuf.is_read(n) then
+      weight = reg.slot_weight[n]
+    end
+    out.slot(reg.slot_size[n], reg.slot_class[n], weight, reg.slot_kind[n], reg.slot_name[n])
   end
 end
 

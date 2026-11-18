@@ -145,10 +145,9 @@ inline_results__pairs
     RTS
 
 ; function inline_results.words
-;   slot 0 k: size 1, class 1 (either), param, weight 1
+;   slot 0 k: size 1, class 1 (either), param, weight 0
 ;   slot 1 $t1: size 2, class 1 (either), temp, weight 6
 inline_results__words
-    STA inline_results__words__k
     STA inline_results__words__St1
     LDA #$00
     STA inline_results__words__St1+$01

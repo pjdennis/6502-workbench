@@ -1,0 +1,132 @@
+; Stores that nothing reads (docs/code-model.md, "Stores that nothing reads"): a store into a
+; parameter, local or temporary of a function that none of its instructions reads is left
+; out. Each function here writes slots it reads in some other way than a load, or never
+; reads, and prints what it must; what lives longer than a call (a static, a module variable)
+; is never a slot, so it keeps every store (the snapshot case of the same name has a variable
+; `at` an address, which this case cannot have on the BBC).
+module unread_stores
+
+import libout
+
+var count: byte = 0
+var seen: byte
+var trail: [4]byte
+
+func next(): byte, bool
+  count += 1
+  return count, count < 3
+end
+
+; The status is never tested: its store goes, the call stays (its side effect counts).
+func values()
+  var v: byte
+  var ok: bool
+  v, ok = next()
+  libout.hex(v)
+  v, ok = next()
+  libout.hex(v)
+  libout.nl()
+end
+
+; A parameter that is never read again, and one passed on in A as it came.
+func passed(unused: byte, k: byte)
+  libout.hex(k)
+  libout.nl()
+end
+
+; A local array written by index and read by index; a local stepped by INC and DEC.
+func indexed()
+  var a: [4]byte
+  var i: byte
+  var n: byte
+  for i = 0 until 4 do
+    a[i] = i * 3
+  end
+  n = 5
+  n += 1
+  n -= 2
+  libout.hex(a[3])
+  libout.hex(n)
+  libout.nl()
+end
+
+; A local reached only through its address.
+func store_through(p: ^byte)
+  p[0] = $5A
+end
+
+func through_address()
+  var x: byte
+  x = 1
+  store_through(@x)
+  libout.hex(x)
+  libout.nl()
+end
+
+; A word of which only the high byte is read.
+func high_half()
+  var w: word
+  w = $1234
+  libout.hex(hi(w))
+  libout.nl()
+end
+
+; A local an asm block reads: the function keeps all its stores.
+func with_asm()
+  var b: byte
+  b = $3C
+  asm
+    LDA b
+    STA seen
+  end
+  libout.hex(seen)
+  libout.nl()
+end
+
+; A local that is live across a recursive call: its stores stay, and the saving call's list
+; brings it back.
+recursive func depth(n: byte): byte
+  var keep: byte
+  var unused: byte
+  keep = n
+  unused = n + 1
+  if n == 0 then
+    return 0
+  end
+  depth(n - 1)
+  trail[n] = keep
+  return keep
+end
+
+; What lives longer than a call keeps its stores though this function does not read them.
+func lasting()
+  static var last: byte
+  last = 7
+  count = 0
+end
+
+func later()
+  static var calls: byte = 0
+  calls += 1
+  libout.hex(calls)
+  libout.nl()
+end
+
+func main()
+  values()
+  passed(1, 2)
+  indexed()
+  through_address()
+  high_half()
+  with_asm()
+  depth(3)
+  libout.hex(trail[1])
+  libout.hex(trail[2])
+  libout.hex(trail[3])
+  libout.nl()
+  lasting()
+  libout.hex(count)
+  libout.nl()
+  later()
+  later()
+end

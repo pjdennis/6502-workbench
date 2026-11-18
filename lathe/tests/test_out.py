@@ -75,7 +75,7 @@ class OutTest(unittest.TestCase):
         f = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'f'))
         g = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'g'))
         fbuf.op_fix(0x20, fbuf.FIX_ADDRESS, f, fbuf.NO_SLOT, 0)
-        fbuf.op_fix(0x8D, fbuf.FIX_ADDRESS, g, 0, 1)
+        fbuf.op_fix(0xAD, fbuf.FIX_ADDRESS, g, 0, 1)        # a read: a store would go
         fbuf.op(0x60)
         fbuf.finish(g, 0)
         out.call(f, 0, out.NO_OUTER)
@@ -89,7 +89,7 @@ class OutTest(unittest.TestCase):
             (SLOT, b'\x01\x00\x02\x00\x01\x01i'),
             (CALL, b'\x00\x00\x00\xff\xff'),
             (FIX, b'\x01\x00\x01\x00\x00\xff\x00\x00' b'\x04\x00\x05\x01\x00\x00\x01\x00'),
-            (CODE, b'\x20\x00\x00\x8d\x00\x00\x60'),
+            (CODE, b'\x20\x00\x00\xad\x00\x00\x60'),
             (ENDF, b''),
             (END, b''),
         ])

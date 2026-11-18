@@ -1860,9 +1860,13 @@ def function_begin(symbol):
 
 
 def slots(first, count):
+    """The SLOT records of the function FBUF has finished: a slot that none of its instructions
+    reads, whose stores FBUF left out, weighs nothing for zero page."""
     for n in range(first, first + count):
-        out.slot(reg.slot_size[n], reg.slot_class[n], reg.slot_weight[n], reg.slot_kind[n],
-                 reg.slot_name[n])
+        weight = 0
+        if fbuf.is_read(n):
+            weight = reg.slot_weight[n]
+        out.slot(reg.slot_size[n], reg.slot_class[n], weight, reg.slot_kind[n], reg.slot_name[n])
 
 
 def function_end(flags):

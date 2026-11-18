@@ -80,6 +80,7 @@ Because there is no syntax tree, memory holds only tables, and each lives no lon
 | Function buffer | fbuf | 4,096 × 1 | 4,096 | 3,357 (`kernel.lth`) | about 1.3 bytes an instruction byte; in a data bank when banked (`FUNCBUF`, bank 6), with `label_offset` and `label_uses` |
 | Labels (offset, alias, uses / loop end, note) | fbuf | 192 × 6 | 1,152 | 115 | a label is one byte; `label_uses` is the loop ends once the layout is settled |
 | Weights of other functions' slots | fbuf | 64 × 4 | 261 | 23 | |
+| Slots read, a bit each | fbuf | 32 × 1 | 32 | | `finish()`: which slots of the function an instruction reads; the stores into the others are left out (2026-11-18, [`code-model.md`](code-model.md), "Stores that nothing reads") |
 | Constant table and its fix-ups | out | 2,048 + 256 × 8 | 4,096 | 600; 244 fix-ups (`err.MESSAGES`) | the language allows a 2,048-byte table; in the region `OUTTAB` in the twin (bank 6 when banked) |
 | Calls, class members | out | 64 × 5 + 64 × 4 | 576 | 56, 6 | |
 | Operand stack, frame, register state | reg | | 2,569 | slots 136 of 192 | locals below 128, then 64 temporaries |
@@ -87,7 +88,7 @@ Because there is no syntax tree, memory holds only tables, and each lives no lon
 | Initial values, stubs, saving calls | gen | | 744 | 22 inits of 32 | |
 | ASM labels; inline expansions; `case` values; interface entry | asmblock, inline, expr, decl | | 1,343 | | ASMBLOCK's label numbers and INLINE's byte columns are bytearrays (1,408 to 1,252); what `expr.expand()` keeps for each expansion, 91 bytes, which `expr.lth` would otherwise push on rt_frame's stack |
 | Regions in fixed memory (`-fREGION`) | parts | 8 × 2 | 16 | 7 (the compiler's 32K variant) | the names the command line gives; a block of one maps nothing ([`bbc.md`](bbc.md), "The 32K Model B") |
-| **Total** | | | **43,379** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
+| **Total** | | | **43,411** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
 
 What changed, and what each change saved:
 

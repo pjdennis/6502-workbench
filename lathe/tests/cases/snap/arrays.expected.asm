@@ -30,18 +30,16 @@ arrays__folded
     RTS
 
 ; function arrays.computed
-;   slot 0 $t1: size 1, class 1 (either), temp, weight 2
+;   slot 0 $t1: size 1, class 1 (either), temp, weight 0
 arrays__computed
     CLC
     LDA arrays__i
     ADC arrays__j
-    STA arrays__computed__St1
     TAX
     LDA arrays__a,X
     STA arrays__n
     LDY arrays__i
     LDA arrays__b,Y
-    STA arrays__computed__St1
     TAX
     LDA arrays__a,X
     STA arrays__n

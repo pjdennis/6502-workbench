@@ -46,39 +46,37 @@ case_of__pick
     RTS
 
 ; function case_of.worked_out
-;   slot 0 $t1: size 1, class 1 (either), temp, weight 1
+;   slot 0 $t1: size 1, class 1 (either), temp, weight 0
 case_of__worked_out
     LDA case_of__k
     AND #$07
-    STA case_of__worked_out__St1
-    BNE .L0010
+    BNE .L000D
     LDA #$01
     STA case_of__r
     RTS
-.L0010
+.L000D
     CMP #$07
-    BNE .L0019
+    BNE .L0016
     LDA #$02
     STA case_of__r
-.L0019
+.L0016
     RTS
 
 ; function case_of.device
-;   slot 0 $t1: size 1, class 1 (either), temp, weight 1
+;   slot 0 $t1: size 1, class 1 (either), temp, weight 0
 case_of__device
     LDA abs_d000
-    STA case_of__device__St1
     CMP #$80
-    BNE .L0010
+    BNE .L000D
     LDA #$01
     STA case_of__r
     RTS
-.L0010
+.L000D
     CMP #$40
-    BNE .L0019
+    BNE .L0016
     LDA #$02
     STA case_of__r
-.L0019
+.L0016
     RTS
 
 ; function case_of.reload

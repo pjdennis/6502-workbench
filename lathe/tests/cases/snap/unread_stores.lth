@@ -1,0 +1,39 @@
+; Stores that nothing reads (docs/code-model.md, "Stores that nothing reads"): the stores into
+; `ok`, `unused` and `spare` go, and those slots weigh nothing; `w`'s stay (one byte of it is
+; read), as do those of a function with an asm block and of what lives longer than a call.
+module unread_stores
+
+var count: byte
+var seen: byte
+var latched: byte at $0300
+
+func next(): byte, bool
+  count += 1
+  return count, count < 3
+end
+
+func values(unused: byte, k: byte): byte
+  var v: byte
+  var ok: bool
+  var spare: word
+  var w: word
+  v, ok = next()
+  spare = word(v) + 300
+  w = word(k) << 4
+  return v + hi(w)
+end
+
+func with_asm(unused: byte)
+  var b: byte
+  b = 3
+  asm
+    LDA b
+  end
+end
+
+func lasting()
+  static var last: byte
+  last = 7
+  latched = 9
+  seen = 1
+end

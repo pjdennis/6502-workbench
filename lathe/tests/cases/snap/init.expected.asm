@@ -25,20 +25,17 @@ init__placements
     RTS
 
 ; function init.locals
-;   slot 0 n: size 1, class 1 (either), param, weight 1
-;   slot 1 i: size 1, class 1 (either), local, weight 1
+;   slot 0 n: size 1, class 1 (either), param, weight 0
+;   slot 1 i: size 1, class 1 (either), local, weight 0
 ;   slot 2 w: size 2, class 1 (either), local, weight 3
-;   slot 3 p: size 1, class 0 (zp), local, weight 1
+;   slot 3 p: size 1, class 0 (zp), local, weight 0
 init__locals
-    STA init__locals__n
     CLC
     ADC #$01
-    STA init__locals__i
     STA init__locals__w
     LDA #$00
     STA init__locals__w+$01
     LDA init__locals__w
-    STA init__locals__p
     RTS
 
 ; function init.counter

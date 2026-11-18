@@ -29,7 +29,8 @@ Small improvements are made as the instructions arrive, because each needs only 
 entries: a branch round nothing but a JMP becomes one branch and a branch round nothing is
 dropped (tidy()), a JSR that a return follows becomes a JMP (tail_call()), and an
 instruction that cannot be reached is left out (end_entry()). Two labels can be made one
-place (join()).
+place (join()). One needs the whole function, and is made by finish(): a store into a slot of
+the function that none of its instructions reads is left out (drop_unread_stores()).
 
 The buffer is a run of entries, each a kind byte and the fields that kind has. It is this
 compact because it is the largest thing the compiler keeps in memory on the target.
@@ -75,6 +76,9 @@ OP_JMP = 0x4C
 OP_RTS = 0x60
 OP_JMP_INDIRECT = 0x6C
 OP_BRA = 0x80               # 65C02: the one branch with no opposite
+PLAIN_STORE_MASK = 0xF4     # STA, STX, STY, absolute or zero page: opcode & $F4 == $84
+PLAIN_STORE = 0x84
+BITS = b"\x01\x02\x04\x08\x10\x20\x40\x80"
 OPPOSITE = 0x20             # the bit that differs between a branch and its opposite
 UNPLACED = 0xFFFF
 
@@ -87,6 +91,8 @@ older = 0                               # the entry before it, if it is below `n
 unreached = False                       # True while the entry being made is being left out
 kept = UNPLACED                         # an entry an `asm` block wrote last: never a tail call
 written = False                         # True while an `asm` block is written: kept as it is
+has_asm = False                         # True once an `asm` block is in the function
+slots_read = bytearray(32)              # finish(): a bit for each slot an instruction reads
 label_offset = [0] * MAX_LABELS         # where each label is in the written layout
 label_alias = bytearray(MAX_LABELS)          # the label this one was joined to, or itself
 label_uses = [0] * MAX_LABELS           # how many branches and jumps go to it
@@ -116,8 +122,9 @@ weight_count = 0
 
 def begin():
     """Start a function with no instructions and no labels."""
-    global used, newest, older, unreached, kept, written, label_count, code_length, fix_count
+    global used, newest, older, unreached, kept, written, has_asm, label_count, code_length, fix_count
     unreached = False
+    has_asm = False
     kept = UNPLACED
     written = False
     used = 0
@@ -333,8 +340,10 @@ def call_label(label):
 def as_written(on):
     """From now on, if `on`, the instructions are those of an `asm` block, which are kept as
     they are written: none is left out as unreached, and no branch is fused or taken out."""
-    global written
+    global written, has_asm
     written = on
+    if on:
+        has_asm = True
 
 
 def keep_as_written():
@@ -372,6 +381,53 @@ def runs_on():
     opcode = buffer[newest + 1]
     return opcode != OP_RTS and opcode != OP_JMP and opcode != OP_BRA and opcode != OP_RTI \
         and opcode != OP_JMP_INDIRECT
+
+
+# ---- Stores that nothing reads ------------------------------------------------------------
+
+def own_slot(e):
+    """The slot of the function being finished that the entry at buffer[e] names, or NO_SLOT."""
+    if buffer[e] <= I_FIX or buffer[e + 2] != own & 0xFF or buffer[e + 3] != own >> 8:
+        return NO_SLOT
+    return buffer[e + 4]
+
+
+def drop_unread_stores():
+    """Note in slots_read each slot of the function that one of its instructions reads: names in
+    any way but a plain store, an STA, STX or STY, absolute or zero page (the opcodes $84-$86
+    and $8C-$8E, the only ones of `opcode & $F4 == $84` that take an address): indexed,
+    indirect, read-modify-write, compared, its address taken, a saving call's list. Then leave
+    out every plain store into a slot not read. The slots are the function's own parameters,
+    locals and temporaries: no other function names them, and an `asm` block may, so in a
+    function with one every slot counts as read."""
+    global used
+    fill = 0
+    if has_asm:
+        fill = 0xFF
+    for i in range(0, 32):
+        slots_read[i] = fill
+    e = 0
+    while e < used:
+        n = own_slot(e)
+        if n != NO_SLOT and (buffer[e + 1] & PLAIN_STORE_MASK) != PLAIN_STORE:
+            slots_read[n >> 3] |= BITS[n & 7]
+        e += entry_size(buffer[e])
+    e = 0
+    dest = 0
+    while e < used:
+        size = entry_size(buffer[e])
+        n = own_slot(e)
+        if n == NO_SLOT or (buffer[e + 1] & PLAIN_STORE_MASK) != PLAIN_STORE or is_read(n):
+            for i in range(0, size):
+                buffer[dest + i] = buffer[e + i]
+            dest += size
+        e += size
+    used = dest
+
+
+def is_read(slot):
+    """After finish(): True if an instruction of the function reads slot `slot`."""
+    return (slots_read[slot >> 3] & BITS[slot & 7]) != 0
 
 
 # ---- Settling the layout -----------------------------------------------------------------
@@ -660,6 +716,7 @@ def finish(symbol, base):
     global code_length, fix_count, temp_base, weight_count, own, counting
     own = symbol
     temp_base = base
+    drop_unread_stores()
     thread()
     while True:
         size = layout()

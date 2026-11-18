@@ -1,43 +1,40 @@
 ; module result_end, cpu 6502
 
 ; function result_end.both
-;   slot 0 a: size 1, class 1 (either), param, weight 1
+;   slot 0 a: size 1, class 1 (either), param, weight 0
 result_end__both
-    STA result_end__both__a
     CMP #$04
-    BCC .L000A
+    BCC .L0007
     LDA #$01
     RTS
-.L000A
+.L0007
     LDA #$02
     RTS
 
 ; function result_end.chain
-;   slot 0 a: size 1, class 1 (either), param, weight 1
+;   slot 0 a: size 1, class 1 (either), param, weight 0
 result_end__chain
-    STA result_end__chain__a
     CMP #$00
-    BNE .L000A
+    BNE .L0007
     LDA #$01
     RTS
-.L000A
+.L0007
     CMP #$01
-    BNE .L0011
+    BNE .L000E
     LDA #$02
     RTS
-.L0011
+.L000E
     LDA #$03
     RTS
 
 ; function result_end.cases
-;   slot 0 a: size 1, class 1 (either), param, weight 1
+;   slot 0 a: size 1, class 1 (either), param, weight 0
 result_end__cases
-    STA result_end__cases__a
     CMP #$01
-    BNE .L000A
+    BNE .L0007
     LDA #$0A
     RTS
-.L000A
+.L0007
     LDA #$14
     RTS
 

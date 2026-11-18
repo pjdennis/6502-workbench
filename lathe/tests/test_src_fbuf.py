@@ -18,7 +18,7 @@ OP_LDA = 0xAD
 
 
 COMMANDS = (b"begin op opb opw fix label labels place arrive branch jump call join same written "
-            b"keep tail runs used finish nops fixes ")
+            b"keep tail runs used finish nops fixes read ")
 
 
 def main():
@@ -86,6 +86,8 @@ def main():
         elif c == 21:
             for n in range(script.number()):
                 fbuf.op_fix(OP_LDA, fbuf.FIX_ADDRESS, 0, fbuf.NO_SLOT, n)
+        elif c == 22:
+            script.show_bool(fbuf.is_read(script.small()))
         script.end_line()
     env.exit(0)
 

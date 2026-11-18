@@ -2,29 +2,26 @@
 ; imports: rt_frame
 
 ; function reg_args.one
-;   slot 0 x: size 1, class 1 (either), param, weight 1
+;   slot 0 x: size 1, class 1 (either), param, weight 0
 reg_args__one
-    STA reg_args__one__x
     CLC
     ADC #$01
     RTS
 
 ; function reg_args.two
-;   slot 0 x: size 1, class 1 (either), param, weight 1
+;   slot 0 x: size 1, class 1 (either), param, weight 0
 ;   slot 1 y: size 1, class 1 (either), param, weight 2
 reg_args__two
-    STA reg_args__two__x
     STX reg_args__two__y
     SEC
     SBC reg_args__two__y
     RTS
 
 ; function reg_args.three
-;   slot 0 x: size 1, class 1 (either), param, weight 1
+;   slot 0 x: size 1, class 1 (either), param, weight 0
 ;   slot 1 y: size 1, class 1 (either), param, weight 2
 ;   slot 2 z: size 1, class 1 (either), param, weight 2
 reg_args__three
-    STA reg_args__three__x
     STX reg_args__three__y
     STY reg_args__three__z
     EOR reg_args__three__y
@@ -32,10 +29,8 @@ reg_args__three
     RTS
 
 ; function reg_args.wide
-;   slot 0 x: size 2, class 1 (either), param, weight 2
+;   slot 0 x: size 2, class 1 (either), param, weight 0
 reg_args__wide
-    STA reg_args__wide__x
-    STX reg_args__wide__x+$01
     CLC
     ADC #$01
     TAY
@@ -46,11 +41,9 @@ reg_args__wide
     RTS
 
 ; function reg_args.word_byte
-;   slot 0 x: size 2, class 1 (either), param, weight 2
+;   slot 0 x: size 2, class 1 (either), param, weight 0
 ;   slot 1 y: size 1, class 1 (either), param, weight 2
 reg_args__word_byte
-    STA reg_args__word_byte__x
-    STX reg_args__word_byte__x+$01
     STY reg_args__word_byte__y
     CLC
     ADC reg_args__word_byte__y
@@ -77,12 +70,11 @@ reg_args__byte_word
     RTS
 
 ; function reg_args.four
-;   slot 0 x: size 1, class 1 (either), param, weight 1
+;   slot 0 x: size 1, class 1 (either), param, weight 0
 ;   slot 1 y: size 1, class 1 (either), param, weight 2
 ;   slot 2 z: size 1, class 1 (either), param, weight 2
 ;   slot 3 q: size 1, class 1 (either), param, weight 1
 reg_args__four
-    STA reg_args__four__x
     STX reg_args__four__y
     STY reg_args__four__z
     CLC
@@ -95,35 +87,32 @@ reg_args__four
 
 ; function reg_args.signed
 ;   slot 0 x: size 1, class 1 (either), param, weight 3
-;   slot 1 t: size 1, class 1 (either), param, weight 1
+;   slot 1 t: size 1, class 1 (either), param, weight 0
 reg_args__signed
     STA reg_args__signed__x
-    STX reg_args__signed__t
     TXA
-    BEQ .L0010
+    BEQ .L000D
     SEC
     LDA #$00
     SBC reg_args__signed__x
     RTS
-.L0010
+.L000D
     LDA reg_args__signed__x
     RTS
 
 ; function reg_args.pointed
 ;   slot 0 q: size 2, class 0 (zp), param, weight 3
-;   slot 1 i: size 1, class 1 (either), param, weight 1
+;   slot 1 i: size 1, class 1 (either), param, weight 0
 reg_args__pointed
     STA reg_args__pointed__q
     STX reg_args__pointed__q+$01
-    STY reg_args__pointed__i
     LDA (reg_args__pointed__q),Y
     RTS
 
 ; function reg_args.mix
-;   slot 0 x: size 1, class 1 (either), param, weight 1
+;   slot 0 x: size 1, class 1 (either), param, weight 0
 ;   slot 1 y: size 2, class 1 (either), param, weight 1
 reg_args__mix
-    STA reg_args__mix__x
     CLC
     ADC reg_args__mix__y
     RTS
@@ -190,7 +179,7 @@ reg_args__constants
     RTS
 
 ; function reg_args.variables
-;   slot 0 $t1: size 1, class 1 (either), temp, weight 1
+;   slot 0 $t1: size 1, class 1 (either), temp, weight 0
 ;   calls reg_args.two
 ;   calls reg_args.three
 ;   calls reg_args.word_byte
@@ -227,7 +216,6 @@ reg_args__variables
     STA reg_args__a
     LDX reg_args__b
     LDA reg_args__table,X
-    STA reg_args__variables__St1
     LDX reg_args__c
     JSR reg_args__two
     STA reg_args__a

@@ -5,7 +5,7 @@ abs_d000 = $D000
 
 ; function short_multiply.f
 ;   slot 0 i: size 1, class 1 (either), param, weight 3
-;   slot 1 $t1: size 1, class 1 (either), temp, weight 2
+;   slot 1 $t1: size 1, class 1 (either), temp, weight 0
 ;   calls rt_math.mul8
 ;   calls rt_math.mul16
 short_multiply__f
@@ -46,7 +46,6 @@ short_multiply__f
     STA short_multiply__s
     LDX short_multiply__f__i
     LDA short_multiply__tab,X
-    STA short_multiply__f__St1
     LDX #$0A
     JSR rt_math__mul8
     STA short_multiply__a
@@ -69,7 +68,6 @@ short_multiply__f
     STA short_multiply__a
     LDY short_multiply__f__i
     LDA (short_multiply__p),Y
-    STA short_multiply__f__St1
     LDX #$03
     JSR rt_math__mul8
     STA short_multiply__a

@@ -66,7 +66,7 @@ Temporaries for expression evaluation are slots in the frame of the function tha
 
 The pair A and X matches the host interface in `asm/17/environment.asm`, which passes pointers the same way.
 
-A call is a `JSR`. The only entry code of an ordinary function stores the parameters that came in registers into their slots (`STA`, `STX`, `STY`, absolute or zero page), so every parameter has its slot as before, for the body, for `asm` blocks that name it, for a saving call's frame and for a pointer class's block. The registers still hold those values, and the compiler knows it, so a body that uses a parameter at once does not load it. There is no exit code and no stack frame to build. A call whose results are returned unchanged (`return f(…)`, or a call as the last statement) is a `JMP`.
+A call is a `JSR`. The only entry code of an ordinary function stores the parameters that came in registers into their slots (`STA`, `STX`, `STY`, absolute or zero page), so every parameter has its slot as before, for the body, for `asm` blocks that name it, for a saving call's frame and for a pointer class's block; a store that nothing in the function reads is left out ("Stores that nothing reads"). The registers still hold those values, and the compiler knows it, so a body that uses a parameter at once does not load it. There is no exit code and no stack frame to build. A call whose results are returned unchanged (`return f(…)`, or a call as the last statement) is a `JMP`.
 
 `extern` and `asm` functions keep the registers their declarations bind; `inline` functions are expanded and `interrupt` functions are not called, so the convention does not apply to them.
 
@@ -350,11 +350,15 @@ Spike S3 hand-compiled four existing routines by these rules and got 1.47 times 
 - Turn a loop tested at the top into one tested at the bottom.
 - Keep a loop counter in X or Y when the body allows.
 
+### Stores that nothing reads
+
+When a function ends, its whole code is in the function buffer, and FBUF looks at every instruction that names a slot of the function's own frame, a parameter, a local or a temporary. A slot named by nothing but plain stores (`STA`, `STX`, `STY`, absolute or zero page) is never read, and those stores are left out; its SLOT record gives it a weight of 0, so it does not take zero page from a slot that is used. Anything else that names the slot is a read: an indexed or indirect instruction, a read-modify-write (`INC`, `ASL`, ...), a compare, `#<` or `#>` of its address, an entry of a saving call's list (so a slot saved across a recursive call keeps its stores, and no list entry is ever left naming a slot whose stores went), a `JMP (slot)`. A function with an `asm` block keeps every store. These slots are the function's alone: no other function can name them (an argument for a parameter is stored by its caller under the callee's symbol, which this pass never touches), a pointer to one comes only from `@`, which counts as a read, and an interrupt handler's are its own copies. A `static` local, a variable `at` an address or in a region, and a variable of the module are not slots, so their stores always stay. Only the store goes: the instructions that work the value out stay, side effects and all (for `v, ok = f()` with `ok` never tested, the `ROL` that makes `ok` from the carry stays, though its result is dropped). The commonest such stores in the tools are the status half of a pair assignment never tested and a register parameter stored on entry and not read again ([`spikes.md`](spikes.md), "Generated code, a second look").
+
 When the environment says the CPU is a 65C02, the compiler uses its own instructions only in the entry and exit of an `interrupt` function (`PHX`, `PHY`, `PLY`, `PLX`, and no `CLD`), and an `asm` block may use all of them. Everything else it generates is the NMOS 6502's: `STZ`, `BRA`, `INC A` and `(zp)` are not used, though they would save about 2 KB of the two tools ([`spikes.md`](spikes.md), "Size for a 128 KB ROM: the generated code, measured").
 
 ## Known costs
 
-- A parameter passed in a register is stored in its slot on entry even if the body never reads it again, and arguments after the first three bytes are stored into slots and loaded again by the callee. `inline` is the remedy for tiny functions. What the registers save over a whole program is measured in [`spikes.md`](spikes.md) ("Result of L4").
+- A parameter passed in a register is stored in its slot on entry if anything in the body reads the slot (otherwise the store is left out: "Stores that nothing reads"), and arguments after the first three bytes are stored into slots and loaded again by the callee. `inline` is the remedy for tiny functions. What the registers save over a whole program is measured in [`spikes.md`](spikes.md) ("Result of L4").
 - Calls between `recursive` functions copy a frame each way.
 - A function used from two contexts is linked twice.
 - Two functions in one pointer class cannot call each other without the cost of recursion.

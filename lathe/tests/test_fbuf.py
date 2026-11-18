@@ -152,6 +152,102 @@ class WeightTest(FbufTest):
         self.assertEqual(weights(), [])
 
 
+STX_ABS, STY_ABS, STA_ZP, STX_ZP, STY_ZP = 0x8E, 0x8C, 0x85, 0x86, 0x84
+LDA_ABS_X, STA_ABS_X, STA_IND_Y, INC_ABS, DEC_ABS, ASL_ABS, ROR_ABS = 0xBD, 0x9D, 0x91, 0xEE, 0xCE, 0x0E, 0x6E
+CMP_ABS, BIT_ABS, LDA_ABS_Y, ORA_ABS_Y, JMP_IND = 0xCD, 0x2C, 0xB9, 0x19, 0x6C
+TEMP = fbuf.FIRST_TEMP
+
+
+def store(opcode, slot, addend=0, symbol=OWN):
+    if opcode in (STA_ZP, STX_ZP, STY_ZP):
+        fbuf.op_fix(opcode, fbuf.FIX_ZERO_PAGE, symbol, slot, addend)
+    else:
+        fbuf.op_fix(opcode, fbuf.FIX_ADDRESS, symbol, slot, addend)
+
+
+class UnreadStoresTest(FbufTest):
+    """A store into a slot of the function itself (a parameter, a local or a temporary) that
+    no instruction of the function reads is left out at finish() (docs/code-model.md,
+    "Stores that nothing reads")."""
+
+    def finish_code(self):
+        fbuf.op(RTS)
+        return code()
+
+    def test_stores_into_a_slot_nothing_reads_go(self):
+        fbuf.op_byte(LDA_IMM, 1)
+        store(STA_ABS, 0)                   # a local, absolute
+        store(STX_ABS, 0, 1)
+        store(STY_ZP, 1)                    # a parameter, in zero page
+        store(STA_ABS, TEMP)                # a temporary
+        self.assertEqual(self.finish_code(), bytes([LDA_IMM, 1, RTS]))
+        self.assertEqual(fixups(), [])
+        self.assertFalse(fbuf.is_read(0))
+        self.assertFalse(fbuf.is_read(1))
+        self.assertFalse(fbuf.is_read(TEMP))
+
+    def test_a_slot_that_is_loaded_keeps_its_stores(self):
+        store(STA_ABS, 0)
+        store(STX_ABS, 0, 1)
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, OWN, 0, 1)      # one byte of the word is read
+        self.assertEqual(len(self.finish_code()), 10)
+        self.assertTrue(fbuf.is_read(0))
+
+    def test_each_slot_is_its_own_bit(self):
+        store(STA_ABS, 0)
+        store(STA_ABS, 1)                   # beside slot 0, which is read: still goes
+        store(STA_ABS, 9)
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, OWN, 0, 0)
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, OWN, 9, 0)
+        self.finish_code()
+        self.assertEqual([f[3] for f in fixups()], [0, 9, 0, 9])
+        self.assertEqual([fbuf.is_read(n) for n in (0, 1, 8, 9)], [True, False, False, True])
+
+    def test_every_other_use_of_a_slot_is_a_read(self):
+        uses = ((LDA_ABS_X, fbuf.FIX_ADDRESS), (STA_ABS_X, fbuf.FIX_ADDRESS),    # indexed
+                (LDA_IND_Y, fbuf.FIX_ZERO_PAGE), (STA_IND_Y, fbuf.FIX_ZERO_PAGE),  # indirect
+                (INC_ABS, fbuf.FIX_ADDRESS), (DEC_ABS, fbuf.FIX_ADDRESS),        # read-modify-write
+                (ASL_ABS, fbuf.FIX_ADDRESS), (ROR_ABS, fbuf.FIX_ADDRESS),
+                (CMP_ABS, fbuf.FIX_ADDRESS), (BIT_ABS, fbuf.FIX_ADDRESS),
+                (LDA_IMM, fbuf.FIX_LOW), (LDA_IMM, fbuf.FIX_HIGH),               # @slot
+                (LDA_IMM, fbuf.FIX_REACH_LOW),
+                (LDA_ABS_Y, fbuf.FIX_ADDRESS), (ORA_ABS_Y, fbuf.FIX_ADDRESS),    # a saving call's list
+                (JMP_IND, fbuf.FIX_ADDRESS))                                     # a call through it
+        for opcode, kind in uses:
+            fbuf.begin()
+            store(STA_ABS, 3)
+            fbuf.op_fix(opcode, kind, OWN, 3, 0)
+            fbuf.op(RTS)
+            fbuf.finish(OWN, 0)
+            self.assertEqual(fixups()[0][3], 3, f'{opcode:02X}')
+            self.assertTrue(fbuf.is_read(3))
+
+    def test_another_functions_slots_and_variables_are_not_the_functions_own(self):
+        store(STA_ABS, 0, symbol=3)         # a callee's parameter: its reads are the callee's
+        store(STA_ABS, fbuf.NO_SLOT, symbol=OWN)    # the function's own symbol, not a slot
+        store(STA_ABS, fbuf.NO_SLOT, symbol=5)      # a variable: a static, `at`, in a region
+        self.assertEqual(len(self.finish_code()), 10)
+
+    def test_a_function_with_an_asm_block_keeps_every_store(self):
+        fbuf.as_written(True)
+        fbuf.op(0xEA)
+        fbuf.as_written(False)
+        store(STA_ABS, 0)
+        self.assertEqual(len(self.finish_code()), 5)
+        self.assertTrue(fbuf.is_read(0))
+        fbuf.begin()                        # and the next function is looked at again
+        store(STA_ABS, 0)
+        self.assertEqual(len(self.finish_code()), 1)
+
+    def test_labels_and_branches_stay_where_they_were(self):
+        top = fbuf.new_label()
+        fbuf.place(top)
+        store(STA_ABS, 0)
+        fbuf.op(0xE8)                        # INX
+        fbuf.branch(BNE, top)
+        self.assertEqual(self.finish_code(), bytes([0xE8, BNE, 0xFD, RTS]))
+
+
 class RunsOnTest(FbufTest):
     """Whether the processor can run past the newest instruction into what comes next."""
 
@@ -609,9 +705,9 @@ class TailCallTest(FbufTest):
 
 class TemporariesTest(FbufTest):
     def test_the_functions_own_temporaries_get_the_slot_numbers_after_its_locals(self):
-        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, OWN, 1, 0)
-        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, OWN, fbuf.FIRST_TEMP, 0)
-        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, OWN, fbuf.FIRST_TEMP + 2, 1)
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, OWN, 1, 0)     # reads: a store nothing reads goes
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, OWN, fbuf.FIRST_TEMP, 0)
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, OWN, fbuf.FIRST_TEMP + 2, 1)
         fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 9, fbuf.FIRST_TEMP, 0)       # another function's slot
         fbuf.op_fix(JSR, fbuf.FIX_ADDRESS, OWN, fbuf.NO_SLOT, 0)
         fbuf.finish(OWN, 3)

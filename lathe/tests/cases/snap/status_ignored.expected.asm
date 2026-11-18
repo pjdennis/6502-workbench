@@ -18,19 +18,17 @@ status_ignored__wide
     RTS
 
 ; function status_ignored.f
-;   slot 0 v: size 1, class 1 (either), local, weight 2
+;   slot 0 v: size 1, class 1 (either), local, weight 0
 ;   calls status_ignored.next
 ;   calls status_ignored.wide
 status_ignored__f
     JSR status_ignored__next
-    STA status_ignored__f__v
     JSR status_ignored__wide
     STA status_ignored__w
     STX status_ignored__w+$01
     JSR status_ignored__next
     CLC
     ADC #$01
-    STA status_ignored__f__v
     JSR status_ignored__next
     JMP status_ignored__wide
 

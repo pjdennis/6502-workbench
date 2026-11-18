@@ -29,7 +29,8 @@
 ; entries: a branch round nothing but a JMP becomes one branch and a branch round nothing is
 ; dropped (tidy()), a JSR that a return follows becomes a JMP (tail_call()), and an
 ; instruction that cannot be reached is left out (end_entry()). Two labels can be made one
-; place (join()).
+; place (join()). One needs the whole function, and is made by finish(): a store into a slot of
+; the function that none of its instructions reads is left out (drop_unread_stores()).
 ;
 ; The buffer is a run of entries, each a kind byte and the fields that kind has. It is this
 ; compact because it is the largest thing the compiler keeps in memory on the target.
@@ -138,6 +139,9 @@ pub const OP_RTS = $60
 pub const OP_JMP_INDIRECT = $6C
 const OP_BRA = $80              ; 65C02: the one branch with no opposite
 const OPPOSITE = $20            ; the bit that differs between a branch and its opposite
+const PLAIN_STORE_MASK = $F4    ; STA, STX, STY, absolute or zero page: opcode & $F4 == $84
+const PLAIN_STORE = $84
+const BITS: [8]byte = [$01, $02, $04, $08, $10, $20, $40, $80]
 const UNPLACED = $FFFF
 
 var buffer: [BUFFER_SIZE]byte in FUNCBUF
@@ -149,6 +153,8 @@ var older: word = 0                     ; the entry before it, if it is below `n
 pub var unreached: bool = false             ; true while the entry being made is being left out
 var kept: word = UNPLACED               ; an entry an `asm` block wrote last: never a tail call
 var written: bool = false               ; true while an `asm` block is written: kept as it is
+var has_asm: bool = false               ; true once an `asm` block is in the function
+var slots_read: [32]byte                ; finish(): a bit for each slot an instruction reads
 var label_offset: [MAX_LABELS]word in FUNCBUF  ; where each label is in the written layout
 var label_alias: [MAX_LABELS]byte       ; the label this one was joined to, or itself
 var label_uses: [MAX_LABELS]word in FUNCBUF    ; how many branches and jumps go to it
@@ -181,6 +187,7 @@ forward func emit_to(opcode: byte, goal: word)
 ; Start a function with no instructions and no labels.
 pub func begin()
   unreached = false
+  has_asm = false
   kept = UNPLACED
   written = false
   used = 0
@@ -446,6 +453,9 @@ end
 ; they are written: none is left out as unreached, and no branch is fused or taken out.
 pub func as_written(on: bool)
   written = on
+  if on then
+    has_asm = true
+  end
 end
 
 ; The newest instruction is the last one an `asm` block wrote: tail_call() leaves it as
@@ -490,6 +500,68 @@ pub func runs_on(): bool
   with FUNCBUF do
     return entry_runs_on(@buffer + newest)
   end
+end
+
+; ---- Stores that nothing reads ------------------------------------------------------------
+
+; The slot of the function being finished that the entry at `e` names, or NO_SLOT.
+func own_slot(e: ^byte): byte
+  if e[0] <= I_FIX or e[2] != lo(own) or e[3] != hi(own) then
+    return NO_SLOT
+  end
+  return e[4]
+end
+
+; After finish(): true if an instruction of the function reads slot `slot`.
+pub func is_read(slot: byte): bool
+  return slots_read[slot >> 3] & BITS[slot & 7] != 0
+end
+
+; Note in slots_read each slot of the function that one of its instructions reads: names in
+; any way but a plain store, an STA, STX or STY, absolute or zero page (the opcodes $84-$86
+; and $8C-$8E, the only ones of `opcode & $F4 == $84` that take an address): indexed,
+; indirect, read-modify-write, compared, its address taken, a saving call's list. Then leave
+; out every plain store into a slot not read. The slots are the function's own parameters,
+; locals and temporaries: no other function names them, and an `asm` block may, so in a
+; function with one every slot counts as read.
+func drop_unread_stores(base: ^byte)
+  var e: ^byte
+  var dest: ^byte
+  var stop: ^byte
+  var size: byte
+  var i: byte
+  var n: byte
+  var fill: byte = 0
+  if has_asm then
+    fill = $FF
+  end
+  for i = 0 until 32 do
+    slots_read[i] = fill
+  end
+  stop = base + used
+  e = base
+  while e < stop do
+    n = own_slot(e)
+    if n != NO_SLOT and e[1] & PLAIN_STORE_MASK != PLAIN_STORE then
+      i = n >> 3
+      slots_read[i] = slots_read[i] | BITS[n & 7]
+    end
+    e += entry_size(e[0])
+  end
+  e = base
+  dest = base
+  while e < stop do
+    size = entry_size(e[0])
+    n = own_slot(e)
+    if n == NO_SLOT or e[1] & PLAIN_STORE_MASK != PLAIN_STORE or is_read(n) then
+      for i = 0 until size do
+        dest[i] = e[i]
+      end
+      dest += size
+    end
+    e += size
+  end
+  used = word(dest) - word(base)
 end
 
 ; ---- Settling the layout -----------------------------------------------------------------
@@ -888,6 +960,7 @@ pub func finish(symbol: word, base: byte)
   own = symbol
   temp_base = base
   with FUNCBUF do
+    drop_unread_stores(@buffer)
     thread(@buffer)
     loop
       size = layout(@buffer)

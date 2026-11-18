@@ -3,10 +3,9 @@
 abs_c800 = $C800
 
 ; function pointer_calls.mix
-;   slot 0 a: size 1, class 1 (either), param, weight 1
+;   slot 0 a: size 1, class 1 (either), param, weight 0
 ;   slot 1 w: size 2, class 1 (either), param, weight 0
 pointer_calls__mix
-    STA pointer_calls__mix__a
     RTS
 
 ; class pointer_calls.handler: parameter sizes 1, 2
@@ -78,20 +77,19 @@ pointer_calls__through_variables
 ; class pointer_calls.pick: parameter sizes 1
 
 ; function pointer_calls.through_copies
-;   slot 0 i: size 1, class 1 (either), param, weight 1
+;   slot 0 i: size 1, class 1 (either), param, weight 0
 ;   slot 1 n: size 2, class 0 (zp), param, weight 4
 ;   slot 2 $t1: size 2, class 0 (zp), temp, weight 10
 ;   slot 3 $t2: size 2, class 1 (either), temp, weight 3
 ;   calls pointer_calls.pick (through pointer)
 pointer_calls__through_copies
-    STA pointer_calls__through_copies__i
     TAX
     LDA pointer_calls__table,X
     STA pointer_calls__through_copies__St1
     LDA pointer_calls__table+$04,X
     STA pointer_calls__through_copies__St1+$01
     TXA
-    JSR .L0062
+    JSR .L005F
     STA pointer_calls__b
     LDA #$00
     ROL
@@ -103,12 +101,12 @@ pointer_calls__through_copies
     LDA (pointer_calls__through_copies__n),Y
     STA pointer_calls__through_copies__St1+$01
     LDA #$02
-    JSR .L0062
+    JSR .L005F
     STA pointer_calls__b
-    BCC .L003A
+    BCC .L0037
     LDA #$01
     STA pointer_calls__ok
-.L003A
+.L0037
     LDY #$00
     LDA (pointer_calls__through_copies__n),Y
     STA pointer_calls__through_copies__St1
@@ -122,15 +120,15 @@ pointer_calls__through_copies
     LDA (pointer_calls__through_copies__St1),Y
     STA pointer_calls__through_copies__St2+$01
     TYA
-    JSR .L0065
+    JSR .L0062
     STA pointer_calls__b
     LDA #$00
     ROL
     STA pointer_calls__ok
     RTS
-.L0062
+.L005F
     JMP (pointer_calls__through_copies__St1)
-.L0065
+.L0062
     JMP (pointer_calls__through_copies__St2)
 
 ; function pointer_calls.in_arguments
@@ -176,11 +174,10 @@ pointer_calls__in_arguments
     JMP (pointer_calls__on_key)
 
 ; function pointer_calls.passed_on
-;   slot 0 i: size 1, class 1 (either), param, weight 1
+;   slot 0 i: size 1, class 1 (either), param, weight 0
 ;   slot 1 $t1: size 2, class 1 (either), temp, weight 3
 ;   calls pointer_calls.pick (through pointer)
 pointer_calls__passed_on
-    STA pointer_calls__passed_on__i
     TAX
     LDA pointer_calls__table,X
     STA pointer_calls__passed_on__St1

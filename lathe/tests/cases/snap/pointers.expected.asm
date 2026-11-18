@@ -55,13 +55,12 @@ pointers__sum
 
 ; function pointers.word_at
 ;   slot 0 q: size 2, class 0 (zp), param, weight 6
-;   slot 1 i: size 1, class 1 (either), param, weight 1
+;   slot 1 i: size 1, class 1 (either), param, weight 0
 ;   slot 2 $t1: size 1, class 1 (either), temp, weight 2
 ;   slot 3 $t2: size 2, class 1 (either), temp, weight 3
 pointers__word_at
     STA pointers__word_at__q
     STX pointers__word_at__q+$01
-    STY pointers__word_at__i
     TYA
     ASL
     STA pointers__word_at__St1

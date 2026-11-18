@@ -645,6 +645,58 @@ Each made in the host compiler only, behind an environment variable, as a diff i
 
 A first (net about 1.2 KB, faster, a small pass, and the program reads the same), then B (net about 1.8 KB, a few per cent slower; its search must fit the BBC's main RAM). Together, measured, 4,020 bytes more free in the eight-bank image, about 3 KB net of their twins. C frees about 1.6 KB net more but makes every link about a quarter slower; it is worth it only if the ROM must have the room. With all three, measured, the image has 11,467 bytes free (about 9 KB net of the twins), more than the compiler's 5,494 and the linker's 2,803 bytes of messages need to come back into the ROM uncompressed (8,297), though not their reader's removal and the bank packing, which the messages' own study must settle.
 
+### Built: stores that nothing reads (2026-11-18)
+
+A, in host and twin, byte for byte alike, always on ([`code-model.md`](code-model.md), "Stores that nothing reads"; [`language.md`](language.md), "Declarations"). At `fbuf.finish()`, before `thread()`, `drop_unread_stores()` walks the function's entries twice: first it sets a bit in `slots_read` (32 bytes, a bit for each slot number) for each slot of the function that an entry names other than by a plain store (`opcode & $F4 == $84`: `STA`, `STX`, `STY`, absolute or zero page, the only such opcodes that take an address), then it moves the entries down over each plain store into a slot whose bit is clear. In a function with an `asm` block every bit is set. `gen.slots()` gives a slot that nothing reads a weight of 0 in its SLOT record, so zero page goes to slots that are used. The slots are the function's parameters, locals and temporaries; statics, variables `at` an address or in a region, and module variables are symbols, not slots, so their stores always stay; a callee's parameters are named under the callee's symbol and never looked at. A slot named by a saving call's list counts as read, so a list never names a slot whose stores went. Only the store goes: the instructions that work the value out stay (in `unread_stores.lth`, `spare = word(v) + 300`'s `CLC / LDA / ADC` stay with nothing to store; leaving those out too would need what the one pass does not have, the uses of A after them). In the twin, 322 bytes of code, all fixed (it runs inside `finish()`'s block of `FUNCBUF`): `own_slot` 38, `is_read` 26, `drop_unread_stores` 258; and 40 bytes of variables and tables. The first try was 447 bytes; the host's first version also tested a bit as `x & (1 << n) != 0`, which Python reads as `x & ((1 << n) != 0)`: the scripts agreed with the twin by luck, and `test_fbuf.py` now has a test that each slot is its own bit.
+
+**Tests** (written first): `test_fbuf.py`'s `UnreadStoresTest` (plain stores go, absolute and zero page; a load of either byte of a word keeps both; every other use is a read: indexed, indirect, `INC`, `DEC`, `ASL`, `ROR`, `CMP`, `BIT`, `#<`, `#>`, a reach address, a list entry `LDA abs,Y` or `ORA abs,Y`, `JMP (slot)`; another function's slot, the function's own symbol and a variable are kept; an `asm` block keeps everything, and the next function is looked at again; labels and branches round a dropped store stay right; each slot its own bit); `scripts/fbuf.txt`, four sections run by the twin against the host (`test_src_fbuf.py`, with a new command `read SLOT`); `test_gen.py`, a slot nothing reads has no stores and weighs nothing; `cases/e2e/unread_stores.lth` (a status never tested, a parameter never read and one passed on in A, a local array by index, `INC` and `DEC`, a local reached only through `@`, a word with one byte read, an `asm` block, a recursive function whose local lives across the call, a `static`), run on every machine of the corpus; `cases/snap/unread_stores.lth`, which shows the stores that go and those that stay, with a variable `at` an address. The tests that look at the code GEN, REG and COND write (`gen_support.GenTest.listing()`) mark their function as one with an `asm` block, so that they still see every store; `listing(drop=True)` shows FBUF's result.
+
+**What changed in the snapshots** (17 regenerated, read one by one): only stores went, and with them the label offsets after them and the weights of the slots: register parameters stored on entry and never read (`calls.one.n`, `calls.sum.p`, `reg_args`' twelve, `pointer_calls.mix.a`, `func_types`' three, `result_end`'s three `a`, `shift_bytes`' `x`), locals written and read only from a register (`init.locals`' `i`, `n`, `p`, `records.copy.local`, `columns.same.v`), temporaries (`arrays.computed.$t1`, `short_multiply`'s, `inline_basic.not_plain`'s two), the status of `v = next()` in `status_ignored`, and an interrupt handler's local (`interrupts.handler.n`). No instruction other than a store changed.
+
+**Other tests changed**: `test_out.py`'s function reads its slot (a store alone would go); `test_memory.py`'s ceiling is 32 bytes higher (`slots_read`, in [`architecture.md`](architecture.md)'s table); `test_bbc_bank.py`'s cost of a `with` block is 3 cycles more (67 and 27, 82 and 27), because the version without the block no longer stores its parameter, which the block's version reads after `rt_with.map`; `test_bbc_bank_src.py`'s gentest at the full capacities had 47 bytes more fixed code than its split, moved from `$4870` to `$48B0` ([`bbc.md`](bbc.md)).
+
+**Measured** against 8dd784a (the eight-bank account, `test_bbc_rom128.py` with `LATHE_BBC_ROM128_REPORT=1`):
+
+| | Before | Now |
+|---|---|---|
+| bytes free in the eight-bank image, BBCFS 0 | 5,815 | **6,865** (+1,050) |
+| bytes free, the ADFS build (BBCFS 2, ADFS 1) | 4,610 | **5,688** (+1,078) |
+| the compiler's code / resident part | 72,490 / 11,849 | 71,948 / 12,056 (fbuf +307, all fixed) |
+| the linker's code / resident part | 47,698 / 9,829 | 47,182 / 9,693 |
+| the compiler's banks as judged | 15,466, 15,396, 15,343, 12,342, 13,648 | 15,382, 15,201, 15,130, 12,138, 13,360 |
+| the linker's banks as judged | 15,309, 15,079, 16,031 | 15,099, 14,929, **15,884** (388 below a bank, 241 before) |
+| main RAM free at ADFS's PAGE, eight-bank ROM form, compiler / linker | 2,253 / 1,581 | 2,013 / 1,717 |
+| self-compile on Wendy 2 (`test_src_selfhost.py`) | 834.3 M | 824.1 M (−1.2 %) |
+| the Lathe linker links itself / the compiler on Wendy 2 (`test_src_selflink.py`) | 1,375.9 M / 2,513.8 M | 1,279.0 M (−7.0 %) / 2,298.8 M (−8.6 %) |
+| the self-compile from the 128 KB image on the BBC, ROM form | 877.0 M | 875.2 M (−0.2 %) |
+| the linker links the compiler there | 3,463 M | 3,135.9 M (−9.4 %) |
+| the rebuild loop there | 4,484 M | 4,152.4 M (−7.4 %) |
+| the rebuild loop on two ADFS discs from the ADFS build of the image | 4,504 M | 4,167.4 M (−7.5 %) |
+
+The image gains 1,050 bytes where the experiment gave 1,397: the twin's 322 bytes of fixed code are most of the difference. The links are faster both because the linker's code stores less and because it links smaller objects. The compiler's fixed code is in main RAM in the ROM forms, which is why its main RAM at ADFS's PAGE is 240 bytes smaller while the linker's grew by 136. No bank layout or split of an environment file needed to move; the linker's third bank, the fullest, has 147 bytes more room.
+
+**Merged with the 32K forms and the texts in the module** (2026-11-18, measured on the merged tree): the eight-bank image has **3,008 bytes free** (2,295 on that branch without the pass, +713), the ADFS build **1,844** (1,107, +737); the resident parts 11,907 and 9,675; the linker's banks as judged 15,018, 14,929 and 15,884; main RAM free at ADFS's PAGE in the eight-bank ROM form 2,140 for the compiler (2,416 without the pass: its 322 bytes are fixed) and 1,747 for the linker (1,607). From the 128 KB image on the BBC: the self-compile 878.6 million cycles, the linker's link of the compiler 3,176.9 million, the rebuild loop 4,195.9 million; on Wendy 2 the self-compile 827.5 million, the links of the linker and the compiler 1,278.7 and 2,327.1 million. With `-fREGION` a `with` block of a fixed region is its body alone: no `rt_with.map`, no temporary for the bank, so nothing changes in what counts as a read, and a parameter that the block's map used to make the body load again is now more often read from its register, its store left out. In the 32K form nothing is kept fixed for a block, so `drop_unread_stores` is in the compiler's fourth bank (`LATHE4.BIN`) with the rest of `fbuf`; the five banks as judged are 16,071, 15,650, 15,788, 15,829 and 15,476 (16,170, 15,988, 16,007, 15,667 and 15,818 without the pass: the fourth grew by the pass, the others shrank), the resident part 5,303 bytes, 193 bytes of main RAM free (184 before), and it still compiles 52 of the 75 modules of `lathe/src` and `lathe/rt`. The 32K image still needs sixteen banks: the most room after a bank's code in the eight-bank form is 3,357 bytes (3,230 before), and the module's code and texts need 4,227.
+
+### B, subroutines of a function: where its memory would come from (a design study, 2026-11-18)
+
+The owner's question: B must not much reduce the size of module that can be compiled. Measured with A built, on the scratch tree's host compiler (`exp2`'s pass with statistics, the same choice of runs).
+
+**What limits a module today** (`memory_report.py --corpus`; peak on the corpus, the largest of the tools' own modules where it is one of them): the name heap, 9,216 bytes, 6,993 used by `decl.lth` (76 %: the limit the owner names); the symbols, 560, 470 used (`gen.lth`); the members, 512, 439 (`gen.lth`); the function buffer, 4,096 bytes, 3,149 (`regcmd.lth`; of the tools' own functions with B's pass looked at, at most 2,237, `inlines`); the labels, 192 of which 114; the fix-ups of a function, 512; its code, 4,096. Where they are: in the eight-bank ROM form the name heap is in sideways slot 12, the symbols and members in slot 0, OUT's table in slot 1, and the function buffer with its labels in slot 13 (`FUNCBUF`), beside LEX's string and the saved tokens: 8,960 bytes of slot 13's 16,384, so about 7.4 KB of it is free (the developer's form keeps err's 5,494 bytes of messages there too: about 1.9 KB free). Main RAM holds the code that runs inside a `with` block (all of FBUF's passes), the other variables and the stack: 2,013 bytes free at ADFS's PAGE now. On Wendy 2 `FUNCBUF` is bank 6. In the `RAM32` form another agent is building every table is in main RAM, so there anything B adds competes with the name heap and the symbols.
+
+**What B needs.** A table of where each entry of the function starts (the entries are 2 to 7 bytes), 2 bytes an entry, for the search to compare runs at two places; marks for the entries a run has taken (a bit each, or a spare bit of the kind byte, which needs none); and the runs chosen, at most 14 in any function of the tools (16 would do). The tools' functions have at most 450 entries (`lk_tab.build_chains`, 2,212 bytes of buffer); a full buffer could have 2,048. And its code, about 120 to 150 lines of `fbuf.lth`, 650 to 850 bytes (estimated at fbuf's 5.3 bytes a line), which runs inside `finish()`'s block of `FUNCBUF` and so is fixed: in the BBC's ROM forms that is main RAM whatever the design. The saving, measured on top of A: **+2,624 bytes free in the eight-bank image** with every function looked at (6,865 to 9,489).
+
+| Design | New RAM for the table | Saving kept (bytes free) | Compile time, search (estimated) | Largest function and module | Same object on every machine |
+|---|---|---|---|---|---|
+| 1. a table of 512 entries in main RAM | 1,024 bytes of main RAM (ADFS ROM form: 2,013 free to about 990, with the code below) | 100 % (+2,624) | about 1.5 % | unchanged in the banked forms; in `RAM32` 1 KB less for the tables (the name heap at 8 KB would still hold `decl`'s 6,993) | yes, if a function of more than 512 entries skips the pass in every build |
+| 2. the table in the `FUNCBUF` region | none in the banked forms (slot 13 has 7.4 KB free in the ROM form, 1.9 KB in the developer's); main RAM in `RAM32` | 100 % | about 1.5 % | unchanged in the banked forms | yes, with a fixed limit as in 1 |
+| **3. the table in the buffer's own free part** (after the last entry: 2 bytes an entry fit when the entries take at most half the buffer) | **none, in any build** | **95 %** (+2,483) with the limit 2,048 bytes of entries; 87 % at 1,536; 59 % at 1,024 (+1,555); 24 % at 512 (+640) | about 1.5 % | **unchanged**: B never needs room the function did not already take, never lengthens the buffer (each place shrinks to a 2-byte JSR entry), and needs at most 16 labels, which every function of the tools has spare (at most 49 with B's) | yes, if the limit is a constant (2,048 bytes) and every build that compiles real modules has the 4,096-byte buffer; a smaller buffer (the test programs' `SMALL` build, 1,024) cannot hold the table for a function of more than 512 bytes, and must then give the same object as the host, so its tests must not compile such a function, or the limit must be 512 everywhere |
+| 4. no table: the two places walked by pointers, every pair compared | none | 100 % | **+14 % to +34 %** (4.7 million pairs to look at for the compiler's own modules, at 25 to 60 cycles each) | unchanged | yes |
+| 5. B off in `RAM32` (a define) | none | 0 % there | 0 | unchanged | **no**: the same source would give other object files on a 32K machine than on the B+128 and the host, and the rebuild's files are compared with the host's |
+
+The search, measured on the compiler's own modules (716 functions looked at, those with a saving call or an `asm` block left out as in the experiment): 27,168 pairs of places that start with the same entry, 37,195 entries compared beyond the first, 962 passes of the greedy choice, 29,973 entries; at 100 cycles a pair, 60 an entry compared and 80 an entry put in its bucket each pass, about 10 to 15 million cycles, 1.2 to 1.8 % of the self-compile; the code B makes runs 1.9 % slower (the self-compile measured with the host's pass, before the twin) and the links 2.4 % and 4.2 % slower.
+
+**Recommendation.** Design 3, with the limit a constant of 2,048 bytes of entries, at most 16 runs a function, and no run for a function whose label count leaves fewer than 16 below the smallest build's 128: it takes no memory from what limits a module, in any build, keeps the same object for the same source on every machine whose buffer is 4,096 bytes, and keeps 95 % of B's saving: about **+2.5 KB** in the eight-bank image before its twin, **about +1.7 KB net** of 650 to 850 bytes of fixed code. What it does cost is that fixed code: in the ROM forms it is main RAM, the compiler's 2,013 bytes free at ADFS's PAGE going to about 1,200, and the self-compile about 3 % slower (search and subroutines), the links 2 to 4 %. If the `RAM32` form needs a buffer smaller than 4,096 bytes, the limit should be half of the smallest, at 1,024 bytes (59 %, about +1.55 KB before the twin, +0.8 KB net). Before building it: check that no test compiles a function of more than 512 bytes of entries in the `SMALL` build and compares it with the host.
+
 ## Disc space for the rebuild on two DFS discs, measured (2026-11-17)
 
 The question: can the sources and the build artifacts of the compiler's rebuild on the BBC (the loop of `test_bbc_dfs.Loop`, [`bbc.md`](bbc.md), "The loop under DFS names") live on two double-sided 80-track Acorn DFS discs, four sides of 798 sectors (204,288 bytes) and 31 files each, 3,192 sectors and 124 files in all, without changing discs in the middle; and if not, what it would take. The tools are in the ROM form unless said otherwise. Nothing in the tools was changed for this.
@@ -1048,3 +1100,332 @@ The owner chose (b), with the service call `$4C`; built in place of the message 
 (b): byte pairs, both tools' texts in one table in the home bank, written by the module at a service call, and `LATHERR` dropped. The module stands alone, nothing is copied to a sideways RAM slot, the tools lose code and gain main RAM, and the image keeps 2,271 bytes free (1,083 in the ADFS build). (a) fits the `BBCFS 0` build with 2,063 free but not the ADFS build, and costs generated sources.
 
 The experiment's files are in the session's scratchpad, in `research-messages/`: `messages-in-module.diff` (design (b); it applies to 8dd784a), `design-a.diff` with `errtext.lth` and `lk_errtext.lth` (design (a)), `variants.py` (the decoders compiled), `errruns.py` (the errors on the BBC) and their logs.
+
+## One ROM for every BBC: a study (measured) (2026-11-18)
+
+The owner's question: can the 128 KB ROM that is shipped adapt to the RAM it finds, so that one image serves a B+128, a Master 128 and a Model B with one of the common sideways RAM boards, with tables sized and placed at run time, `with` blocks that cost nothing when no bank is switched, and the bank switching kept for those who have sideways RAM; and, for code that loops over a table inside a block, whether that code can stay in main RAM while single accesses go through accessors that switch or not. This is a study: nothing in the tools changed. What was measured is said so; what was worked out from measurements is *extrapolated*; what rests on memory of the machines is *from memory, unverified*.
+
+**In short.** One ROM for every BBC *with* sideways RAM pays, and costs little: the tables that are in regions are touched only by code in main RAM (the resident part, which the module copies from the ROM at every command), so every place that names a region is in that copy and can be patched as it is copied: the slot of each region found at run time, each table placed where there is room (sideways RAM, the RAM below a fixed base for the machines whose PAGE is lower, the shadow screen's kilobyte), its capacity chosen then, and the blocks of a region in main RAM turned into nothing. That costs no cycles on any machine, no main RAM, and about 2.5 KB of the ROM, and it changes neither the compiler nor any object file. Measured: a Model B with two banks of sideways RAM runs the full compiler (the self-compile, every file the host's, 877.0 million cycles, as on the B+128), and on a machine with no sideways RAM a block patched to nothing saves 67 cycles (7.7 % of a link). What does not pay is the same ROM for the bare 32K Model B: there the 8 KB of the compiler's code kept in main RAM for its blocks, and the linker's function and variable columns, which banked code reads directly, leave too little for tables; every way round it costs the machines with sideways RAM speed (6 to 38 %) or the ROM a second copy of that code, and still gives the bare Model B less than the 32K images do. So: one adaptive ROM for every machine with at least one bank, and the 32K images for the bare Model B (or RAM on the module's board, which makes it a machine with banks).
+
+### How it was measured
+
+- **The census**: `lathe/tests/with_census.py` (new, with `test_with_census.py`), from the links of the eight-bank ROM forms (`test_bbc_rom128.build_tools`, `BBCFS 0`, the tree at a46df62): every function in fixed memory that is kept for a block, has one, or runs inside one; its bytes (the map), its regions (the RGN records behind each kind 6 fix-up; for a function that runs inside another's block, the regions of the blocks it runs in), why it is fixed, and whether it loops while a region is mapped (the twin's source: a `loop`, `for` or `while` inside a block, or anywhere in a function that runs inside one, or a call inside a block of one that does).
+- **Calls and cycles**: a copy of the emulator (`emulator/bbc_mos.c`, a scratch diff, not committed) that counts, for every PC, the instructions run and their cycles, the window's PCs by the module's bank, and writes them at the end of a run (`LATHE_PCHIST`). The self-compile (18 compiles) and the linker's link of the compiler, from the eight-bank image as `test_bbc_rom128.py` runs them, every file the host's: 876,992,789 and 3,463,370,865 cycles, as `bbc.md` has them; the histograms hold 99.8 % of them. A function's calls are the times its first instruction ran.
+- **Accesses**: the host compiler over the same 18 compiles, every region table wrapped to count each read and write by the host function that made it (the twins' functions are the host's, so the counts are the twin's accesses at the source level). Checked against the first experiment below, where every such access became an accessor call: the host counts 607,344 reads of a byte in the functions it converted and 350,784 bytes read as words, the experiment's emulator 606,949 calls of `name_byte` and 175,392 of `name_word`.
+- **Experiments**, each a diff in the scratchpad (paths in the hand-back), on the emulated B+128 from the eight-bank image, every file of every compile the host's; the converted compiler compiled the *unchanged* sources, so its inputs were those of the baseline.
+
+### The census (measured)
+
+`python3 lathe/tests/with_census.py WORK MAP [--hist FILE...]` prints the tables below from a link's objects and map.
+
+| | The compiler (`*LATHE`) | The linker (`*LLINK`) |
+|---|---|---|
+| Resident part (code, stubs, constants copied to main RAM) | **11,849** | **9,829** |
+| Functions with a block whose block loops (or calls, inside it, one that loops) | 30: 3,777 bytes, 534 lines of source | 7: 2,248 bytes, 169 lines (6 of them `lk_tab`'s, which runs its chains once a link) |
+| Functions with a block, one access or a few, no loop | 37: 1,970 | 37: 2,362 |
+| Fixed only because they run inside a block, looping | 10: 844 (`fbuf.widen`, `count_use`, `walk_step`, `err.put_*`, `kernel.name_is_new`, `spelling_hash`...) | none |
+| Fixed only because they run inside a block, no loop | 31: 1,431 (`fbuf.emit_entry` 373, `src.advance`, `lex.fold`, `is_letter`...) | none |
+| So: "loop" functions, single-access functions | **4,621** and **3,401** (all 8,022 kept by the linker's rule) | **2,248** and **2,362** (721 kept by the rule; 3,889 are `lk_tab`'s, fixed because every phase calls it) |
+| The rest of the resident part | 3,827: stubs 1,638 (273), `bbc` 741, `rt_bbc` 407, constants 361, `rt_math` 348, `rt_frame` 171, `sys` 78, start-up 83 | 5,219 besides `lk_tab`'s blocks: the rest of `lk_tab` 1,828, `bbc` 690, `lk_out` 425, `lk_rec` 407, `rt_bbc` 407, stubs 384 (64), `rt_math` 290, constants 284, `lk_sym` 217, `lk_op` 122, `sys` 82, start-up 83 |
+| Blocks entered (the self-compile / the compiler's link) | 1,091,279: `rt_bbc.map` and `unmap` 76.9 million cycles, 8.8 % | 9,646,936: 681.4 million cycles, **19.7 %** |
+| Far calls | 505,751: `call` and `back` 104.2 million cycles, 11.9 % | 94,714: 19.5 million, 0.6 % |
+| Cycles in the resident part's own code | kept functions 384.7 million (44 % of the self-compile), `rt_bbc` 181.0, `bbc` 31.8, `rt_frame` 30.9, `rt_math` 20.6, `sys` 16.6 | `lk_tab` 858.3 million (25 %), `rt_bbc` 700.9, `lk_sym` 335.5, kept 284.0, `lk_rec` 270.3, `bbc` 158.3, `sys` 89.5 |
+
+The owner's count from the source (69 and 25 functions, about 490 lines; 44 and 7, 160 lines) is close: the linked build has 67 functions with a block in the compiler, 30 of them looping, and 44 and 7 in the linker. A block from fixed code costs about 88 cycles on the B+128 (70 in `rt_bbc`, the rest the `LDA #bank`, the two calls and the temporary), as against 24 all in one.
+
+Every function, with the calls and the cycles of its own code (not its callees') in the self-compile and in the compiler's link. *Region* is the region of its own blocks, or for a function kept only for running inside blocks, every region of the blocks it is reached inside (the error path, `err`, is reached inside four). *Loops (all of it inside)*: kept only for running inside a block, and loops. A count of 0: never entered in that run.
+
+
+**The compiler** (the self-compile, 18 compiles):
+
+| Function | Bytes | Region | Kept for | Loop | Calls | Own cycles |
+|---|---|---|---|---|---|---|
+| `err.position` | 21 | STRING, WANTS | inside | - | 146,184 | 4,970,256 |
+| `err.put_decimal` | 92 | FUNCBUF, NAMES, STRING, WANTS | inside | loops (all of it inside) | 0 | 0 |
+| `err.put_place` | 106 | FUNCBUF, NAMES, STRING, WANTS | inside | loops (all of it inside) | 0 | 0 |
+| `err.put_text` | 89 | FUNCBUF, NAMES, STRING, WANTS | inside | loops (all of it inside) | 0 | 0 |
+| `err.put_char` | 5 | STRING | inside | - | 0 | 0 |
+| `err.fatal_end` | 10 | FUNCBUF, NAMES, STRING, WANTS | inside | - | 0 | 0 |
+| `err.fatal_start` | 72 | FUNCBUF, NAMES, STRING, WANTS | inside | loops (all of it inside) | 0 | 0 |
+| `err.fatal` | 9 | FUNCBUF, NAMES, STRING, WANTS | inside | - | 0 | 0 |
+| `kernel.token_start` | 16 | TOKENS | block | - | 18 | 378 |
+| `kernel.token_byte` | 20 | TOKENS | block | - | 1,187 | 35,610 |
+| `kernel.set_token_byte` | 24 | TOKENS | block | - | 678 | 25,086 |
+| `kernel.path_add` | 38 | NAMES | inside | - | 1,794 | 98,670 |
+| `kernel.get` | 121 | TOKENS | block+inside | - | 663,021 | 49,750,473 |
+| `kernel.put` | 16 | FUNCBUF, NAMES, OUTTAB | inside | - | 382,888 | 8,806,424 |
+| `kernel.put_word` | 14 | FUNCBUF, OUTTAB | inside | - | 85,954 | 1,805,034 |
+| `kernel.name_word` | 69 | NAMES | block+inside | - | 47,073 | 4,742,646 |
+| `kernel.name_set_word` | 58 | NAMES | block+inside | - | 21,911 | 1,862,435 |
+| `kernel.name_byte` | 31 | NAMES | block | - | 26 | 1,220 |
+| `kernel.name_set_byte` | 35 | NAMES | block | - | 30 | 1,590 |
+| `kernel.name_begin` | 37 | NAMES | inside | - | 60,273 | 2,900,621 |
+| `kernel.name_add` | 80 | NAMES | block | - | 147,066 | 18,236,326 |
+| `kernel.name_is_new` | 62 | NAMES, WANTS | inside | loops (all of it inside) | 168,379 | 17,261,561 |
+| `kernel.name_end` | 250 | NAMES | block+inside | loops | 44,687 | 23,665,428 |
+| `kernel.name_length` | 31 | NAMES | block | - | 12,190 | 572,022 |
+| `kernel.name_char` | 54 | NAMES | block | - | 26,242 | 2,123,573 |
+| `kernel.name_token` | 31 | NAMES | block | - | 42,685 | 2,002,222 |
+| `kernel.name_set_token` | 35 | NAMES | block+inside | - | 900 | 47,700 |
+| `kernel.names_release` | 86 | NAMES | block | loops | 824 | 3,556,498 |
+| `kernel.path_add_name` | 56 | NAMES | block | loops | 196 | 44,159 |
+| `kernel.put_name` | 71 | NAMES | block | loops | 3,502 | 1,090,877 |
+| `kernel.byte_of` | 52 | SYMS | block | - | 14,055 | 1,118,557 |
+| `kernel.word_of` | 60 | SYMS | block | - | 83,070 | 7,998,082 |
+| `kernel.set_byte` | 59 | SYMS | block | - | 57,561 | 5,065,368 |
+| `kernel.set_word` | 71 | SYMS | block | - | 35,788 | 3,900,892 |
+| `kernel.scope_of` | 31 | SYMS | block | - | 41,933 | 1,943,017 |
+| `kernel.kind_of` | 31 | SYMS | block | - | 128,354 | 5,985,641 |
+| `kernel.flags_of` | 31 | SYMS | block | - | 94,128 | 4,414,997 |
+| `kernel.type_of` | 31 | SYMS | block | - | 18,509 | 851,928 |
+| `kernel.params_of` | 31 | SYMS | block | - | 17,847 | 828,456 |
+| `kernel.value_of` | 45 | SYMS | block | - | 16,865 | 1,198,203 |
+| `kernel.member_type_of` | 31 | SYMS | block | - | 55,721 | 2,588,872 |
+| `kernel.member_value_of` | 31 | SYMS | block | - | 2,864 | 132,958 |
+| `kernel.chain_walk` | 80 | SYMS | block | loops | 15,171 | 972,945 |
+| `kernel.spelling_hash` | 57 | NAMES | inside | loops (all of it inside) | 3,106 | 1,941,116 |
+| `kernel.same_spelling` | 102 | NAMES | block | loops | 4,637 | 377,844 |
+| `kernel.built_is` | 56 | NAMES | block+inside | calls one that loops | 2,332 | 185,818 |
+| `kernel.name_hash` | 33 | NAMES | block | calls one that loops | 3,106 | 152,194 |
+| `kernel.member_add` | 100 | SYMS | block | - | 2,610 | 347,322 |
+| `fbuf.entry_runs_on` | 65 | FUNCBUF | inside | - | 35,083 | 2,770,660 |
+| `fbuf.end_entry` | 174 | FUNCBUF | block | loops | 34,492 | 13,252,983 |
+| `fbuf.set_symbol` | 41 | FUNCBUF | block | - | 71 | 4,473 |
+| `fbuf.new_label` | 73 | FUNCBUF | block | - | 3,009 | 291,873 |
+| `fbuf.same` | 21 | FUNCBUF | inside | loops (all of it inside) | 32,206 | 779,060 |
+| `fbuf.join` | 63 | FUNCBUF | block | - | 70 | 7,210 |
+| `fbuf.is_used` | 32 | FUNCBUF | block | calls one that loops | 2,579 | 118,645 |
+| `fbuf.use_label` | 30 | FUNCBUF | block | calls one that loops | 3,518 | 154,792 |
+| `fbuf.skips_jump` | 51 | FUNCBUF | inside | - | 5,836 | 167,332 |
+| `fbuf.skips_nothing` | 59 | FUNCBUF | inside | - | 2,902 | 125,595 |
+| `fbuf.tidy` | 281 | FUNCBUF | block | calls one that loops | 2,929 | 567,938 |
+| `fbuf.tail_call` | 95 | FUNCBUF | block | - | 1,083 | 97,850 |
+| `fbuf.runs_on` | 45 | FUNCBUF | block | - | 4,064 | 264,160 |
+| `fbuf.thread` | 283 | FUNCBUF | block+inside | loops | 752 | 5,362,526 |
+| `fbuf.entry_size` | 34 | FUNCBUF | inside | - | 288,958 | 6,107,806 |
+| `fbuf.code_size` | 65 | FUNCBUF | inside | - | 116,863 | 5,938,296 |
+| `fbuf.layout` | 126 | FUNCBUF | block+inside | loops | 797 | 4,358,384 |
+| `fbuf.target` | 47 | FUNCBUF | block+inside | calls one that loops | 13,663 | 833,443 |
+| `fbuf.reaches` | 61 | FUNCBUF | inside | - | 3,469 | 197,905 |
+| `fbuf.widen` | 147 | FUNCBUF | inside | loops (all of it inside) | 797 | 4,500,051 |
+| `fbuf.has_zero_page_form` | 59 | FUNCBUF | inside | - | 60,291 | 1,536,204 |
+| `fbuf.find_loops` | 231 | FUNCBUF | block+inside | loops | 752 | 5,050,260 |
+| `fbuf.use_weight` | 88 | FUNCBUF | block+inside | loops | 1,565 | 786,913 |
+| `fbuf.count_use` | 127 | FUNCBUF | inside | loops (all of it inside) | 1,565 | 254,947 |
+| `fbuf.emit` | 20 | FUNCBUF | inside | - | 243,765 | 8,045,640 |
+| `fbuf.fix` | 50 | FUNCBUF | inside | - | 63,495 | 4,635,135 |
+| `fbuf.emit_jump` | 13 | FUNCBUF | inside | - | 1,305 | 22,185 |
+| `fbuf.emit_to` | 42 | FUNCBUF | inside | - | 1,527 | 93,147 |
+| `fbuf.emit_entry` | 373 | FUNCBUF | inside | - | 103,257 | 21,151,254 |
+| `fbuf.walk_begin` | 13 | FUNCBUF | inside | - | 2,256 | 49,632 |
+| `fbuf.walk_step` | 71 | FUNCBUF | inside | loops (all of it inside) | 97,335 | 10,722,372 |
+| `fbuf.put_fixups` | 95 | FUNCBUF | block | loops | 752 | 2,716,084 |
+| `fbuf.put_code` | 56 | FUNCBUF | block | loops | 752 | 3,986,553 |
+| `fbuf.finish` | 153 | FUNCBUF | block | loops | 752 | 1,147,631 |
+| `src.next_byte` | 20 | STRING | inside | - | 888 | 31,080 |
+| `src.advance` | 68 | NAMES, STRING | inside | - | 522,618 | 31,546,240 |
+| `lex.string_byte` | 31 | STRING | block | - | 6,164 | 288,722 |
+| `lex.init` | 179 | NAMES | block | loops | 18 | 609,804 |
+| `lex.fail_here` | 22 | STRING | inside | - | 0 | 0 |
+| `lex.fold` | 15 | NAMES, STRING | inside | - | 560,316 | 9,940,654 |
+| `lex.is_letter` | 19 | NAMES | inside | - | 345,787 | 9,859,659 |
+| `lex.digit_value` | 40 | STRING | inside | - | 7,118 | 207,648 |
+| `lex.name_or_keyword` | 144 | NAMES | block | loops | 42,649 | 32,955,934 |
+| `lex.hex_digit` | 25 | STRING | inside | - | 0 | 0 |
+| `lex.escape` | 129 | STRING | inside | - | 159 | 14,954 |
+| `lex.literal_char` | 30 | STRING | inside | - | 6,164 | 212,242 |
+| `lex.string_token` | 82 | STRING | block | loops | 158 | 455,275 |
+| `lex.error_directive` | 122 | STRING | block | loops | 0 | 0 |
+| `lex.saved_token` | 185 | STRING | block | loops | 348 | 36,897 |
+| `out.data_byte` | 8 | OUTTAB | inside | - | 6,647 | 73,117 |
+| `out.table_begin` | 78 | OUTTAB | block | loops | 46 | 309,681 |
+| `out.table_byte` | 35 | OUTTAB | block | - | 6,346 | 336,338 |
+| `out.table_fix` | 91 | OUTTAB | block | - | 4 | 508 |
+| `out.table_end` | 275 | OUTTAB | block | loops | 46 | 335,821 |
+| `decl.add_want` | 167 | WANTS | block | loops | 1,515 | 1,543,377 |
+| `decl.listed` | 31 | WANTS | block+inside | - | 9,371 | 296,353 |
+| `decl.not_exported` | 42 | WANTS | block+inside | - | 0 | 0 |
+| `decl.wanted` | 174 | WANTS | block | loops | 7,854 | 5,830,732 |
+| `decl.pending` | 214 | WANTS | block | - | 30 | 66,280 |
+| `decl.check_found` | 41 | WANTS | block | loops | 96 | 48,522 |
+
+**The linker** (its link of the compiler; `lk_tab`'s functions are fixed with their module, the rest kept by the rule):
+
+| Function | Bytes | Region | Kept for | Loop | Calls | Own cycles |
+|---|---|---|---|---|---|---|
+| `lk_tab.wk` | 111 | LKNODES, LKWORK | block+inside, fixed module | - | 732,362 | 65,911,554 |
+| `lk_tab.set_wk` | 99 | LKNODES, LKWORK | block+inside, fixed module | - | 808,258 | 68,734,731 |
+| `lk_tab.new_func` | 166 | LKCALLS | block, fixed module | - | 816 | 204,849 |
+| `lk_tab.new_slot` | 172 | LKSLOTS | block, fixed module | - | 2,474 | 366,247 |
+| `lk_tab.run_start` | 79 | LKCALLS | block, fixed module | - | 284,862 | 27,271,892 |
+| `lk_tab.run_end` | 118 | LKCALLS | block, fixed module | - | 814,201 | 104,795,332 |
+| `lk_tab.add_own` | 251 | LKCALLS | block, fixed module | loops | 3,146 | 1,918,670 |
+| `lk_tab.add_waiting` | 315 | LKCALLS | block, fixed module | loops | 21 | 23,265 |
+| `lk_tab.head_of` | 75 | LKCALLS | block, fixed module | - | 5,543 | 508,402 |
+| `lk_tab.set_head` | 82 | LKCALLS | block, fixed module | - | 3,372 | 354,060 |
+| `lk_tab.build_chains` | 792 | LKCALLS | block, fixed module | loops | 1 | 457,052 |
+| `lk_tab.add_edge` | 258 | LKCALLS | block, fixed module | loops | 255 | 255,965 |
+| `lk_tab.chains_to_runs` | 380 | LKCALLS | block, fixed module | loops | 1 | 829,934 |
+| `lk_tab.edge_at` | 45 | LKCALLS | block, fixed module | - | 3,135 | 227,233 |
+| `lk_tab.set_edge_at` | 48 | LKCALLS | block, fixed module | - | 3,135 | 241,395 |
+| `lk_tab.edge_sym` | 62 | LKCALLS | block, fixed module | - | 1,322,574 | 124,976,946 |
+| `lk_tab.edge_flag` | 53 | LKCALLS | block, fixed module | - | 12,078 | 999,458 |
+| `lk_tab.slot_bytes` | 141 | LKSLOTS | block, fixed module | loops | 245,278 | 19,230,908 |
+| `lk_tab.slot_weight_of` | 31 | LKSLOTS | block, fixed module | - | 699,685 | 32,618,184 |
+| `lk_tab.set_slot_weight` | 35 | LKSLOTS | block, fixed module | - | 690 | 36,570 |
+| `lk_tab.set_slot_zp` | 35 | LKSLOTS | block, fixed module | - | 96 | 5,204 |
+| `lk_tab.flip_slot_zp` | 35 | LKSLOTS | block, fixed module | - | 6,297 | 341,549 |
+| `lk_tab.slot_class` | 37 | LKSLOTS | block, fixed module | - | 11,990 | 674,280 |
+| `lk_tab.slot_in_zp` | 35 | LKSLOTS | block, fixed module | - | 171,700 | 8,619,741 |
+| `lk_tab.new_node` | 118 | LKNODES, LKWORK | block, fixed module | - | 0 | 0 |
+| `lk_tab.own_of` | 59 | LKWORK | block, fixed module | - | 1,666,674 | 41,666,850 |
+| `lk_tab.ctx_of` | 43 | LKNODES | block, fixed module | - | 915,503 | 59,204,404 |
+| `lk_tab.zbase_of` | 42 | LKNODES | block, fixed module | - | 49,935 | 3,131,145 |
+| `lk_tab.set_zbase` | 82 | LKNODES | block, fixed module | - | 789 | 102,314 |
+| `lk_tab.mbase_of` | 49 | LKNODES | block, fixed module | - | 49,935 | 3,817,833 |
+| `lk_tab.slot_is_param` | 41 | LKSLOTS | block, fixed module | - | 0 | 0 |
+| `lk_name.local_at` | 45 | LKLOCAL | block | - | 5,329 | 381,281 |
+| `lk_name.set_local` | 48 | LKLOCAL | block | - | 7,397 | 569,569 |
+| `lk_name.global_sym` | 98 | LKLOCAL | block | - | 139,833 | 19,125,578 |
+| `lk_graph.scc_of` | 45 | LKWORK | block | - | 1,275,083 | 92,554,277 |
+| `lk_graph.order_at` | 45 | LKWORK | block | - | 748,641 | 54,340,133 |
+| `lk_graph.seen_of` | 45 | LKWORK | block | - | 4,997 | 362,239 |
+| `lk_graph.low_of` | 45 | LKWORK | block | - | 1,242 | 90,024 |
+| `lk_alloc.base_of` | 45 | LKWORK | block | - | 393,846 | 28,432,518 |
+| `lk_alloc.end_of` | 47 | LKWORK | block | - | 17,821 | 1,326,931 |
+| `lk_alloc.size_of` | 45 | LKWORK | block | - | 312,480 | 22,606,944 |
+| `lk_alloc.down_of` | 47 | LKWORK | block | - | 330,301 | 24,630,965 |
+| `lk_fix.shrinks` | 55 | LKWORK | block+inside | - | 252,073 | 18,710,463 |
+| `lk_fix.removed_before` | 111 | LKWORK | block | loops | 6,585 | 20,848,602 |
+
+### Experiments (measured)
+
+On the emulated B+128 from the eight-bank image, the self-compile (18 compiles, ROM form) or a link, every file the host's:
+
+| Experiment | What changed | Result |
+|---|---|---|
+| Baseline | the tree at a46df62 | self-compile **876,992,789** cycles; the compiler's link 3,463,370,865 |
+| E1: per-access accessors for kernel's name heap and symbol table | the twin's `name_end`, `name_is_new`, `names_release`, `path_add_name`, `put_name`, `spelling_hash`, `same_spelling`, `built_is`, `name_hash` and `chain_walk` read the heap and the columns only through `name_byte`, `name_word`, `name_set_*`, `name_length`, `name_char`, `scope_of`, `word_of` (as the host does already), and LEX's name loop calls `name_add` a character instead of one block a name: none has a block, so all of them are code of kernel's and LEX's bank | **989,214,227 (+12.8 %)**; blocks 1,091,279 to 1,962,909 (+871,630), so **129 cycles for each access that becomes an accessor's block**; resident part 11,849 to 11,145 (−704); the image's free bytes 5,815 to 6,045 |
+| E1b: the same, the hot two kept | E1 with `name_end`, `name_is_new`, `built_is` and LEX's loop as they were: the eight cold functions only | **885,407,353 (+0.96 %)**; resident part 11,358 (−491) |
+| Two banks | `lathec-bbc.env` with the regions in two slots (12: `NAMES`, `FUNCBUF`, `STRING`, 16,128 bytes; 13: `SYMS`, `OUTTAB`, `WANTS`, 16,240) and `TOKENS` in main RAM, the split at `$4900`; the emulator with `--bbc-sideways-ram 12,13` | the full compiler on a machine with **32 KB of sideways RAM: 876,983,721**, the same as with four; every file the host's |
+| E2: blocks patched to nothing | the linker's 32K build (every region in main RAM; each block maps slot 0 for nothing), its resident part patched as a copier would for a machine with no sideways RAM: each `JSR rt_with.map` and `JSR unmap` three NOPs, each `JMP unmap` an RTS (109 places); lextest linked | 157,323,854 to **145,231,950 (−7.7 %)**, the host linker's files; 180,743 blocks, so **67 cycles saved a block** |
+| Capacities and objects | the host compiler at full size and at the small build's capacities, on every module the end-to-end cases import that both compile | **62 modules, every object and interface the same**: what a machine's capacities decide is whether a module compiles, not what it compiles to |
+
+**Extrapolated from them.** With every access of the compiler's loops through an accessor (design (a) below), the host's counts give 3.68 million accessor blocks where there are 1.09 million: E1 measured 0.87 million of the 2.59 million more, and the rest at E1's 129 cycles is about 222 million: **about 1,211 million for the self-compile, +38 %** (FUNCBUF 1.47 million blocks more, WANTS 0.22, the rest little; the symbol table nothing, since every access of it is through an accessor already). Kept by size of what they save (cycles saved a byte of main RAM, from the same counts), the compiler's looping functions are steeply unequal:
+
+| Kept in main RAM with its block (and what runs inside it) | Bytes | Blocks it saves | Cumulative bytes | What is left of the +38 % |
+|---|---|---|---|---|
+| `kernel.name_end` with `name_is_new` | 312 | 538,000 | 312 | |
+| LEX's name loop (`name_or_keyword` with `src.advance`, `fold`, `is_letter`) | 246 | 319,000 | 558 | |
+| `decl.wanted` | 174 | 165,000 | 732 | |
+| `fbuf.layout` with `entry_size`, `code_size` | 225 | 205,000 | 957 | |
+| `fbuf.put_fixups` with `emit_entry` and nine more | 877 | 531,000 | 1,834 | |
+| `fbuf.thread` | 283 | 145,000 | 2,117 | about +6 % |
+| `decl.add_want`, `kernel.name_hash`, `fbuf.finish`, `end_entry` (with the error path) | 1,019 | 318,000 | 3,136 | about +2.4 % |
+| the other 18 | 2,916 | 78,000 | 6,052 | 0 |
+
+E1b measured the cold end of this: eight functions, 491 bytes of main RAM for +1 %.
+
+### What decides the designs
+
+1. **Every reference to a region is in the resident part.** A region's names may appear only inside its blocks (error 118), and the linker keeps in fixed memory every function with a block and all that runs inside one, so no code in a ROM bank names a region (checked on the links: the only such fix-ups outside fixed code are three in `fbuf.walk_next`, which the compiler's link does not keep). The places: the compiler **291** fix-ups that name a variable of a region, and 145 block calls (`JSR rt_with.map` 69, `JSR unmap` 22, `JMP unmap` 54); the linker 194 and 109. The module copies the resident part from the ROM at every command, so all of these can be set as it is copied: that is the mechanism of everything below, and costs no cycles after the start.
+2. **What cannot move**: code, and every variable that banked code names: the ROM's code has their addresses. In the compiler that is `kernel.text` (2,048), REG's slot columns (1,536) and every other table not in a region (9,874 bytes of variables, 10,388 with the frames); in the linker the functions', variables' and classes' columns (about 10.5 KB at full size: `fn_slot` 1,792, `def_a` and `def_b` 1,600 each, `fn_flags`, `fn_ctx`, `fn_class` 896 each, `def_f` 800, the classes' 1.2 KB), read directly by nine modules in four banks.
+3. **Code with a block must run from main RAM when its region is in sideways RAM**, and on a machine with none, the 8 KB of the compiler's kept code is 8 KB of tables lost. That one fact separates the bare Model B from every machine with a bank.
+
+### The designs, machine by machine
+
+Main RAM for tables is what is left of PAGE to HIMEM and `$0401-$06FF` once the fixed part (the resident part, and the variables and frames that cannot move, 10,388 bytes for the compiler and 13,067 for the linker) is placed; the fixed part is linked from `$1F00` in every design here, so that one image serves PAGE `$1900` and `$1F00` ("PAGE", below). Capacities are each region table at the same fraction of its full size, packed whole into the room there is (worked out; the full compiler needs 34,416 bytes of region tables, the full linker 43,248). Machines (from memory, unverified: PAGE `$1900` with the DFS on a Model B and a B+, `$1F00` with ADFS and the DFS, `$0E00` on a Master, whose filing systems use its own hidden RAM; HIMEM `$7C00` in mode 7, `$8000` in a shadow mode on a B+ or a Master): **B** a 32K Model B with the DFS; **B1**, **B2** the same with one and two 16 KB banks; **B+** the B+128, four banks, the DFS; **M** a Master 128, four banks (4 to 7), shadow screen.
+
+**The compiler.**
+
+| Design | | B (no SWR) | B1 | B2 | B+ (DFS; ADFS+DFS) | M (shadow) |
+|---|---|---|---|---|---|---|
+| **(b) Today's structure, placed at run time** (the owner's hybrid as it stands: every loop in main RAM, single accesses through the accessors there are, each switching or not) | main RAM: code / for tables | 11,849 / 3,874 | 11,849 / 3,874 | 11,849 / 3,874 | 11,849 / 3,874; 2,338 | 11,849 / 7,714 |
+| | sideways RAM for tables | 0 | 16,352 | 32,704 | 65,408 | 65,408 |
+| | capacities (fraction of full: names, symbols, function buffer) | 0.11: 1,017, 61, 452 (nothing useful) | 0.57: 5,248, 318, 2,332 | **1.00** (measured, above) | 1.00, 34.9 KB to spare | 1.00, 38.7 KB to spare |
+| | cycles, the self-compile | (a compile, had it the room: blocks patched, about −8 %) | about 877 million | **877.0 million (measured)** | **877.0 million (measured)** | about 870 million (the tables that fit main RAM unbanked) |
+| **(a) Thin accessors in main RAM for every access, all logic in the ROM** | main RAM: code / for tables | about 6,100 / 9,623 | 6,100 / 9,623 | / 9,623 | / 9,623; 8,087 | / 13,463 |
+| | capacities | 0.28: 2,545, 154, 1,131 (the 32K image: 3,072, 264, 1,536) | 0.73: 6,772, 411, 3,009 | 1.00 | 1.00 | 1.00 |
+| | cycles | a compile about 10 % slower than on the B+128 today (blocks patched; 960 million for the 18, had they fitted) | **about 1,211 million (+38 %)**: 112 measured, 222 extrapolated | 1,211 | 1,211 | 1,211 |
+| **(b′) The hybrid as costed: (a), with the six hottest loops kept** (2.1 KB) | main RAM: code / for tables | about 8,200 / 7,523 | / 7,523 | / 7,523 | / 7,523; 5,987 | / 11,363 |
+| | capacities | 0.22: 2,006, 121, 891 | 0.68: 6,272, 381, 2,787 | 1.00 | 1.00 | 1.00 |
+| | cycles | | about 935 million (+6.6 %) | 935 | 935 | 935 |
+| **(c) Hot tables fixed in main RAM on every machine, the bulk adaptive** | | The hot tables of the compiler are the large ones: by blocks, `SYMS` 584,000 (10.5 KB), `NAMES` 400,000 (9.2 KB), `FUNCBUF` 72,000 (4.9 KB); the small ones are cold (`WANTS` 19,000, `OUTTAB` 6,400, `STRING` 6,700, `TOKENS` about 3,000). Fixing the four small ones (9.8 KB) in main RAM would let 2.0 KB of their functions leave it: 7.8 KB lost. **Does not pay as a rule.** As a policy of (b) it is free: the start-up puts in main RAM whatever fits, hottest first, and its blocks become nothing (on M with (b), `FUNCBUF` and `WANTS`: about 6 million cycles, 0.7 %; with (a), `SYMS`: about 39 million of its 1,211) | | | | |
+
+**The linker.**
+
+| Design | | B (no SWR) | B1 | B2 | B+ (DFS; ADFS+DFS) | M (shadow) |
+|---|---|---|---|---|---|---|
+| **(b) Today's structure, placed at run time** | main RAM: code / for tables | 9,829 / 3,215 | 9,829 / 3,215 | 9,829 / 3,215 | 9,829 / 3,215; 1,679 | 9,829 / 7,055 |
+| | sideways RAM for tables | 0 | 16,352 | 32,704 | 65,408 | 65,408 |
+| | capacities (nodes, symbols in objects, slots, calls) | 0.07 (nothing useful; the 32K build has 300 nodes) | 0.43: 391, 1,739, 1,739, 1,565 (outtest, regtest) | 0.74: 668, 2,973, 2,973, 2,675 in proportion; the compiler's own link needs 799 nodes but only 2,014 symbols and 2,438 slots, and with the start-up's balance set for it, about 33.4 KB of the 35.9 (worked out) | 1.00, 25 KB to spare | 1.00 |
+| | cycles, the compiler's link | (a link, had it the room: blocks patched, about −19 %) | | | **3,463 million (measured)** | 3,463; about 74 million fewer with `LKNODES` (3.6 KB, 1.1 million blocks) in main RAM, which fits a Master's or a shadow B+'s |
+| **(a) / (b′)** | | The linker is (a) already: its loops in blocks are `lk_tab`'s chains (once a link) and two small ones, and its accessors are what is hot (`own_of` 1.67 million calls, `edge_sym` 1.32 million, `scc_of` 1.28 million, `wk` and `set_wk` 1.54 million). Nothing to gain. | | | | |
+| **For B, its columns placed at run time too** | | the functions', variables' and classes' columns (10.5 KB) behind accessors or a base: about 13.7 KB for 53.7 KB of tables, 0.26: about 229 functions, against the 32K build's 296 | | | | |
+
+**ROM, against the 128 KB.** The image has 5,815 bytes free on the tree measured (with the error texts in a file; about 2,000 once the texts are in the module, the other branch). Every design needs the lists for the copier, about 740 entries (436 for the compiler, 303 for the linker), 2 bytes each packed, about 1.5 KB, and the start-up's placement and probing, about 1 KB (estimated): **about 2.5 KB for (b)**, which fits the 5,815 and needs the lists packed tighter (about 1.2 bytes an entry) to fit the 2,000. (a) moves about 6 KB of code from the resident part's copy into the banks, which E1 shows costs nothing in bytes (−230 net there), but the compiler's banks then need the 32K form's packing (the other branch: 80.8 of 81.4 KB as judged, with `fold` resident; about 2 KB less with the accessors resident). (b′) is (b) plus a few hundred bytes.
+
+**Two forms, or the ROM run in place.** Code linked to run in main RAM cannot run from the ROM, and the ROM cannot be patched, so code that is resident on one machine and in a bank on another is two copies: about 8 KB more for the compiler's kept code (the image does not have it), or about 2.1 KB for (b′)'s hot loops alone, kept in a bank as well and reached through vectors in main RAM that the start-up points at one or the other (3 cycles a call; a far call from another bank on B). That gives B (a)'s capacities and the others (b′)'s speed, for new machinery in the linker (one function in two forms, with and without its blocks, and the vectors). Not worth it for 0.06 of capacity on B.
+
+**What is better than all of them for B: RAM on the module's board** (`bbc.md`, "The linker on a 32K BBC", suggestion 1): a 32 KB RAM behind the latch makes the bare Model B a machine with two banks, which (b) serves at full size. With it, one ROM is every BBC.
+
+### Placed and sized at run time
+
+**How a table gets its place.** Two ways, both measured from the census's sites:
+
+| | Relocation as the resident part is copied (chosen) | A base in a variable |
+|---|---|---|
+| The code | unchanged: the same object files | the compiler, with an option like `-f` (`-dREGION`), forms each address from a base variable: `ADC base+1` for `ADC #>table`, `LDA slot` for `LDA #bank` |
+| Cycles an access | **0** | +2 a high byte (kind 8, 1.45 million in the self-compile, 10.1 million in the link), +2 a slot (1.09 and 9.65 million), +2 a pointer made (kinds 2 and 3, 0.82 million); a table of 256 rows or fewer read `LDA table,X` (kinds 1 and 5, 0.42 million, 42 places in the compiler) needs `(zp),Y`, a zero-page pointer each, which must not be what decides whether it links: about 7 million cycles for the compiler (0.8 %), 40 million for the linker (1.2 %) |
+| Bytes | the lists in the ROM (about 1.5 KB) | about 300 bytes of resident code a tool |
+| What it needs | the linker to list, for the resident part, every fix-up naming a variable of a `dynamic` region and every block call; the copier (or the tool's start) to apply them | the compiler option and the variables |
+
+Which tables are already reached cheaply: all the large ones. A table of more than 256 rows is read through a pointer that the code forms as `LDA #<t`, `STA p`, `LDA i+1`, `CLC`, `ADC #>t`, `STA p+1`, `LDY i`, `LDA (p),Y` (kinds 7 and 8, the commonest sites above): its base is two immediate bytes, whichever way it is set. The symbol table's columns are found through `byte_base` and `word_base`, which `kernel.init` fills, so their row count can be a variable at no cost; the name heap, the function buffer, the string, the saved tokens and OUT's table are one array each, indexed by 16-bit offsets. The small ones (`fbuf`'s labels, OUT's fix-up columns, DECL's import rows: 2,368 bytes) are read `LDA t,X`, so they keep their row counts and move whole.
+
+**Which should be dynamic**: every region of both tools (the compiler's 22 variables, the linker's 9), each placed by the start-up. Fixed: everything banked code names (above). On B that is the limit (b) runs into; making `kernel.text` dynamic (main RAM only, since the MOS reads names from it) would give the compiler about 1.3 KB there, and the linker's columns would need what the last row of its table says.
+
+**What the source looks like.** The declarations stay (`var names: [NAME_HEAP_SIZE]byte in NAMES`, at the largest size the image allows); the regions are given in the environment as `region NAMES dynamic` (a new form, for the BBC's environments only). The capacities reach the checks through variables: each limit a check reads (`NAME_HEAP_SIZE`, `MAX_SYMS`, `BUFFER_SIZE`, `MAX_STRING`, `MAX_TABLE`, `MAX_MEMBERS`, `MAX_WANTS` in the compiler, 57 lines of the twins; `MAX_NODES` and what is derived from it, `MAX_EDGES`, `MAX_SLOTS`, `MAX_FIXES` in the linker, 81 lines, where the work area's column offsets `W_*` are products of `MAX_NODES` and become variables `lk_tab.init` sets) is a variable set from a table the start-up fills before `$init`, under `#if DYNAMIC` in the twin, with the host's variables set to the constants so that the two stay alike; a check then costs `CMP abs` for `CMP #`, a byte and two cycles. Nothing about it changes an object file, so the same source gives the same object whichever machine compiled it (and the capacities do not change it either: the experiment above).
+
+**What the linker and the environment need**: `region NAME dynamic` (placed at link time in the window as now, at its largest, so that every check of the link still holds); a list in the resident part of every fix-up there that names a variable of a dynamic region (offset, kind, which variable, addend) and every block call; and a table of the dynamic variables (size, row count, the capacity variable, whether main RAM only). The map would show them (`R` lines). Wendy 2's and the host's environments have no `dynamic` region, so their images and maps are byte for byte what they are, and so is every object file everywhere; only the BBC's images grow by the lists.
+
+**At the start**, for `*LATHE` and `*LLINK`, before the copy: read PAGE and HIMEM (OSBYTE 131 and 132), find the free sideways RAM (below), place the tables (the largest first, each whole: in a bank, or below the fixed base, or above the fixed part), set each one's capacity, then copy the resident part patching its sites: a table's address, a region's slot (`LDA #bank`), and for a region in main RAM its block calls (NOPs, or RTS for the tail `JMP`). About 740 sites at 40 cycles and the probing: about 50,000 cycles, against the 850,000 a start takes now (estimated).
+
+**PAGE, and HIMEM.** The fixed part is linked from `$1F00`, the highest PAGE the tools are built for; what is below it on a machine whose PAGE is lower, and what is above the fixed part to HIMEM, are areas the start-up places tables in:
+
+| Machine | PAGE | Below `$1F00` | Above the fixed part to HIMEM (compiler (b) / linker (b)) | With a shadow mode |
+|---|---|---|---|---|
+| Model B or B+, DFS | `$1900` | 1,536 | 2,338 / 1,679 | +1,024 (a B+, or a Model B with a shadow board) |
+| Model B or B+, ADFS and the DFS | `$1F00` | 0 | 2,338 / 1,679 | +1,024 |
+| ADFS alone | `$1D00` | 512 | 2,338 / 1,679 | +1,024 |
+| Master 128 | `$0E00` | **4,352** | 2,338 / 1,679 | +1,024 |
+
+So **one image serves `$1900` and `$1F00`**, and the separate ADFS build goes: the DFS machine loses nothing but the fragmentation of having its 3,874 bytes in two pieces (1,536 and 2,338), which tables of 2,048 and less fill (`TOKENS`, `STRING`, OUT's table, the import rows: worked out, nothing left unplaced on any machine above); a Master gains 2,816 bytes that no build uses today; the shadow screen's kilobyte comes for nothing, with no build of its own. The start-up refuses PAGE above `$1F00` with an error, as the 32K image refuses a mode without enough HIMEM.
+
+### Finding the RAM at start-up
+
+*From memory, unverified, but where the emulator shows it.* The MOS's ROM type table (OSBYTE 170 gives its address, `$02A1` on MOS 1.20) has a byte for each slot, 0 where no ROM was found at the last BREAK; OSBYTE 0 with X=1 gives the MOS (1 a Model B, 2 a B+, 3 a Master 128). The B+128's sideways RAM is slots 0, 1, 12 and 13, written through the window when its slot is selected; its 12 KB private RAM (`$8000-$AFFF`, ROMSEL bit 7) is for the MOS's and other ROMs' use, and not to be taken. The Master 128's is banks 4 to 7; MOS 3.20 marks a bank as data or as a ROM image with `*SRDATA` and `*SRROM`, and moves bytes with OSWORD &42 and &43 (`*SRREAD`, `*SRWRITE`, `*SRLOAD`); its hidden RAM (`$8000-$8FFF`, `$C000-$DFFF`) is the MOS's. The Model B's boards differ in how a write reaches their RAM: most take the write when their slot is selected (a RAM chip in a socket with a write line, or a board decoding ROMSEL); some (Solidisk's, some of Watford's) direct every write in the window to a bank chosen by a latch of their own, whatever is selected; some have write-protect switches. A probe through ROMSEL alone is safe on the first kind, finds nothing on the third, and on the second may write into another bank.
+
+**The policy proposed:**
+
+1. Never touch a slot the ROM type table marks, or one that holds a ROM header now (an image `*SRLOAD`ed since the last BREAK), or the module's own slot.
+2. On a Master, take banks 4 to 7 that pass 1, and if any are marked `*SRDATA`, only those. On a B+ (OSBYTE 0), slots 0, 1, 12 and 13 that pass 1.
+3. On a Model B, probe the slots that pass 1, from main RAM with interrupts off (the copier's room at `$0400`), `$F4` kept with ROMSEL: at one address, save the byte, write `$55` and read it, write `$AA` and read it, put the byte back. Two patterns, neither in `$80-$BF`, because an empty socket reads the open bus, which is often the high byte of the address just fetched. Before each write, read the same address in every slot the table marks; after it, read them again: if one changed, the board writes elsewhere, so put that byte back (writing it there again, where such a board sends it) and stop, with a message that the slots must be named.
+4. A user may name the slots (and so forbid probing), for instance with a word in a file the tools read at the start, or a `*` command of the module that keeps it until BREAK in a byte of the MOS's user workspace; on a Master the `*SRDATA` marks are that already.
+5. Say what was taken: `*LATHE` with no arguments (the usage) can print the slots and the capacities.
+
+What it cannot protect: data in a bank that holds no header and no mark (a user's own tables in sideways RAM). Today's tools take their four slots without asking (`bbc.md`, "Open, for the owner"); this is strictly safer.
+
+**What the emulator shows and does not.** It has `--bbc-sideways-ram LIST` (any slots of RAM; the two-bank run above used it), `--bbc-rom SLOT=FILE` (a ROM image, also in a slot of RAM), the ROM type table at `$02A1`, OSBYTE 170, `--bbc-page` (OSBYTE 131) and `--bbc-shadow` (OSBYTE 132 answers `$8000`), and the open bus as the last byte the data bus carried; so the policy's rules 1 to 3 for boards of the first kind, PAGE and HIMEM can all be tested there. It has no board of the second or third kind, no Master and its MOS, nothing of the B+'s private RAM's other users, and its MOS's table is what the tests and LOADMOD put in it.
+
+### The plan, and what I recommend
+
+| Stage | What | Machines it serves, and how | Cost |
+|---|---|---|---|
+| **1** | Run-time placement: `region NAME dynamic` in the linker and its twin, the relocation and block lists, the start-up's probing and placement, the copier's patching, capacities as variables (host and twin), the fixed part from `$1F00` | **one image for B1, B2, the B+128 (DFS or ADFS), the Master 128 (shadow or not)**: B2 and up at full capacities for the compiler (measured for B2), the linker full from three banks and about 0.74 to 0.83 of full with two; B1 at 0.57 and 0.43; the Master and the shadow screen's RAM used | ROM about 2.5 KB; main RAM 0 (the start-up is in a bank; the capacity variables about 40 bytes); cycles 0 after the start (about +50,000 at it); source: the capacities in about 140 lines of the twins and as many of the host, the linker's new output, a start-up module of a few hundred lines. **The ADFS build goes.** The 32K builds stay |
+| **2** | The compiler's cold loops through accessors, coldest first, each step measured (E1b is the first): of the 6,052 bytes of looping code and what runs inside it, all but the 3.1 KB that save the most (the table under "Experiments") | every machine gains about 2.9 KB of main RAM (B1 from 0.57 to about 0.65 of full), for about +2.4 % on the machines that bank, and nothing where blocks are patched away | source: blocks out of functions in `fbuf`, `decl`, `out`, `lex`, `kernel`, host and twin alike (the host is that way already in kernel's case); ROM about the same |
+| 3 (not recommended) | the bare Model B in the same image: the compiler at (a) or (b′), `kernel.text` and the linker's columns made dynamic | B at 0.22 to 0.28 of the compiler's tables and 0.26 of the linker's, below the 32K images' (about 0.35 and 0.33) | +6 to +38 % on every other machine, a large change to nine of the linker's modules |
+| instead of 3 | RAM on the module's board | the bare Model B as a machine with two banks, under stage 1 | hardware |
+
+**Recommended: stage 1, then stage 2 as far as it pays.** Stage 1 is the owner's idea where it is right: the tables find their own room, blocks cost nothing where nothing is banked, the banks are still used where they are, PAGE and HIMEM are read, and nothing in the language or the object format changes; its cost is ROM, which the image has. The owner's hybrid (loops in main RAM, single accesses through accessors that switch or not) is what the tools already are, so it needs no restructuring: stage 1 gives it the run-time half. Where the idea does not pay is the bare 32K Model B: the code that must be in main RAM wherever there is a bank is the code that must not be there when there is none, and only a second copy of it in the ROM, or slower code everywhere, reconciles the two; the 32K images are better for that machine than anything one image can give it.
+
+**Measured, extrapolated, from memory.** Measured: the census, its calls and cycles, the blocks and far calls, E1, E1b, the two-bank self-compile, E2, the capacities that do not change an object, the sites. Extrapolated: the cost of (a) and (b′) beyond E1 (from the host's access counts at E1's 129 cycles an access), the savings of patched blocks in the compiler and in the compiler's link (at E2's 67 cycles a block), the capacities of the designs (from the maps' sizes, packed in proportion), the ROM bytes of the lists and the start-up code, the start-up's cycles. From memory: PAGE and HIMEM on each machine, the MOS calls, the B+128's slots and private RAM, the Master's banks and commands, the Model B boards.

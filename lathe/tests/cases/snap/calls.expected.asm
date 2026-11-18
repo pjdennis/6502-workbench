@@ -7,18 +7,16 @@ abs_ff03 = $FF03
 abs_ff06 = $FF06
 
 ; function calls.one
-;   slot 0 n: size 1, class 1 (either), param, weight 1
+;   slot 0 n: size 1, class 1 (either), param, weight 0
 calls__one
-    STA calls__one__n
     STA calls__r
     RTS
 
 ; function calls.three
-;   slot 0 p: size 1, class 1 (either), param, weight 1
+;   slot 0 p: size 1, class 1 (either), param, weight 0
 ;   slot 1 q: size 2, class 1 (either), param, weight 2
 ;   slot 2 on: size 1, class 1 (either), param, weight 0
 calls__three
-    STA calls__three__p
     STA calls__r
     LDA calls__three__q
     STA calls__w
@@ -35,11 +33,9 @@ calls__double
     RTS
 
 ; function calls.sum
-;   slot 0 p: size 2, class 1 (either), param, weight 2
+;   slot 0 p: size 2, class 1 (either), param, weight 0
 ;   slot 1 q: size 2, class 1 (either), param, weight 2
 calls__sum
-    STA calls__sum__p
-    STX calls__sum__p+$01
     CLC
     ADC calls__sum__q
     TAY

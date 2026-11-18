@@ -1,21 +1,19 @@
 ; module func_types, cpu 6502
 
 ; function func_types.beep
-;   slot 0 code: size 1, class 1 (either), param, weight 1
+;   slot 0 code: size 1, class 1 (either), param, weight 0
 ;   slot 1 arg: size 2, class 1 (either), param, weight 0
 func_types__beep
-    STA func_types__beep__code
     CMP #$03
-    BEQ .L0008
+    BEQ .L0005
     CLC
-.L0008
+.L0005
     RTS
 
 ; function func_types.flash
-;   slot 0 c: size 1, class 1 (either), param, weight 1
+;   slot 0 c: size 1, class 1 (either), param, weight 0
 ;   slot 1 a: size 2, class 1 (either), param, weight 0
 func_types__flash
-    STA func_types__flash__c
     CLC
     RTS
 
@@ -40,10 +38,8 @@ func_types__handlers
     .byte >func_types__beep
 
 ; function func_types.take
-;   slot 0 h: size 2, class 1 (either), param, weight 2
+;   slot 0 h: size 2, class 1 (either), param, weight 0
 func_types__take
-    STA func_types__take__h
-    STX func_types__take__h+$01
     STA func_types__on_key
     STX func_types__on_key+$01
     RTS

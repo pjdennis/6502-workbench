@@ -432,6 +432,22 @@ class ReturnTest(support.GenTest):
 
 
 class FunctionTest(support.GenTest):
+    def test_a_slot_nothing_reads_has_no_stores_and_weighs_nothing(self):
+        n = self.local(BYTE, b'n')
+        gen.constant(BYTE, 5)
+        gen.store()
+        k = self.local(BYTE, b'k')
+        gen.constant(BYTE, 6)
+        gen.store()
+        gen.local(BYTE, k)
+        gen.load_result()
+        gen.ret()
+        # the result comes from A, which REG knows holds k: nothing loads either slot, so their
+        # stores go; the values are still worked out
+        self.assertEqual(self.listing(drop=True), ['LDA #$05', 'LDA #$06', 'RTS'])
+        slots = [r[1] for r in self.records() if r[0] == SLOT]
+        self.assertEqual([(s[3], s[-1:]) for s in slots], [(0, b'n'), (0, b'k')])
+
     def test_the_slots_are_written_parameters_and_locals_first_then_temporaries(self):
         reg.new_slot(1, reg.CLASS_EITHER, reg.SLOT_PARAMETER, name(b'p'))
         reg.push_register(WORD)
@@ -439,6 +455,8 @@ class FunctionTest(support.GenTest):
         n = reg.new_slot(2, reg.CLASS_ZP, reg.SLOT_LOCAL, name(b'n'))
         gen.local(WORD, n)
         reg.load(reg.A, 1, 0)
+        fbuf.as_written(True)               # as listing() does: the temporary's stores stay
+        fbuf.as_written(False)
         gen.function_end(out.FUNC_EXPORTED)
         self.assertEqual(support.decode(self.own), ['STA s2', 'STX s2+1', 'LDA zp:s1', 'RTS'])
         records = self.records()

@@ -107,10 +107,8 @@ columns__arrays_of_arrays
     RTS
 
 ; function columns.same
-;   slot 0 v: size 2, class 1 (either), param, weight 2
+;   slot 0 v: size 2, class 1 (either), param, weight 0
 columns__same
-    STA columns__same__v
-    STX columns__same__v+$01
     RTS
 
 ; function columns.in_registers

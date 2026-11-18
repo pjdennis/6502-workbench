@@ -584,8 +584,11 @@ class Costs(unittest.TestCase):
 # (configurations.md).
 FAR_CALL = 187
 FAR_CALL_BETWEEN_BANKS = 197
-WITH_BLOCK = (64, 24)               # (banked, all in one)
-WITH_BLOCK_FROM_A_BANK = (79, 24)
+# 2026-11-18: 3 more each, the store of get's parameter on entry, which the block needs (it
+# reads `i` after rt_with.map) and the version without a block no longer makes (nothing reads
+# the slot there: code-model.md, "Stores that nothing reads").
+WITH_BLOCK = (67, 27)               # (banked, all in one)
+WITH_BLOCK_FROM_A_BANK = (82, 27)
 
 
 if __name__ == '__main__':

@@ -108,8 +108,14 @@ class GenTest(unittest.TestCase):
         self.own = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'f'))
         gen.function_begin(self.own)
 
-    def listing(self):
-        """End the function and give its instructions."""
+    def listing(self, drop=False):
+        """End the function and give its instructions. These tests look at what GEN, REG and
+        COND write: unless `drop`, the function counts as one with an `asm` block, so that
+        FBUF keeps the stores that nothing in it reads (docs/code-model.md, "Stores that
+        nothing reads"), which in these small functions are most of them."""
+        if not drop:
+            fbuf.as_written(True)
+            fbuf.as_written(False)
         gen.function_end(0)
         return decode(self.own)
 

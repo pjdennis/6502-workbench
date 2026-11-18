@@ -9,7 +9,7 @@ banks; the capacities are the small build's with RAM32's own where they differ (
 The 32K image is the module's sixteen-bank form (scheme direct16): both tools' 32K forms with the
 texts of their errors (bbcrom.py, "The texts in the module") need one bank with 4,227 bytes free
 after its code for the module's code and the texts, and in the eight-bank form the fullest tools
-leave at most 3,230 (EightBanks, below).
+leave at most 3,357 (EightBanks, below; 3,230 before FBUF left out the stores nothing reads).
 
 What is tested here, by default:
 
