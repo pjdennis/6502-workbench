@@ -1,12 +1,13 @@
 ; The Lathe compiler's main program. lathe/host/lathec.py in Lathe.
 ;
-;     lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... SOURCE.lth OUTDIR [IMPORTDIR...]
+;     lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... [-fREGION]... SOURCE.lth OUTDIR [IMPORTDIR...]
 ;
 ; Compiles one module in one pass: SRC and LEX turn the file into tokens; DECL, STMT and EXPR
 ; parse them; GEN chooses instructions, which FBUF holds until each function ends; OUT writes the
 ; object file OUTDIR/name.lo, and DECL the interface OUTDIR/name.li. Owns the command line and
-; the order in which the components start. The options set the CPU the module is for and
-; predeclare constants for `#if` (lathe/host/README.md, "Command lines").
+; the order in which the components start. The options set the CPU the module is for,
+; predeclare constants for `#if`, and name the regions that are in fixed memory
+; (lathe/host/README.md, "Command lines").
 ;
 ; Where the Lathe differs from the Python:
 ;
@@ -42,6 +43,7 @@ import kernel (C_TYPE, C_VALUE, init, K_CONST, keep_argument, module_add, name_a
                name_end, name_token, SCOPE_PREDECLARED, set_byte, set_word, sym_add)
 import lex (fold, init, is_digit, is_letter)
 import out (end_module, init)
+import parts (fix_region)
 import src (init, open_file)
 import sys (argc, exit)
 import typetab (BOOL_TYPE, init, NUMBER_TYPE)
@@ -53,6 +55,7 @@ const C_UNDERSCORE = $5F
 const C_MINUS = $2D
 const C_C = $63
 const C_D = $64
+const C_F = $66
 const SOURCE_ENDING: [4]byte = ".lth"
 const CPU_6502 = "6502"
 const CPU_65C02 = "65c02"
@@ -153,9 +156,11 @@ func decimal(place: ^byte): word
   return n
 end
 
-; The text after `-d`: NAME, which predeclares the bool constant NAME as true, or NAME=NUMBER,
-; which predeclares it as that number, of no type yet.
-func define(place: ^byte)
+var name_stop: ^byte                ; option_name(): where the name stopped
+
+; The name at `place`, to the end of the text or an `=`, as a name of the name heap: a name the
+; language allows, not a keyword. name_stop is where it stops.
+func option_name(place: ^byte): word
   var ch: byte
   var name: word
   kernel.name_begin()
@@ -174,19 +179,40 @@ func define(place: ^byte)
   if kernel.name_token(name) != 0 then
     err.fatal(err.E_USAGE)              ; a keyword
   end
-  if place[0] == 0 then
+  name_stop = place
+  return name
+end
+
+; The text after `-d`: NAME, which predeclares the bool constant NAME as true, or NAME=NUMBER,
+; which predeclares it as that number, of no type yet.
+func define(place: ^byte)
+  var name: word
+  name = option_name(place)
+  if name_stop[0] == 0 then
     constant(name, typetab.BOOL_TYPE, 1)
   else
-    constant(name, typetab.NUMBER_TYPE, decimal(place + 1))
+    constant(name, typetab.NUMBER_TYPE, decimal(name_stop + 1))
   end
 end
 
-; One option, the text at `place`: -c6502, -c65c02, -dNAME or -dNAME=NUMBER.
+; The text after `-f`: REGION, a region in fixed memory (parts.fix_region).
+func fixed_region(place: ^byte)
+  var name: word
+  name = option_name(place)
+  if name_stop[0] != 0 then
+    err.fatal(err.E_USAGE)
+  end
+  parts.fix_region(name)
+end
+
+; One option, the text at `place`: -c6502, -c65c02, -dNAME, -dNAME=NUMBER or -fREGION.
 func option(place: ^byte)
   if place[1] == C_C then
     gen.cpu = cpu_option(place + 2)
   elif place[1] == C_D then
     define(place + 2)
+  elif place[1] == C_F then
+    fixed_region(place + 2)
   else
     err.fatal(err.E_USAGE)
   end

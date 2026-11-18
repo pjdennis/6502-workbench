@@ -376,6 +376,12 @@ UNREACHED = [
     ('case_constants', 'err.fatal(err.E_LABELS_FULL)'),
     # INLINE refuses `with` when it saves a body (inline.save()), so no expansion holds one.
     ('with_statement', 'err.fatal(err.E_INLINE_NOT_HERE)'),
+    # A block of a region the command line says is in fixed memory (lathec -fREGION): exprtest
+    # cannot say so, for it imports sixteen modules, the most a module may (error 73), and
+    # PARTS, which holds the regions, would be a seventeenth. test_src_lathec.py's -f inputs run
+    # these lines in the whole compiler, twin against host.
+    ('with_statement', 'if outer_region == 0:'),
+    ('with_statement', 'out.with_unmapped = True'),
 ]
 
 

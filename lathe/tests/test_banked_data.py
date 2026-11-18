@@ -23,13 +23,13 @@ class BankedDataTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.out = self.tmp.name
 
-    def compile(self, name, text, ok=True):
+    def compile(self, name, text, ok=True, options=()):
         directory = os.path.join(self.out, 'src')
         os.makedirs(directory, exist_ok=True)
         path = os.path.join(directory, name + '.lth')
         with open(path, 'w') as f:
             f.write(text)
-        status, errors = support.run_lathec(path, self.out)
+        status, errors = support.run_lathec(*options, path, self.out)
         if ok:
             self.assertEqual((status, errors), (0, ''))
             return lo.load(os.path.join(self.out, name + '.lo'))
@@ -381,6 +381,95 @@ class BankedDataTest(unittest.TestCase):
             self.assertEqual(sorted(set(self.kinds(m, function, 'w.t'))), [lo.FX_LO, lo.FX_HI], function)
         # The index inside the designator after @ is reached, not taken.
         self.assertEqual(sorted(set(self.kinds(m, 'w.g', 'w.u'))), [lo.FX_REACH_LO, lo.FX_REACH_HI])
+
+    # ---- A region in fixed memory, which the compiler is told of (-fREGION) -------------------
+
+    FIXED = ('module w\n'
+             'var t: [4]byte in r\n'
+             'var n: byte\n'
+             'func g(): byte\n'
+             '  return 1\n'
+             'end\n'
+             'func f(i: byte): byte\n'
+             '  with r do\n'
+             '    t[i] = g()\n'
+             '    if t[0] == 0 then\n'
+             '      return t[1]\n'
+             '    end\n'
+             '  end\n'
+             '  return n\n'
+             'end\n')
+
+    def test_a_block_of_a_region_in_fixed_memory_maps_nothing(self):
+        """-fR: the region R is in fixed memory, so its blocks are their bodies alone: no call of
+        rt_with.map or unmap, no temporary, no kind 6 fix-up, the calls inside not flagged, and
+        no import of rt_with. The variables are still in the region (RGN), which the linker puts
+        in fixed memory as the environment says."""
+        m = self.compile('w', self.FIXED, options=('-fR',))
+        self.assertEqual(self.calls(m, 'w.f'), [('w.g', 0)])
+        f = m.definition(m.sym_index('w.f'))
+        self.assertEqual([x for x in f.fixes if x.kind == lo.FX_BANK], [])
+        self.assertFalse(any('St1' in line for line in self.text(m, 'w.f')))
+        self.assertEqual(m.imports, [])
+        regions = {m.sym_name(x.sym): x.region for x in m.items if isinstance(x, lo.Var)}
+        self.assertEqual(regions['w.t'], 'r')
+        banked = self.compile('w', self.FIXED)
+        self.assertEqual(self.calls(banked, 'w.f'), [('rt_with.map', 0), ('w.g', lo.C_WITH),
+                                                     ('rt_with.unmap', lo.C_WITH), ('rt_with.unmap', 0)])
+
+    def test_another_region_is_still_mapped(self):
+        """-f names only the regions given: a block of another maps its bank, and a block of a
+        fixed region inside it runs with that bank mapped, so its calls are flagged; a block of
+        a mapped region inside a fixed one maps it."""
+        text = ('module w\n'
+                'var t: byte in r\n'
+                'var u: byte in s\n'
+                'func g(): byte\n'
+                '  return 1\n'
+                'end\n'
+                'func f()\n'
+                '  with s do\n'
+                '    u = g()\n'
+                '    with r do\n'
+                '      t = g()\n'
+                '    end\n'
+                '  end\n'
+                '  with r do\n'
+                '    t = g()\n'
+                '    with s do\n'
+                '      u = g()\n'
+                '    end\n'
+                '    t = g()\n'
+                '  end\n'
+                'end\n')
+        m = self.compile('w', text, options=('-fr',))
+        # (a module's calls are listed once for each callee and flags)
+        self.assertEqual(self.calls(m, 'w.f'), [('rt_with.map', 0), ('w.g', lo.C_WITH), ('rt_with.unmap', 0),
+                                                ('w.g', 0)])
+        code = self.text(m, 'w.f')
+        self.assertEqual((code.count('JSR rt_with__map'), code.count('JSR rt_with__unmap')), (2, 2))
+        f = m.definition(m.sym_index('w.f'))
+        self.assertEqual([m.sym_name(x.sym) for x in f.fixes if x.kind == lo.FX_BANK], ['w.u', 'w.u'])
+
+    def test_a_region_in_fixed_memory_keeps_the_rules(self):
+        """Its names are still used only inside its blocks (118), and a block must still name
+        something of a region (184), so that the module compiles with the region in a bank too."""
+        self.assertIn('error 118', self.compile('w', 'module w\nvar t: byte in r\nfunc f()\n  t = 1\nend\n',
+                                                ok=False, options=('-fr',)))
+        self.assertIn('error 184', self.compile('w', 'module w\nvar t: byte in r\nfunc f()\n  with q do\n'
+                                                     '  end\nend\n', ok=False, options=('-fq',)))
+
+    def test_the_option_takes_a_name(self):
+        def usage(options):
+            self.compile('w', 'module w\n')
+            status, errors = support.run_lathec(*options, os.path.join(self.out, 'src', 'w.lth'), self.out)
+            return status, errors.split(':')[:2]
+        for bad in ('-f', '-f9', '-fa-b', '-fwith', '-fr=1'):
+            with self.subTest(option=bad):
+                self.assertEqual(usage((bad,)), (1, ['lathec', ' error 60']))
+        many = tuple('-fr%d' % n for n in range(9))
+        self.assertEqual(usage(many), (1, ['lathec', ' error 60']))
+        self.compile('w', 'module w\n', options=many[:8] + ('-fr0',))   # a name given twice counts once
 
     def test_a_module_with_no_region_has_no_rt_with_import(self):
         m = self.compile('w', 'module w\nvar n: byte\nfunc f()\n  n = 1\nend\n')

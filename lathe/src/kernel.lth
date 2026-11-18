@@ -314,7 +314,11 @@ end
 ; it is new, so looking a name up copies nothing.
 
 #if SMALL
+#if RAM32
+const NAME_HEAP_SIZE = 3072      ; (RAM32: the 32K Model B, every table in main RAM: lathe/docs/bbc.md, "The 32K Model B")
+#else
 const NAME_HEAP_SIZE = 1536      ; (SMALL: the test programs' small build)
+#end
 #else
 const NAME_HEAP_SIZE = 9216
 #end

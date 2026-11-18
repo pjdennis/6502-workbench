@@ -1,0 +1,23 @@
+; config fixedblk_banks.env
+; config fixedblk_fixed.env
+; config fixedblk_host.env
+; A region in fixed memory that the compiler is told of (`define FIXED_REGIONS 1`, which gives
+; -ffwork: lathe/host/README.md, "Command lines"). In fixedblk_banks.env the region fwork is in
+; bank 4 and libfixb in bank 3, so libfixb's functions with a block, and add8, which runs inside
+; one with a pointer into the region, are kept in fixed memory. In fixedblk_fixed.env the region
+; is in fixed memory and the compiler knows it: the blocks map nothing, no call in them is
+; flagged, and the linker keeps nothing, so all of libfixb is in bank 3, add8 reading the region
+; through its pointer from there. The output is the same in every configuration, and all in one
+; (fixedblk_host.env).
+module fixedblk
+
+import libfco
+import libfixb
+
+pub func main()
+  libfixb.fill(3)
+  libfco.hex(libfixb.sum())
+  libfco.put(' ')
+  libfco.hex(libfixb.get(5))
+  libfco.put(10)
+end

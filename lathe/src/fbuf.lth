@@ -84,7 +84,11 @@ import err (E_FIXUPS_FULL, E_FUNC_BIG, E_INTERNAL, E_LABELS_FULL, fatal)
 import kernel (put, put_word)
 
 #if SMALL
+#if RAM32
+const BUFFER_SIZE = 1536        ; bytes of entries (RAM32: the 32K Model B, every table in main RAM: lathe/docs/bbc.md, "The 32K Model B")
+#else
 const BUFFER_SIZE = 1024        ; bytes of entries (SMALL: the test programs' small build)
+#end
 #else
 const BUFFER_SIZE = 4096        ; bytes of entries
 #end

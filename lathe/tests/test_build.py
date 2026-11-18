@@ -176,6 +176,22 @@ class TestBuild(Sources):
         self.assertEqual(build.compiler_options(), [])
         self.assertEqual(build.compiler_options(None, ['A=1']), ['-dA=1'])
 
+    def test_the_regions_an_environment_keeps_fixed_are_given_with_fixed_regions(self):
+        """`region NAME fixed` gives -fNAME (lathe/host/README.md, "Command lines") only in an
+        environment with `define FIXED_REGIONS 1`, so that one without it compiles as before."""
+        import mapenv
+        text = ('code $0200 $7FFF\nexit return\nwindow W $8000 $BFFF\nswitch W bank $FE00 $07\n'
+                'bank W 1 1 B1.BIN\nregion NAMES fixed\nregion MSGS W 1\nregion SYMS fixed\n')
+        self.assertEqual(build.compiler_options(mapenv.parse_env(text)), ['-c6502'])
+        told = mapenv.parse_env('define FIXED_REGIONS 1\n' + text)
+        self.assertEqual(told.fixed_regions, ['names', 'syms'])
+        self.assertEqual(build.compiler_options(told), ['-c6502', '-dFIXED_REGIONS=1', '-fnames', '-fsyms'])
+        off = mapenv.parse_env('define FIXED_REGIONS 0\n' + text)
+        self.assertEqual(build.compiler_options(off), ['-c6502', '-dFIXED_REGIONS=0'])
+        skipped = mapenv.parse_env('define FIXED_REGIONS 1\ndefine R 0\n' + text.replace(
+            'region SYMS fixed', 'when R region SYMS fixed'))
+        self.assertEqual(skipped.fixed_regions, ['names'])
+
     def test_cli_defines(self):
         main = self.source('hi.lth', '; prints HI\nmodule hi\n')
         keep = os.path.join(self.dir, 'keep')

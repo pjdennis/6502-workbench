@@ -17,6 +17,10 @@
  *                are dropped ($FE34, the shadow screen select, too)
  *   $FF00-$FFFF  the MOS ROM
  *
+ * On the Model B (model_b) ROMSEL is the whole of $FE30-$FE3F, a latch of
+ * four bits, and there is no private RAM: a write with bit 7 set selects
+ * the slot of its low four bits.
+ *
  * Each of the sixteen slots is empty (reads find the open bus), a 16 KB
  * ROM image, 16 KB of sideways RAM (written through the window while its
  * slot is selected) or the banked module (chips/bbc_module.h), which is
@@ -40,6 +44,8 @@ struct bbc_memory_state {
     uint8_t slot[BBC_SLOTS][BBC_SLOT_SIZE];
     uint8_t kind[BBC_SLOTS];        /* enum bbc_slot_kind */
     uint8_t romsel;                 /* the ROMSEL latch, as last written */
+    uint8_t model_b;                /* the Model B: ROMSEL is all of $FE30-$FE3F and holds bits
+                                     * 0-3 only; no private RAM, no shadow screen select */
     uint8_t open_bus;               /* the last byte on the data bus (kept by the machine) */
 };
 

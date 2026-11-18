@@ -4,8 +4,9 @@
   the `#if PORTS` part with bbc for disk (but where the other machines use the table of open
   files, which the BBC has not: lathe/docs/bbc.md, "Step 4"), so that PORTS 0 and 1 compile what they did before the
   BBC was added (the object files are the same: checked once by hand when this was written, and
-  here by the structure). What only the BBC has (BBC_ONLY: open_unmapped and seek, for the
-  message file of the tools' ROM forms) is an `#if PORTS == 2` with no `#else`, which PORTS 0 and 1 pass over.
+  here by the structure). What only the BBC has (BBC_ONLY: error_text, with which the tools' ROM
+  forms ask the module image for the texts of their errors) is an `#if PORTS == 2` with no
+  `#else`, which PORTS 0 and 1 pass over.
 - Every environment with PORTS 2 is a BBC's, and the others keep 0 or 1.
 - lathe/src/copytest.lth built with bbc.env and run on the BBC gives the cases of test_disk.py's
   SysOverDisk, with the error output in the output and the statuses as MOS errors.
@@ -30,7 +31,7 @@ RT = os.path.join(ROOT, 'lathe', 'rt')
 SRC = os.path.join(ROOT, 'lathe', 'src')
 TABLE = re.compile(r'\b(files|MAX_FILES|keep)\b')
 THREE = re.compile(r'^#if PORTS == 2\n(.*?)^#else\n^#if PORTS\n(.*?)^#else\n(.*?)^#end\n^#end\n', re.M | re.S)
-BBC_ONLY = ('open_unmapped', 'seek')
+BBC_ONLY = ('error_text',)
 ONLY = re.compile(r'^#if PORTS == 2\n((?:(?!#).*\n)*?)^#end(?:\n|\Z)', re.M)
 
 
@@ -82,8 +83,7 @@ class Choice(unittest.TestCase):
         only = ''.join(ONLY.findall(code))
         self.assertEqual(sorted(set(calls(only, 'bbc'))), sorted(BBC_ONLY))
         bbc = signatures(os.path.join(RT, 'bbc.lth'))
-        self.assertEqual(bbc['seek'], (['byte', 'byte', 'byte'], []))
-        self.assertEqual(bbc['open_unmapped'], bbc['open'])
+        self.assertEqual(bbc['error_text'], (['byte'], []))
 
     def test_bbc_has_no_initial_values(self):
         """sys.lth imports bbc in every build, and a module's $init is linked whether or not

@@ -59,7 +59,7 @@ define    BOARD 3
 define    PORTS 2
 define    SMALL 1
 define    BBCFS 0
-define    MESSAGE_FILE 0
+define    TEXTS_IN_MODULE 0
 define    LKSMALL 1
 define    ROMFORM 0
 define    ADFS 0

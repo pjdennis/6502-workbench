@@ -38,10 +38,14 @@ static void report(const struct bbc_machine *m, const struct emu_opts *opts) {
                         (unsigned)m->adfs.sectors);
         fputc('\n', stderr);
     }
-    fprintf(stderr, "bbcbplus: checks: mos-memory-writes=%llu  romsel-mismatches=%llu\n",
-            (unsigned long long)m->mos_writes, (unsigned long long)m->romsel_mismatches);
+    fprintf(stderr, "bbcbplus: checks: mos-memory-writes=%llu  romsel-mismatches=%llu  screen-writes=%llu\n",
+            (unsigned long long)m->mos_writes, (unsigned long long)m->romsel_mismatches,
+            (unsigned long long)m->screen_writes);
     for (uint64_t i = 0; i < m->mos_writes && i < BBC_MAX_REPORTED; i++)
         fprintf(stderr, "bbcbplus:   write to $%04X by code at $%04X\n", m->first_writes[i].addr, m->first_writes[i].pc);
+    for (uint64_t i = 0; i < m->screen_writes && i < BBC_MAX_REPORTED; i++)
+        fprintf(stderr, "bbcbplus:   write to the screen at $%04X by code at $%04X\n",
+                m->first_screen_writes[i].addr, m->first_screen_writes[i].pc);
     for (uint64_t i = 0; i < m->romsel_mismatches && i < BBC_MAX_REPORTED; i++)
         fprintf(stderr, "bbcbplus:   call to $%04X from $%04X with ROMSEL unlike $F4\n", m->first_mismatches[i].addr,
                 m->first_mismatches[i].pc);
@@ -91,6 +95,8 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
         .disk_dir = opts->disk_dir,
         .page = (uint16_t)(opts->bbc_page >= 0 ? opts->bbc_page : 0x1900),
         .shadow = opts->bbc_shadow,
+        .model_b = opts->bbc_model == BBC_MODEL_B,
+        .screen = bbc_screen_start(opts->bbc_mode),
         .strict = opts->bbc_strict,
         .dfs = opts->bbc_dfs,
         .adfs = opts->bbc_adfs,

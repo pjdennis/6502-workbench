@@ -17,13 +17,14 @@ The machinery, which works today:
 The gate: both tools in the eight-bank image, the compiler in banks 0 to 4 and the linker in 5 to
 7 (linker-bbc.env's `when ROM128` entries). Its message says by how many bytes they are over, in
 all and bank by bank, if they do not fit; LATHE_BBC_ROM128_REPORT=1 prints the whole account. The
-texts of the errors are not in the image: they are in the message file, LATHERR (lathe/docs/bbc.md,
-"The message file"). The same image runs the tool chain on two small programs and both tools'
-errors, with the message file and without it; with LATHE_BBC_ROM128_SELFHOST=1 the compiler
+texts of the errors are in the image, after the module's code, and the module writes them
+(lathe/docs/bbc.md, "The texts in the module"). The same image runs the tool chain on two small
+programs, every text the module writes, and both tools' errors with nothing on the disc (and the
+number alone when no ROM answers the call for the text); with LATHE_BBC_ROM128_SELFHOST=1 the compiler
 compiles itself from it, with LATHE_BBC_ROM128_SELFLINK=1 the linker links the compiler, with
 LATHE_BBC_ROM128_LOOP=1 the rebuild loop runs, and with LATHE_BBC_ROM128_ADFS=1 the rebuild loop
-runs on two ADFS discs from the image built with ADFS's names and PAGE (BBCFS 2, ADFS 1), the
-message file on the first: the build the owner will use.
+runs on two ADFS discs from the image built with ADFS's names and PAGE (BBCFS 2, ADFS 1): the
+build the owner will use.
 """
 import os
 import re
@@ -74,16 +75,16 @@ class Layout(unittest.TestCase):
         self.assertEqual((lay.home, lay.home_at), (0, bbcrom.FIRST))
 
     def test_with_a_program_in_bank_0_the_home_bank_has_the_most_room(self):
-        lay = bbcrom.layout([program('A', {n: 15000 - 100 * n for n in range(8)}, 3000)], 8)
-        self.assertEqual((lay.home, lay.home_at), (7, bbcrom.FIRST + 14300))
+        lay = bbcrom.layout([program('A', {n: 11000 - 100 * n for n in range(8)}, 3000)], 8)
+        self.assertEqual((lay.home, lay.home_at), (7, bbcrom.FIRST + 10300))
 
     def test_the_pieces_fill_the_ends_of_the_code_banks_to_bfef(self):
-        codes = {n: 14000 for n in range(8)}
+        codes = {n: 11000 for n in range(8)}
         lay = bbcrom.layout([program('A', codes, 9000, slots=[(13, 3000)])], 8)
         pieces = self.pieces(lay, 'A resident') + self.pieces(lay, 'A slot 13 (AS13.BIN)')
         self.assertEqual(sum(len(e[3]) for e in pieces), 12000)
         for what, bank, addr, data, unit, dest in pieces:
-            self.assertGreaterEqual(addr, bbcrom.FIRST + 14000)
+            self.assertGreaterEqual(addr, bbcrom.FIRST + 11000)
             self.assertLessEqual(addr + len(data) - 1, bbcrom.TOP)
             if bank == lay.home:
                 self.assertGreaterEqual(addr, lay.home_at + len(lay.code))
@@ -105,10 +106,11 @@ class Layout(unittest.TestCase):
         self.assertTrue({1, 2, 3, 4, 5} & {e[1] for e in lay.placed})
 
     def test_the_bytes_over(self):
-        """Eight banks of code leave 8 * (TAIL - 15000) bytes; the module's code and tables and
-        its eight entries a piece take some of it; what does not fit is the error's .over."""
-        codes = {n: 15000 for n in range(8)}
-        room = 8 * (TAIL - 15000)
+        """Eight banks of code leave 8 * (TAIL - 11000) bytes; the module's code and tables (with
+        the texts of the errors, 4 KB) and its eight entries a piece take some of it; what does
+        not fit is the error's .over."""
+        codes = {n: 11000 for n in range(8)}
+        room = 8 * (TAIL - 11000)
         lay = bbcrom.layout([program('A', codes, 100)], 8)
         code = len(lay.code)
         fits = room - code - 7 * bbcrom.ENTRY      # eight pieces: the first entry is in `code`
@@ -200,6 +202,20 @@ class RomModule8(tbr.RomImage, unittest.TestCase):
                                                              ram=True, before=['RUN LOADMOD MODIMG %d' % slot])
                     self.assertEqual((status, out, said), self.expected(command, args))
                     self.assertIn('module: slot %d, direct8 RAM' % slot, report)
+
+    def test_the_module_writes_every_text_of_the_errors(self):
+        """As test_bbc_rom.py's sixteen-bank image: from the home bank and another, and through
+        LOADMOD whole and short."""
+        for bank in (0, 7):
+            with self.subTest(bank=bank):
+                self.assert_the_hosts_texts(bank=bank)
+        bbcrom.loader(os.path.join(self.dir, 'LOADMOD'))
+        for image in (self.image, self.short):
+            disk = self.disk()
+            for name in ('LOADMOD', 'LOADMOD.inf'):
+                shutil.copy(os.path.join(self.dir, name), disk)
+            shutil.copy(image, os.path.join(disk, 'MODIMG'))
+            self.assert_the_hosts_texts(disk=disk, ram=True, slot=4, bank=2, before=['RUN LOADMOD MODIMG'])
 
     def test_the_loader_refuses_an_image_larger_than_the_module(self):
         bbcrom.loader(os.path.join(self.dir, 'LOADMOD'))
@@ -298,6 +314,7 @@ class Account:
         programs = []
         for command, resident, rom, map_path, error, (notes, fixed) in tools:
             p = bbcrom.Program(command, resident, rom, load=0x1900, resident=bytes(fixed))
+            p.top = bbcrom.memory_top(rom)      # every image checks HIMEM (bbcrom.image)
             _, _, banks = bbcrom.read_env_banks(rom)
             for i, b in enumerate(banks, 1):
                 judged, placed, modules = notes.get(i, (0, 0, ''))
@@ -381,7 +398,7 @@ class Rom128(unittest.TestCase):
     def test_the_account_holds_every_byte(self):
         """The account's numbers are the links' own: the compiler's banks are 0 to 4, the
         linker's 5 to 7, and the parts copied are the resident parts (the compiler's messages,
-        which were copied to slot 13, are in the message file)."""
+        which were copied to slot 13, are the module's)."""
         self.assertEqual(sorted(self.account.rows), list(range(8)))
         self.assertEqual({r[0] for n, r in self.account.rows.items() if n < 5}, {'LATHE'})
         self.assertEqual({r[0] for n, r in self.account.rows.items() if n >= 5}, {'LLINK'})
@@ -393,12 +410,12 @@ class Rom128(unittest.TestCase):
         self.assertTrue(self.account.fits(), self.account.summary())
 
     def test_errors_from_the_128k_image(self):
-        """Both tools' errors: with the message file on the disc the host's, without it the
-        number alone (test_msgfile.py)."""
+        """Both tools' errors with nothing on the disc: the host's, their texts from the module;
+        the number alone when no ROM claims the call (test_bbc_texts.py)."""
         self.need_image()
-        import test_msgfile
+        import test_bbc_texts
         with scheme():
-            test_msgfile.check_runs(self, self.image, self.dir)
+            test_bbc_texts.check_runs(self, self.image, self.dir)
 
     def need_image(self):
         if self.image is None:
@@ -479,8 +496,7 @@ class Adfs128(unittest.TestCase):
     """The build the owner will use: the 128 KB image of both tools built with ADFS's names and
     PAGE (BBCFS 2, ADFS 1), the compiler in banks 0 to 4 and the linker in 5 to 7, its RAM form
     holding the image from power on (as a programmed EPROM does), doing the rebuild loop on two
-    ADFS discs (test_bbc_adfs.Loop), with the message file LATHERR on the first beside the
-    sources."""
+    ADFS discs (test_bbc_adfs.Loop), the texts of the errors in the module."""
 
     def test_the_compiler_rebuilds_itself_on_two_adfs_discs_from_the_128k_image(self):
         import test_bbc_adfs as adfs
@@ -495,10 +511,9 @@ class Adfs128(unittest.TestCase):
         try:
             with scheme():
                 cycles, report, cat = adfs.rebuild_on_two_discs(
-                    self, module, work, 'the loop on two ADFS discs from the 128 KB image', message_file=True)
+                    self, module, work, 'the loop on two ADFS discs from the 128 KB image')
         finally:
             adfs.LOOP = saved
-        self.assertIn('LATHERR', os.listdir(os.path.join(work, 'bbc')))
 
 
 MAINRAM = os.path.join(HERE, 'lk_mainram.py')
@@ -639,9 +654,7 @@ class Compiler8(unittest.TestCase):
                 print('  %-9s rom %12d  loader %12d' % (name, c['rom'], c['loader']))
 
     def test_its_start_up(self):
-        import test_msgfile
         with scheme(), tempfile.TemporaryDirectory() as d:
-            test_msgfile.put_on(d)
             code, out, err, cycles = boards.run_module(BOARD, self.image, d, 'LATHE', raw=True)
         self.assertIn(b'usage: lathec', out)
         if REPORT:

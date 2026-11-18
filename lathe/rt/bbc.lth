@@ -289,7 +289,7 @@ const ARGS_SIZE = 256               ; bytes of text, each argument's terminating
 var arg_text: [ARGS_SIZE]byte       ; the arguments, each followed by a zero
 var arg_start: [MAX_ARGS]byte       ; where each starts in arg_text
 var arg_count: byte
-var block: [4]byte zp               ; OSARGS's result, and seek's place
+var block: [4]byte zp               ; OSARGS's result
 var top: byte                       ; the next free byte of arg_text
 
 ; The address of *RUN's tail, ended by CR: OSARGS with A = 1, Y = 0.
@@ -438,39 +438,17 @@ pub func exit(code: byte)
   raise()
 end
 
-; ---- The message file ----------------------------------------------------------------------
+; ---- The texts of the errors ----------------------------------------------------------------
 
-; The tools' ROM forms read the texts of their errors from a file (lathe/docs/bbc.md, "The message
-; file"), named without a `.`, which every filing system takes as it is.
+; The tools' ROM forms hold no texts of their errors: the module image holds them, packed, and
+; writes one when asked (lathe/rt/bbc/module.asm, "An error's text"; lathe/docs/bbc.md, "The texts
+; in the module").
 
-; Open the file named at `name` (zero-terminated, shorter than NAME_SIZE) for reading, the name
-; as it is: bbcfs.map is not called. The compiler opens the message file so on an error, which can
-; be raised inside a `with` block, where every function reached is kept in fixed memory: open
-; would keep bbcfs there, which the ROM forms place in a bank. Returns a handle, or 0.
-pub func open_unmapped(name: ^byte): byte
-  var i: byte
-  var h: byte
-  i = 0
-  while name[i] != 0 do
-    name_buf[i] = name[i]
-    i += 1
-  end
-  name_buf[i] = CR
-  h = find(FOR_INPUT)
-  ended[h & (HANDLES - 1)] = false  ; ended[0] is never read
-  return h
-end
-
-; Make byte `low + 256 * high` of the file `handle` the one the next read starts from (PTR#):
-; OSARGS with A = 1 and the place in block. For a file not read to its end (read keeps the end
-; it has given): the message file, whose index holds places as their two bytes.
-pub asm func seek(handle: byte in y, low: byte in a, high: byte in x)
-  STA block
-  STX block+1
-  LDA #$00
-  STA block+2
-  STA block+3
-  LDX #<block
-  LDA #$01
-  JMP $FFDA                         ; OSARGS
+; Write ": " and text `n` of the module's texts of the errors, the compiler's error n or the
+; linker's error 255 - n: OSBYTE 143 issues the module's service call $4C with Y = n, and the
+; module writes them with OSWRCH. If no ROM claims the call, nothing is written.
+pub asm func error_text(n: byte in y)
+  LDA #143
+  LDX #$4C
+  JMP $FFF4                         ; OSBYTE
 end

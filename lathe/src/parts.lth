@@ -12,8 +12,8 @@
 module parts
 
 import err (E_DOT_EXPECTED, E_DUPLICATE, E_ELEMENT_SIZE, E_IN_HERE, E_NAME_EXPECTED, E_NEEDS_ROWS,
-            E_NO_FIELD, E_NOT_VAR, E_RECORD_INIT, E_ROWS_RECORD, E_TYPE, E_UNDEFINED, fatal,
-            fatal_value, position)
+            E_NO_FIELD, E_NOT_VAR, E_RECORD_INIT, E_ROWS_RECORD, E_TYPE, E_UNDEFINED, E_USAGE,
+            fatal, fatal_value, position)
 import fbuf (FIX_ADDRESS, newest, NO_SLOT, op, op_fix, OP_JSR, unreached)
 import fold (ADD, BAND, BOR, BXOR, DIV, EQ, GE, GT, LE, LT, MUL, NE, REM, SHL, SHR, SUB)
 import gen (anonymous, binary, compare, field, fixed_name, jump_false, local, OP_BNE, record_of,
@@ -45,10 +45,39 @@ const OP_STA = $8D
 const OP_LDY = $AC
 const OP_PHP = $08
 const OP_PLP = $28
+const MAX_FIXED = 8                 ; regions the command line can say are in fixed memory (-fREGION)
+var fixed: [MAX_FIXED]word          ; their names
+var fixed_count: byte = 0
 
 pub func init()
   map_symbol = kernel.NO_OBJ
   unmap_symbol = kernel.NO_OBJ
+  fixed_count = 0
+end
+
+; True if the command line said region `region` (a name) is in fixed memory.
+pub func is_fixed(region: word): bool
+  var i: byte
+  for i = 0 until fixed_count do
+    if reg.same_region(fixed[i], region) then
+      return true
+    end
+  end
+  return false
+end
+
+; -fREGION: the region `name` is in fixed memory (the environment says `region NAME fixed`), so a
+; `with` block of it maps nothing: it is its body alone (expr.with_statement). A name given twice
+; counts once; more than MAX_FIXED regions is the usage error.
+pub func fix_region(name: word)
+  if is_fixed(name) then
+    return
+  end
+  if fixed_count == MAX_FIXED then
+    err.fatal(err.E_USAGE)
+  end
+  fixed[fixed_count] = name
+  fixed_count += 1
 end
 
 ; The type a type keyword names, or typetab.NO_TYPE.

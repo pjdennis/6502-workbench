@@ -92,8 +92,23 @@ static uint8_t cpu_read_hook(uint16_t addr) {
     return d;
 }
 
+uint16_t bbc_screen_start(int mode) {
+    static const uint16_t start[8] = { 0x3000, 0x3000, 0x3000, 0x4000, 0x5800, 0x5800, 0x6000, 0x7C00 };
+    return start[mode & 7];
+}
+
 static void cpu_write_hook(uint16_t addr, uint8_t v) {
     struct bbc_machine *m = active;
+    if (!bbc_in_mos(m->cur_pc) && !m->cfg.shadow && addr >= m->cfg.screen && addr < 0x8000) {
+        m->screen_writes++;
+        note(m->first_screen_writes, m->screen_writes, addr, m->cur_pc);
+        if (m->cfg.strict && m->end == BBC_RUNNING) {
+            static char msg[96];
+            snprintf(msg, sizeof msg, "write to the screen at $%04X by code at $%04X", addr, m->cur_pc);
+            m->fault = msg;
+            m->end = BBC_END_STRICT;
+        }
+    }
     if (!bbc_in_mos(m->cur_pc) && bbc_mos_owned(addr, m->cfg.page)) {
         m->mos_writes++;
         note(m->first_writes, m->mos_writes, addr, m->cur_pc);
@@ -1286,9 +1301,9 @@ static void enter_language(struct bbc_machine *m, uint8_t slot) {
 
 static void os_byte(struct bbc_machine *m) {
     switch (a) {
-    case 0:     /* the OS version: an error for X = 0, else X = 2 (OS 2.00, the B+) */
-        if (x == 0) raise(BBC_MOS_E_OS);
-        else x = 2;
+    case 0:     /* the OS version: an error for X = 0, else X = 2 (OS 2.00, the B+; 1, OS 1.20, the B) */
+        if (x == 0) raise(m->cfg.model_b ? BBC_MOS_E_OS_120 : BBC_MOS_E_OS);
+        else x = m->cfg.model_b ? 1 : 2;
         break;
     case 126: { /* acknowledge Escape */
         uint8_t flag = bus_rd(m, ZP_ESCAPE);
@@ -1314,7 +1329,7 @@ static void os_byte(struct bbc_machine *m) {
         break;
     case 132:   /* HIMEM */
         x = 0;
-        y = m->cfg.shadow ? 0x80 : 0x7C;
+        y = m->cfg.shadow ? 0x80 : (uint8_t)(m->cfg.screen >> 8);
         break;
     case 142:   /* enter the language ROM in slot X */
         enter_language(m, x);
@@ -1536,6 +1551,8 @@ void bbc_machine_init(struct bbc_machine *m, const struct bbc_config *cfg,
     if (!m->cfg.in) m->cfg.in = stdin;
     if (!m->cfg.err) m->cfg.err = stderr;
     if (!m->cfg.page) m->cfg.page = 0x1900;
+    if (!m->cfg.screen) m->cfg.screen = bbc_screen_start(7);
+    mem->model_b = m->cfg.model_b;
     m->mem = mem;
     m->module = module;
     memcpy(mem->mos, bbc_mos_rom, sizeof mem->mos);

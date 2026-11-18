@@ -33,7 +33,7 @@ MODE7 = (('lextest', 'errtest', 'copytest', 'e2e_compare'), 7)      # 25,034 byt
 MORE = [(('kerneltest',), 7), (('kerneltest', 'copytest', 'e2e_compare'), 7), MODE4, MODE7]
 QUICK_CASES = ('hello', 'calls', 'rec_tree', 'reg_args', 'compare', 'record_copy')
 LARGER = (('lextest', 'errtest', 'copytest', 'e2e_compare', 'e2e_reg_args', 'e2e_record_copy'), 'link error 28'), \
-         (('srctest', 'typetest', 'copytest'), 'link error 11')
+         (('srctest', 'typetest', 'copytest', 'errtest'), 'link error 11')
 
 
 def items(map_path):
@@ -143,7 +143,9 @@ class Capacities(unittest.TestCase):
 
     def test_what_stops_a_larger_program(self):
         """A program of 29 KB, more than a 32K BBC holds: too many fix-ups in one function (a test
-        case's main, 344); and one of 21.8 KB made of small functions: too many functions."""
+        case's main, 344); and one made of small functions: too many functions (310 of 296; srctest,
+        typetest and copytest alone, 297 until the texts of the errors left err on 2026-11-18, are 296
+        now and link)."""
         for pieces, error in LARGER:
             with self.subTest(pieces=pieces):
                 main, objects = lk_ram32.glue(self.cache, pieces, tempfile.mkdtemp(dir=self.dir))

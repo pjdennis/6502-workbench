@@ -324,6 +324,21 @@ class Data(unittest.TestCase):
         self.assertEqual(m['F', 'libkept.step'].kept, 1)
         self.assertEqual(m['F', 'libkept.begin'].bank, 1)
 
+    def test_blocks_of_a_region_the_compiler_is_told_is_fixed_keep_nothing(self):
+        """cases/e2e-config/fixedblk.lth: with the region in a bank, libfixb's functions with a
+        block and add8, called inside one, are kept in fixed memory; with the region fixed and
+        FIXED_REGIONS (-ffwork), every function stays in bank 3 and nothing calls rt_bank.map."""
+        functions = ('libfixb.fill', 'libfixb.sum', 'libfixb.get', 'libfixb.add8')
+        m = mapped('fixedblk.lth', 'fixedblk_banks.env')
+        for name in functions:
+            self.assertEqual((m['F', name].kept, m['F', name].bank), (3, None), name)
+        self.assertEqual(m['V', 'libfixb.table'].bank, 4)
+        m = mapped('fixedblk.lth', 'fixedblk_fixed.env')
+        for name in functions:
+            self.assertEqual((m['F', name].kept, m['F', name].bank), (None, 3), name)
+        self.assertIsNone(m['V', 'libfixb.table'].bank)
+        self.assertLess(m['V', 'libfixb.table'].addr, 0x4000)
+
     def test_the_marks_of_spike_l5_are_in_their_banks(self):
         m = mapped('farcall.lth', 'farcall_banks.env')
         self.assertEqual(m['D', 'libfcc.sig'].bank, 1)

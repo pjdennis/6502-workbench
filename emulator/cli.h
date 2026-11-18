@@ -17,6 +17,11 @@
 #define BBC_SCHEME_DIRECT16 1
 #define BBC_SCHEME_DIRECT8  2
 
+/* --bbc-model: which BBC the bbcbplus machine is */
+#define BBC_MODEL_BPLUS     0   /* the Model B+128: sideways RAM in slots 0, 1, 12 and 13 by default */
+#define BBC_MODEL_B         1   /* the 32K Model B: no sideways RAM unless given, no shadow
+                                 * screen, no private RAM, ROMSEL all of $FE30-$FE3F, OS 1.20 */
+
 /* LCD panel selection for the wendy2c web/live render. Defaults to
  * the standard 16x2 5x8 module shipped on the breadboard; the 16x1
  * 5x10 selection asks the renderer to draw a single-line panel with
@@ -122,7 +127,11 @@ struct emu_opts {
     int key_interval_ms;                /* --key-interval MS (michael): gap between typed keys;
                                          * 0 = the keyboard board's default */
     /* --machine bbcbplus (emu_bbcbplus.h) */
-    const char *bbc_sideways_ram;       /* --bbc-sideways-ram LIST: slots of sideways RAM; default "0,1,12,13" */
+    const char *bbc_sideways_ram;       /* --bbc-sideways-ram LIST: slots of sideways RAM; default "0,1,12,13"
+                                         * on the B+, "none" on the Model B */
+    int bbc_sideways_ram_given;         /* set when --bbc-sideways-ram was given */
+    int bbc_model;                      /* --bbc-model b|bplus: BBC_MODEL_*; default BBC_MODEL_BPLUS */
+    int bbc_mode;                       /* --bbc-mode N: the screen mode at power on, 0 to 7; default 7 */
     const char *bbc_roms[16];           /* --bbc-rom N=FILE: a 16 KB ROM image in slot N */
     const char *bbc_module_filename;    /* --bbc-module FILE: the module's image, bank 0 first */
     int bbc_module_ram;                 /* --bbc-module-ram: the module holds RAM */

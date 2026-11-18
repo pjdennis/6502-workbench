@@ -31,12 +31,37 @@ OP_STA = 0x8D
 OP_LDY = 0xAC
 OP_PHP = 0x08
 OP_PLP = 0x28
+MAX_FIXED = 8                   # regions the command line can say are in fixed memory (-fREGION)
+fixed = [0] * MAX_FIXED         # their names
+fixed_count = 0
 
 
 def init():
-    global map_symbol, unmap_symbol
+    global map_symbol, unmap_symbol, fixed_count
     map_symbol = kernel.NO_OBJ
     unmap_symbol = kernel.NO_OBJ
+    fixed_count = 0
+
+
+def is_fixed(region):
+    """True if the command line said region `region` (a name) is in fixed memory."""
+    for i in range(0, fixed_count):
+        if reg.same_region(fixed[i], region):
+            return True
+    return False
+
+
+def fix_region(name):
+    """-fREGION: the region `name` is in fixed memory (the environment says `region NAME fixed`),
+    so a `with` block of it maps nothing: it is its body alone (with_statement in expr.py). A name
+    given twice counts once; more than MAX_FIXED regions is the usage error."""
+    global fixed_count
+    if is_fixed(name):
+        return
+    if fixed_count == MAX_FIXED:
+        err.fatal(err.E_USAGE)
+    fixed[fixed_count] = name
+    fixed_count += 1
 
 
 def basic_type(token):

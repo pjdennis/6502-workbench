@@ -370,6 +370,7 @@ end
 - **Not in interrupt functions** (error 119), nor in what an interrupt function calls (link error 57). Not in an `inline` function (168).
 - **The linker keeps** a function with a `with` block in fixed memory even if its module is placed in a bank, and so everything that runs inside a block: what a call inside it reaches, at any depth, through pointers too ([`configurations.md`](configurations.md), "Functions kept in fixed memory"). So a pointer into the region passed down is good for the whole block. (Until 2026-11-14 such a function in a window was link error 55, and such a call reaching one 56.)
 - **Interfaces** carry `in REGION`, so an importer is held to the same rule.
+- **A region in fixed memory.** The environment may put a region in fixed memory (`region NAME fixed`); a block of it then maps the bank 0, which is harmless but costs the switch, and the linker still keeps its function in fixed memory. Told so by `-fNAME` ([`../host/README.md`](../host/README.md), "Command lines"; 2026-11-18), the compiler compiles the block as its body alone and flags no call in it, so the linker keeps nothing for it: the same source runs with the region in a bank or in main memory.
 
 ## Grammar
 

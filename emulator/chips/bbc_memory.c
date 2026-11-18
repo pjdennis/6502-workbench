@@ -6,13 +6,15 @@
 
 /* $FE30-$FE3F is ROMSEL's block, decoded on A0-A2 (as MAME's bbcbp does):
  * ROMSEL at $FE30 and $FE38; $FE34/$FE3C select the shadow screen (not
- * modelled); the rest do nothing */
-static int is_romsel(uint16_t addr) {
+ * modelled); the rest do nothing. On the Model B every address of the
+ * block is ROMSEL (MAME's bbcb decodes it so too) */
+static int is_romsel(const struct bbc_memory_state *s, uint16_t addr) {
+    if (s->model_b) return (addr & 0xFFF0) == BBC_ROMSEL;   /* the Model B: all of $FE30-$FE3F */
     return (addr & 0xFFF7) == BBC_ROMSEL;
 }
 
 static int is_private(const struct bbc_memory_state *s, uint16_t addr) {
-    return (s->romsel & 0x80) && addr >= 0x8000 && addr < 0xB000;
+    return !s->model_b && (s->romsel & 0x80) && addr >= 0x8000 && addr < 0xB000;
 }
 
 void bbc_memory_decode(struct bus *bus, const struct bbc_memory_state *s) {
@@ -56,8 +58,8 @@ static bool memory_write(struct chip *self, struct bus *bus, uint16_t addr, uint
             int slot = s->romsel & 0x0F;
             if (s->kind[slot] == BBC_SLOT_RAM) s->slot[slot][addr - 0x8000] = data;
         }
-    } else if (is_romsel(addr)) {
-        s->romsel = data;
+    } else if (is_romsel(s, addr)) {
+        s->romsel = s->model_b ? (uint8_t)(data & 0x0F) : data;
     }
     return true;   /* ROM, empty slots and unmodelled I/O drop the write */
 }

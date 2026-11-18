@@ -650,7 +650,38 @@ TEST cli_bbcbplus_defaults(void) {
     ASSERT_EQ(0, opts.bbc_dfs);
     ASSERT_EQ(0, opts.bbc_adfs);
     ASSERT_EQ(0, opts.bbc_module_ram);
+    ASSERT_EQ(BBC_MODEL_BPLUS, opts.bbc_model);
+    ASSERT_EQ(7, opts.bbc_mode);
     ASSERT_EQ(CPU_NMOS_VARIANT_FOR_TEST, opts.cpu_variant_opt);
+    PASS();
+}
+
+/* --bbc-model b: the 32K Model B, which has no sideways RAM unless one is given, and no shadow
+ * screen; --bbc-mode, the screen mode at power on, for either model. */
+TEST cli_bbcbplus_model_b_and_mode(void) {
+    char *argv[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "b",
+                    "--bbc-mode", "4", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+    ASSERT_EQ(BBC_MODEL_B, opts.bbc_model);
+    ASSERT_STR_EQ("none", opts.bbc_sideways_ram);
+    ASSERT_EQ(4, opts.bbc_mode);
+    char *ram[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-sideways-ram", "12",
+                   "--bbc-model", "b", NULL};
+    ASSERT_EQ_FMT(0, parse(ram, &opts), "%d");
+    ASSERT_STR_EQ("12", opts.bbc_sideways_ram);  /* a board of sideways RAM, given */
+    char *plus[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "b",
+                    "--bbc-model", "bplus", NULL};
+    ASSERT_EQ_FMT(0, parse(plus, &opts), "%d");
+    ASSERT_EQ(BBC_MODEL_BPLUS, opts.bbc_model);
+    ASSERT_STR_EQ("0,1,12,13", opts.bbc_sideways_ram);
+    char *bad[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "master", NULL};
+    ASSERT(bbc_error(bad, "--bbc-model must be 'b' or 'bplus'"));
+    char *shadow[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "b",
+                      "--bbc-shadow", NULL};
+    ASSERT(bbc_error(shadow, "the Model B has no shadow screen"));
+    char *mode[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-mode", "8", NULL};
+    ASSERT(bbc_error(mode, "--bbc-mode must be 0 to 7"));
     PASS();
 }
 
@@ -831,6 +862,7 @@ SUITE(cli_suite) {
     RUN_TEST(cli_bbcbplus_defaults);
     RUN_TEST(cli_bbcbplus_options_parsed);
     RUN_TEST(cli_bbcbplus_errors);
+    RUN_TEST(cli_bbcbplus_model_b_and_mode);
     RUN_TEST(cli_bbcbplus_commands_in_turn);
     RUN_TEST(cli_bbcbplus_sideways_ram_none);
 }

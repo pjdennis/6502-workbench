@@ -106,6 +106,19 @@ FIRST_ARGS = ['a', 'b c', '']
 SECOND_ARGS = ['x']
 
 
+# *RUN TEXTS (at $1900): for Y = 0 to 255, OSBYTE 143 with X = $4C, then OSNEWL.
+TEXTS_CODE = bytes([0xA0, 0x00,                 # LDY #0
+                    0x84, 0x70,                 # loop: STY $70
+                    0xA9, 0x8F,                 # LDA #143
+                    0xA2, 0x4C,                 # LDX #$4C
+                    0x20, 0xF4, 0xFF,           # JSR OSBYTE
+                    0x20, 0xE7, 0xFF,           # JSR OSNEWL
+                    0xA4, 0x70,                 # LDY $70
+                    0xC8,                       # INY
+                    0xD0, 0xEF,                 # BNE loop
+                    0x60])                      # RTS
+
+
 def language_rom(path):
     """A language ROM of 16 KB: its language entry prints LANG and a new line and returns (which
     ends the emulator's run); its service entry returns."""
@@ -192,8 +205,9 @@ class RomImage:
     def command(self, command, args=(), **options):
         """(status, output, error output, the emulator's report) of *COMMAND ARGS."""
         disk = options.pop('disk', None) or self.disk()
+        board = options.pop('board', BOARD)
         options.setdefault('scheme', bbcrom.SCHEMES[self.BANKS])
-        status, out, err, _ = boards.run_module(BOARD, self.image, disk, command, args, raw=True,
+        status, out, err, _ = boards.run_module(board, self.image, disk, command, args, raw=True,
                                                 **options)
         report = err.decode('latin-1')
         said = ''.join(line for line in report.splitlines(True) if not line.startswith('bbcbplus: '))
@@ -216,6 +230,62 @@ class RomImage:
                     self.assertEqual(f.read(), tbb.INPUT)
         self.assertEqual(len(set(found)), 1, found)
         return found[0]
+
+    def test_a_command_is_refused_where_himem_is_below_its_memory(self):
+        """Every image checks HIMEM (bbcrom.image, module.asm step 0): in mode 4 without the shadow
+        screen (HIMEM $5800) each command is refused with `Mode 7 needed` before anything is
+        written; in mode 7, and in mode 4 with the shadow screen (HIMEM $8000), it runs. The same
+        through LOADMOD in the module's RAM form."""
+        import dataclasses
+        def board(*more):
+            return dataclasses.replace(BOARD, options=BOARD.options + more)
+        bbcrom.loader(os.path.join(self.dir, 'LOADMOD'))
+        for ram in (False, True):
+            for command, args in (('FIRST', FIRST_ARGS), ('THIRD', [])):
+                with self.subTest(command=command, ram=ram):
+                    options = {}
+                    if ram:
+                        disk = self.disk()
+                        for name in ('LOADMOD', 'LOADMOD.inf'):
+                            shutil.copy(os.path.join(self.dir, name), disk)
+                        shutil.copy(self.image, os.path.join(disk, 'MODIMG'))
+                        options = dict(disk=disk, ram=True, before=['RUN LOADMOD MODIMG'])
+                    status, out, said, report = self.command(command, args, board=board('--bbc-mode', '4'),
+                                                             **dict(options, disk=options.get('disk') or self.disk()))
+                    self.assertEqual((status, out, said), (1, b'', b'Mode 7 needed\n'))
+                    self.assertIn('screen-writes=0', report)
+                    want = self.expected(command, args)
+                    for more in (('--bbc-mode', '7'), ('--bbc-mode', '4', '--bbc-shadow')):
+                        if ram:
+                            disk = self.disk()
+                            for name in ('LOADMOD', 'LOADMOD.inf'):
+                                shutil.copy(os.path.join(self.dir, name), disk)
+                            shutil.copy(self.image, os.path.join(disk, 'MODIMG'))
+                            options['disk'] = disk
+                        got = self.command(command, args, board=board(*more), **options)
+                        self.assertEqual(got[:3], want, more)
+
+    def texts(self, **options):
+        """What `*RUN TEXTS` writes: for each text Y, 0 to 255, OSBYTE 143 with X = $4C (the
+        module's service call for an error's text, lathe/rt/bbc/module.asm) and a new line. Returns
+        (status, [each line], what the MOS said)."""
+        disk = options.pop('disk', None) or self.disk()
+        with open(os.path.join(disk, 'TEXTS'), 'wb') as f:
+            f.write(TEXTS_CODE)
+        with open(os.path.join(disk, 'TEXTS.inf'), 'w') as f:
+            f.write(boards.inf_text('TEXTS', 0x1900, len(TEXTS_CODE)))
+        status, out, said, report = self.command('RUN', ['TEXTS'], disk=disk, **options)
+        return status, out.split(b'\n')[:-1], said
+
+    def assert_the_hosts_texts(self, **options):
+        """Every text the module writes is the host's: ": " and the text of the compiler's error
+        n for text n, of the linker's error 255 - n, ": " alone for a number with neither."""
+        import test_msgpack
+        compiler, linker = test_msgpack.host_compiler_texts(), test_msgpack.host_linker_texts()
+        status, lines, said = self.texts(**options)
+        self.assertEqual((status, said, len(lines)), (0, b'', 256))
+        for n, line in enumerate(lines):
+            self.assertEqual(line, b': ' + compiler.get(n, linker.get(255 - n, b'')), n)
 
 
 @unittest.skipUnless(HAVE_TOOLS, 'compiler or emulator missing')
@@ -412,6 +482,22 @@ class RomModule(RomImage, unittest.TestCase):
         status, out, said, report = self.command('RUN', ['SVC'], disk=disk, bank=9)
         self.assertEqual((status, said), (0, b''))
         self.assertIn('direct16 ROM, bank 9, bank switches 0', report)
+
+    def test_the_module_writes_every_text_of_the_errors(self):
+        """The module answers its service call $4C from any bank with the host's texts (lathe/
+        host/driver/msgpack.py packs them into every image), in the ROM form and, loaded by
+        LOADMOD, in the RAM form; with the RAM form empty no ROM claims the call, and nothing is
+        written."""
+        for bank in (0, 9):
+            with self.subTest(bank=bank):
+                self.assert_the_hosts_texts(bank=bank)
+        bbcrom.loader(os.path.join(self.dir, 'LOADMOD'))
+        disk = self.disk()
+        for name in ('LOADMOD', 'LOADMOD.inf'):
+            shutil.copy(os.path.join(self.dir, name), disk)
+        shutil.copy(self.image, os.path.join(disk, 'MODIMG'))
+        self.assert_the_hosts_texts(disk=disk, ram=True, slot=7, bank=5, before=['RUN LOADMOD MODIMG 7'])
+        self.assertEqual(self.texts(ram=True), (0, [b''] * 256, b''))
 
     # ---- The image tool ---------------------------------------------------------------------
 

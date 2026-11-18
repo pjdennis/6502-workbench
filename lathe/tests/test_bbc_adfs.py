@@ -458,16 +458,13 @@ class Toolchain(unittest.TestCase):
 
     def test_a_directory_that_cannot_be_made(self):
         """The root holds 47 entries, so *CDIR lo is Dir full: open_out gives 0 and the compiler
-        says error 63, as for any output file it cannot create, its text read from the message
-        file in the root."""
+        says error 63, as for any output file it cannot create, its text from the module."""
         import test_bbc_toolchain as toolchain
-        import test_msgfile
         case = [c for c in toolchain.corpus() if c[0] == 'hello'][0]
         work = os.path.join(self.dir, 'full')
         os.makedirs(work)
         disk, compiles, link, files, said, load = toolchain.prepare(adfs_case(case, work), os.path.join(work, 'w'))
         to_adfs(disk)
-        test_msgfile.put_on(disk, 2)
         n = len(os.listdir(disk))
         for i in range(47 - n):
             with open(os.path.join(disk, 'F%02d' % i), 'wb') as f:
@@ -715,11 +712,9 @@ class SelfHost(unittest.TestCase):
         self.assertEqual(most, (2, 1))
 
 
-def rebuild_on_two_discs(case, module, work, title, message_file=False):
+def rebuild_on_two_discs(case, module, work, title):
     """Loop's run with the module image `module` (built by build_image(), in the module scheme in
-    force) in work, checked by the test case `case`; with message_file, the message file LATHERR
-    in drive 0's root, beside the sources, where the tools look for it (lathe/docs/bbc.md, "The
-    message file"). Prints the account under `title` with LATHE_BBC_ADFS_LOOP or _REPORT.
+    force) in work, checked by the test case `case`. Prints the account under `title` with LATHE_BBC_ADFS_LOOP or _REPORT.
     Returns (cycles, the emulator's adfs report, catalogue())."""
     import subprocess
     import test_bbc_selflink as selflink
@@ -758,9 +753,6 @@ def rebuild_on_two_discs(case, module, work, title, message_file=False):
     os.makedirs(bbc)
     for f, d in files_of(disk).items():
         put(bbc, f, d)
-    if message_file:
-        import test_msgfile
-        test_msgfile.put_on(bbc, 2)
     image = link[2]
     lines = [boards.module_command('LATHE', args) for args in compiles]
     lines.append(boards.module_command('LLINK', ['@' + selflink.COMMAND_FILE]))

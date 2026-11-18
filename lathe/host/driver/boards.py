@@ -83,6 +83,12 @@ BOARDS = {
     # `host` (lathe/rt/bbc/host.lth) is host.lth's interface over bbc.lth.
     'bbc': Board('bbcbplus', ('--disk', '{disk}', '--bbc-strict'), 400_000_000, 'CPU cycles', 0,
                  mos=True, rt=('bbc',)),
+    # The 32K BBC Model B with the Acorn DFS, the machine of the tools' 32K variant (RAM32 1:
+    # lathe/docs/bbc.md, "The 32K Model B"): no sideways RAM, no shadow screen and no private RAM
+    # (--bbc-model b), the DFS's names and limits (--bbc-fs dfs), mode 7, PAGE $1900. The tools
+    # are a module image in a ROM socket, run by boards.run_module; no environment builds for it.
+    'bbc32': Board('bbcbplus', ('--disk', '{disk}', '--bbc-strict', '--bbc-model', 'b', '--bbc-fs', 'dfs'),
+                   400_000_000, 'CPU cycles', 0, mos=True, rt=('bbc',)),
 }
 
 # The files of a disk board's directory that the driver writes or reads (lathe/rt/disk.lth).

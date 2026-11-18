@@ -50,7 +50,11 @@ enum bbc_end {
 struct bbc_config {
     const char *disk_dir;   /* --disk: the host directory of the filing system, or NULL */
     uint16_t page;          /* OSBYTE 131: OSHWM ($1900) */
-    int shadow;             /* --bbc-shadow: OSBYTE 132 answers $8000 (else $7C00) */
+    int shadow;             /* --bbc-shadow: OSBYTE 132 answers $8000 (else the screen's start) */
+    int model_b;            /* --bbc-model b: the 32K Model B, OS 1.20 (OSBYTE 0 gives 1) */
+    uint16_t screen;        /* where the screen of the mode at power on starts, which is HIMEM
+                             * without the shadow screen (bbc_screen_start; 0: mode 7's, $7C00).
+                             * A program's write from there to $7FFF is checked (screen_writes) */
     int strict;             /* --bbc-strict: a failed check ends the run */
     int dfs;                /* --bbc-fs dfs: names and limits of the Acorn DFS (bbc_mos.c) */
     int adfs;               /* --bbc-fs adfs: names, directories, limits and space of ADFS */
@@ -115,6 +119,9 @@ struct bbc_machine {
     struct bbc_violation first_writes[BBC_MAX_REPORTED];
     uint64_t romsel_mismatches;        /* ROMSEL != $F4 when a MOS entry point was called */
     struct bbc_violation first_mismatches[BBC_MAX_REPORTED];
+    uint64_t screen_writes;            /* writes to the screen (cfg.screen to $7FFF, not with the
+                                        * shadow screen) by code outside the MOS */
+    struct bbc_violation first_screen_writes[BBC_MAX_REPORTED];
 
     struct bbc_file files[BBC_MAX_FILES];
     uint16_t tail;                     /* OSARGS 1: the command line tail of *RUN */
@@ -164,5 +171,10 @@ int bbc_in_mos(uint16_t pc);
 int bbc_mos_owned(uint16_t addr, uint16_t page);
 
 const char *bbc_end_name(enum bbc_end end);
+
+/* Where the screen of a mode (0 to 7) starts in main RAM: HIMEM in that mode without the shadow
+ * screen, as MOS 1.20 and 2.00 have it ($3000 for modes 0 to 2, $4000 for 3, $5800 for 4 and
+ * 5, $6000 for 6, $7C00 for 7). */
+uint16_t bbc_screen_start(int mode);
 
 #endif

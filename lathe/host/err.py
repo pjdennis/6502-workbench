@@ -5,10 +5,10 @@ reported at. The compiler stops at the first error: fatal() writes
 `FILE:LINE:COL: error N: text` to the error output and ends the program with status 1.
 It never returns and nothing catches it.
 
-MESSAGES has one line per error, `number text`, so the texts can move to a file of their own
-when the compiler has to be smaller (docs/architecture.md, "Errors and debugging"): the BBC's ROM
-form of the twin reads them from LATHERR, which lathe/host/driver/msgfile.py writes from MESSAGES
-(docs/bbc.md, "The message file").
+MESSAGES has one line per error, `number text`, so the texts can be kept apart from the
+compiler when it has to be smaller (docs/architecture.md, "Errors and debugging"): the BBC's ROM
+form of the twin holds none, and the module image writes them, packed into it from MESSAGES by
+lathe/host/driver/msgpack.py (docs/bbc.md, "The texts in the module").
 
 The numbers are grouped by what the error is about:
 

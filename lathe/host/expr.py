@@ -1117,10 +1117,13 @@ def critical_statement():
 
 def with_statement():
     """"with" name "do" NL body "end" (provisional, 2026-11-14): inside it the variables and
+    inside it the variables and
     tables `in` that region can be used. Its bank is mapped at the start and the bank found
     there put back at the end, and by a `return`, `break` or `continue` that leaves it. A block
     inside a block of the same region costs nothing; one of another region maps its own, and
-    the outer region's names cannot be used in it."""
+    the outer region's names cannot be used in it. A block of a region the command line says is
+    in fixed memory (-fREGION, parts.is_fixed) maps nothing: it is its body alone, held to the
+    same rules, and the calls in it are not flagged unless a block around it mapped a bank."""
     global with_function, with_loop
     line = lex.line
     col = lex.col
@@ -1137,17 +1140,23 @@ def with_statement():
     line_end()
     outer_region = out.with_region
     outer_used = out.with_used
+    outer_unmapped = out.with_unmapped
     saved_function = with_function
     saved_loop = with_loop
     temp = fbuf.NO_SLOT
     entry = reg.NONE
-    if not reg.same_region(region, outer_region):
+    own = not reg.same_region(region, outer_region)
+    if own and parts.is_fixed(region):
+        if outer_region == 0:
+            out.with_unmapped = True
+    elif own:
         temp = parts.map_bank()
         entry = parts.with_entry
         if with_function == fbuf.NO_SLOT:
             with_function = temp
         if with_loop == fbuf.NO_SLOT:
             with_loop = temp
+        out.with_unmapped = False
     out.with_region = region
     out.with_used = kernel.NO_OBJ
     body()
@@ -1155,16 +1164,18 @@ def with_statement():
     used = out.with_used
     out.with_region = outer_region
     out.with_used = outer_used
-    if temp != fbuf.NO_SLOT:
+    out.with_unmapped = outer_unmapped
+    if own:
         if used == kernel.NO_OBJ:
             used = parts.region_symbol(region)
         if used == kernel.NO_OBJ:
             err.position(line, col)
             err.fatal(err.E_WITH_UNKNOWN)
-        if entry != reg.NONE:
-            fbuf.set_symbol(entry, used)
-        parts.unmap_bank(temp)
-        reg.slot_busy[temp] = False
+        if temp != fbuf.NO_SLOT:
+            if entry != reg.NONE:
+                fbuf.set_symbol(entry, used)
+            parts.unmap_bank(temp)
+            reg.slot_busy[temp] = False
     elif outer_used == kernel.NO_OBJ:
         out.with_used = used
     with_function = saved_function

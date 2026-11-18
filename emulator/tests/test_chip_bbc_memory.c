@@ -228,6 +228,37 @@ TEST load_rom_image(void) {
     PASS();
 }
 
+/* The Model B (model_b): ROMSEL is the whole of $FE30-$FE3F and holds four bits; there is no
+ * private RAM, and with no sideways RAM a write to the window changes nothing that is read
+ * there, the module's ROM included. */
+TEST model_b_romsel_is_fe30_to_fe3f_of_four_bits_and_has_no_private_ram(void) {
+    setup(4);
+    mem.model_b = 1;
+    mod.ram = 0;
+    for (int s = 0; s < BBC_SLOTS; s++)
+        if (s != 4) {
+            mem.kind[s] = BBC_SLOT_ROM;
+            memset(mem.slot[s], 0x40 + s, BBC_SLOT_SIZE);
+        }
+    for (uint16_t a = 0xFE30; a <= 0xFE3F; a++) {
+        wr(a, (uint8_t)(a & 0x0F));
+        ASSERT_EQ(a & 0x0F, mem.romsel);
+    }
+    wr(BBC_ROMSEL, 0x80 | 12);          /* bit 7 is not there: slot 12, no private RAM */
+    ASSERT_EQ(12, mem.romsel);
+    ASSERT_EQ(0x4C, rd(0x8000));
+    wr(0x8000, 0x11);
+    ASSERT_EQ(0x4C, rd(0x8000));
+    ASSERT_EQ(0x00, mem.private_ram[0]);
+    wr(BBC_ROMSEL, 4);                  /* the module, read only */
+    for (uint16_t a = 0x8000; a < 0xC000; a = (uint16_t)(a + 0x0FFF)) {
+        uint8_t before = rd(a);
+        wr(a, (uint8_t)~before);
+        ASSERT_EQ(before, rd(a));
+    }
+    PASS();
+}
+
 SUITE(bbc_memory_suite) {
     RUN_TEST(main_ram_reads_back);
     RUN_TEST(romsel_selects_the_slot_in_the_window);
@@ -240,6 +271,7 @@ SUITE(bbc_memory_suite) {
     RUN_TEST(module_answers_only_in_its_slot);
     RUN_TEST(private_ram_hides_the_module_below_b000);
     RUN_TEST(load_rom_image);
+    RUN_TEST(model_b_romsel_is_fe30_to_fe3f_of_four_bits_and_has_no_private_ram);
 }
 
 GREATEST_MAIN_DEFS();

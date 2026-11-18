@@ -1,12 +1,13 @@
 """The Lathe compiler's main program.
 
-    lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... SOURCE.lth OUTDIR [IMPORTDIR...]
+    lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... [-fREGION]... SOURCE.lth OUTDIR [IMPORTDIR...]
 
 Compiles one module in one pass: SRC and LEX turn the file into tokens; DECL, STMT and EXPR
 parse them; GEN chooses instructions, which FBUF holds until each function ends; OUT writes
 the object file OUTDIR/name.lo, and DECL the interface OUTDIR/name.li. Owns the command line
-and the order in which the components start. The options set the CPU the module is for and
-predeclare constants for `#if` (README.md, "Command lines").
+and the order in which the components start. The options set the CPU the module is for,
+predeclare constants for `#if`, and name the regions that are in fixed memory (README.md,
+"Command lines").
 """
 import decl
 import env
@@ -17,6 +18,7 @@ import inline
 import kernel
 import lex
 import out
+import parts
 import src
 import typetab
 
@@ -27,6 +29,7 @@ C_UNDERSCORE = 0x5F
 C_MINUS = 0x2D
 C_C = 0x63
 C_D = 0x64
+C_F = 0x66
 SOURCE_ENDING = b".lth"
 CPU_6502 = b"6502"
 CPU_65C02 = b"65c02"
@@ -99,9 +102,13 @@ def decimal(place):
     return n
 
 
-def define(place):
-    """The text after `-d`: NAME, which predeclares the bool constant NAME as true, or
-    NAME=NUMBER, which predeclares it as that number, of no type yet."""
+name_stop = 0                   # option_name(): where the name stopped
+
+
+def option_name(place):
+    """The name at `place`, to the end of the text or an `=`, as a name of the name heap: a name
+    the language allows, not a keyword. name_stop is where it stops."""
+    global name_stop
     kernel.name_begin()
     if not lex.is_letter(env.mem[place]):
         err.fatal(err.E_USAGE)
@@ -114,18 +121,36 @@ def define(place):
     name = kernel.name_end()
     if kernel.name_token(name) != 0:
         err.fatal(err.E_USAGE)              # a keyword
-    if env.mem[place] == 0:
+    name_stop = place
+    return name
+
+
+def define(place):
+    """The text after `-d`: NAME, which predeclares the bool constant NAME as true, or
+    NAME=NUMBER, which predeclares it as that number, of no type yet."""
+    name = option_name(place)
+    if env.mem[name_stop] == 0:
         constant(name, typetab.BOOL_TYPE, 1)
     else:
-        constant(name, typetab.NUMBER_TYPE, decimal(place + 1))
+        constant(name, typetab.NUMBER_TYPE, decimal(name_stop + 1))
+
+
+def fixed_region(place):
+    """The text after `-f`: REGION, a region in fixed memory (parts.fix_region)."""
+    name = option_name(place)
+    if env.mem[name_stop] != 0:
+        err.fatal(err.E_USAGE)
+    parts.fix_region(name)
 
 
 def option(place):
-    """One option, the text at `place`: -c6502, -c65c02, -dNAME or -dNAME=NUMBER."""
+    """One option, the text at `place`: -c6502, -c65c02, -dNAME, -dNAME=NUMBER or -fREGION."""
     if env.mem[place + 1] == C_C:
         gen.cpu = cpu_option(place + 2)
     elif env.mem[place + 1] == C_D:
         define(place + 2)
+    elif env.mem[place + 1] == C_F:
+        fixed_region(place + 2)
     else:
         err.fatal(err.E_USAGE)
 

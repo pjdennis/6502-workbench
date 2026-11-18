@@ -4,8 +4,9 @@ rebuild on two DFS discs, measured"). Measurement only: nothing here changes a t
     python3 lathe/tests/disc_report.py [OUT_DIR] [--linker]
     python3 lathe/tests/disc_report.py [OUT_DIR] --fit
 
-Builds the files of test_bbc_dfs.Loop with the host's tools (which that test shows are the BBC's,
-byte for byte): the compiler's modules as lathec-bbc.env with BBCFS 1 builds them, each compiled
+Builds the files of the rebuild loop on DFS discs (test_bbc_dfs.Loop until 2026-11-18, when it was
+dropped: self-hosting on the BBC is on ADFS) with the host's tools (which that test showed were the
+BBC's, byte for byte): the compiler's modules as lathec-bbc.env with BBCFS 1 builds them, each compiled
 in one directory, then linked with a command file. With --linker the same for the linker
 (linker-bbc.env). Then reports, from the real files:
 

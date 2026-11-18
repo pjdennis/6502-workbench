@@ -260,6 +260,66 @@ TEST osbyte_version_page_himem_and_high_address(void) {
     PASS();
 }
 
+/* The Model B: OSBYTE 0 gives 1 (OS 1.20), and its error for X = 0 says so. HIMEM is the start
+ * of the screen of the mode at power on (mode 7 unless the run says otherwise), on the B+ too
+ * when the screen is not the shadow one. */
+TEST model_b_os_version_and_himem_by_mode(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM(0), LDX_IMM(1), JSR(OSBYTE), STX_ZP(0x70),
+        LDA_IMM(132), JSR(OSBYTE), STX_ZP(0x73), STY_ZP(0x74), RTS };
+    struct bbc_config b = { .model_b = 1 };
+    ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &b));
+    ASSERT_EQ(1, mem.ram[0x70]);
+    ASSERT_EQ(0x00, mem.ram[0x73]);
+    ASSERT_EQ(0x7C, mem.ram[0x74]);
+    static const uint8_t screen[8] = { 0x30, 0x30, 0x30, 0x40, 0x58, 0x58, 0x60, 0x7C };
+    for (int mode = 0; mode < 8; mode++) {
+        struct bbc_config cfg = { .model_b = mode & 1, .screen = bbc_screen_start(mode) };
+        ASSERT_EQ(screen[mode] << 8, bbc_screen_start(mode));
+        fresh();
+        ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &cfg));
+        ASSERT_EQ(screen[mode], mem.ram[0x74]);
+    }
+    struct bbc_config shadow = { .shadow = 1, .screen = 0x5800 };
+    fresh();
+    ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &shadow));
+    ASSERT_EQ(0x80, mem.ram[0x74]);
+    static const uint8_t error[] = { LDA_IMM(0), LDX_IMM(0), JSR(OSBYTE), RTS };
+    fresh();
+    ASSERT_EQ(1, run(error, sizeof error, NULL, NULL, &b));
+    ASSERT_STR_EQ("OS 1.20\n", err_text);
+    PASS();
+}
+
+/* The screen is the MOS's: a program's write from HIMEM to $7FFF is counted, and with strict
+ * ends the run, as a write to the MOS's own memory does. Not with the shadow screen. */
+TEST writes_to_the_screen_are_counted(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM(1), STA_ABS(0x57FF), STA_ABS(0x5800), STA_ABS(0x7BFF), STA_ABS(0x7C00), STA_ABS(0x7FFF), RTS };
+    struct bbc_config seven = { .model_b = 1 };
+    ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &seven));
+    ASSERT_EQ(2, (int)m.screen_writes);
+    ASSERT_EQ(0x7C00, m.first_screen_writes[0].addr);
+    ASSERT_EQ(0, (int)m.mos_writes);
+    struct bbc_config four = { .model_b = 1, .screen = 0x5800 };
+    fresh();
+    ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &four));
+    ASSERT_EQ(4, (int)m.screen_writes);
+    ASSERT_EQ(0x5800, m.first_screen_writes[0].addr);
+    struct bbc_config strict = { .model_b = 1, .screen = 0x5800, .strict = 1 };
+    fresh();
+    ASSERT_EQ(1, run(code, sizeof code, NULL, NULL, &strict));
+    ASSERT_EQ(BBC_END_STRICT, m.end);
+    ASSERT(strstr(m.fault, "screen") != NULL);
+    struct bbc_config shadow = { .shadow = 1, .screen = 0x5800, .strict = 1 };
+    fresh();
+    ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &shadow));
+    ASSERT_EQ(0, (int)m.screen_writes);
+    PASS();
+}
+
 TEST osbyte_252_reads_and_writes_the_current_language(void) {
     fresh();
     static const uint8_t svc[] = { RTS };
@@ -1465,6 +1525,8 @@ SUITE(bbc_mos_suite) {
     RUN_TEST(a_replaced_vector_is_used_and_can_chain);
     RUN_TEST(osrdch_reads_standard_input_then_escape_at_its_end);
     RUN_TEST(osbyte_version_page_himem_and_high_address);
+    RUN_TEST(model_b_os_version_and_himem_by_mode);
+    RUN_TEST(writes_to_the_screen_are_counted);
     RUN_TEST(osbyte_252_reads_and_writes_the_current_language);
     RUN_TEST(osbyte_0_with_x_0_is_an_error_through_brkv);
     RUN_TEST(osbyte_126_acknowledges_escape);

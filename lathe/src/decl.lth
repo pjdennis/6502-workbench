@@ -138,7 +138,11 @@ var entry_members: byte = 0
 ; and a name, by their name entries; where a listed name was, for error 102. The rows last while
 ; one `import` line is read, the interfaces it brings in included.
 #if SMALL
+#if RAM32
+const MAX_WANTS = 56            ; (RAM32: the 32K Model B, every table in main RAM: lathe/docs/bbc.md, "The 32K Model B")
+#else
 const MAX_WANTS = 48            ; (SMALL: the test programs' small build)
+#end
 #else
 const MAX_WANTS = 160
 #end

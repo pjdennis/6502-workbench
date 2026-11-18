@@ -77,14 +77,17 @@ table_fix_addend = [0] * MAX_TABLE_FIXES
 table_fix_count = 0
 with_region = 0                     # the region of the innermost `with` block being compiled, or 0
 with_used = kernel.NO_OBJ           # the first variable or table of it used there (reg.object_symbol)
+with_unmapped = False               # the blocks being compiled are of regions in fixed memory
+                                    # (-fREGION), so nothing is mapped: calls are not flagged
 
 
 def init():
-    global symbol_count, call_count, member_count, with_region
+    global symbol_count, call_count, member_count, with_region, with_unmapped
     symbol_count = 0
     call_count = 0
     member_count = 0
     with_region = 0
+    with_unmapped = False
 
 
 def open(name):
@@ -216,7 +219,7 @@ def call(callee, flags, outer):
     """Note that the function being compiled calls `callee`. The linker wants each different
     call once, however often the function makes it. A call inside a `with` block says so."""
     global call_count
-    if with_region != 0:
+    if with_region != 0 and not with_unmapped:
         flags = flags | CALL_WITH
     for i in range(0, call_count):
         if call_callee[i] == callee and call_flags[i] == flags and call_outer[i] == outer:

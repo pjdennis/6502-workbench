@@ -372,6 +372,9 @@ e_no_disk:
 e_unsupported:
   .byte $00, 255
   .asciiz "Not in this emulator's MOS"
+e_os_120:                 ; --bbc-model b: OSBYTE 0 with X = 0 on the Model B's MOS
+  .byte $00, 247
+  .asciiz "OS 1.20"
 
 ; ---- the default vectors, copied to $0200-$0235 at reset ----
 vectab:

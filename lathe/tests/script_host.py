@@ -218,6 +218,17 @@ SMALL = (('kernel', 'NAME_HEAP_SIZE', 1536), ('kernel', 'MAX_SYMS', 264), ('kern
          ('kernel', 'TEXT_SIZE', 768), ('kernel', 'TOKEN_SIZE', 384), ('inline', 'SAVED_SIZE', 384),
          ('fbuf', 'MAX_LABELS', 128), ('fbuf', 'MAX_WEIGHTS', 32), ('typetab', 'MAX_TYPES', 32),
          ('decl', 'MAX_WANTS', 48))
+# The 32K Model B's capacities (RAM32, within SMALL in the twins: `#if SMALL` holds an `#if RAM32`
+# for each table whose size differs from the small build's; lathe/docs/bbc.md, "The 32K Model B"):
+# those that differ. test_memory.py checks that the twins agree.
+RAM32 = (('kernel', 'NAME_HEAP_SIZE', 3072), ('fbuf', 'BUFFER_SIZE', 1536), ('typetab', 'MAX_TYPES', 40),
+         ('decl', 'MAX_WANTS', 56))
+
+
+def ram32_capacities():
+    """[(host module, name, size)] of the 32K Model B's build: SMALL with RAM32's sizes."""
+    ram32 = {(m, n): v for m, n, v in RAM32}
+    return [(m, n, ram32.get((m, n), v)) for m, n, v in SMALL]
 
 
 def host_run(main, args, small=False):

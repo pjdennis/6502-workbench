@@ -1,0 +1,38 @@
+; imported by fixedblk.lth: a module placed in bank 3 whose blocks are of a region that is in a
+; bank (fixedblk_banks.env) or in fixed memory (fixedblk_fixed.env, which tells the compiler).
+module libfixb
+
+var table: [8]byte in fwork
+
+; Adds the eight bytes at p, a pointer into the region, which sum() passes down inside its
+; block: kept in fixed memory when the region is in a bank, in bank 3 when it is fixed.
+func add8(p: ^byte): byte
+  var i: byte
+  var t: byte
+  t = 0
+  for i = 0 to 7 do
+    t += p[i]
+  end
+  return t
+end
+
+pub func fill(n: byte)
+  var i: byte
+  with fwork do
+    for i = 0 to 7 do
+      table[i] = i + n
+    end
+  end
+end
+
+pub func sum(): byte
+  with fwork do
+    return add8(@table)
+  end
+end
+
+pub func get(i: byte): byte
+  with fwork do
+    return table[i]
+  end
+end

@@ -8,8 +8,12 @@ DFS's names, five files open and 31 a drive.
 - Map: map() on the BBC gives the twin's name for each of many names.
 - The tool chain under --bbc-fs dfs: a program compiled, linked and run on the B+128 with every
   file under its DFS name, byte for byte the host's; a module with a long name; two modules whose
-  names meet, refused by the compiler and by the linker; the compiler's self-compile in the ROM
-  form (LATHE_BBC_SELFHOST=1), every module.
+  names meet, refused by the compiler and by the linker; both tools' developer's forms
+  (LATHE_BBC_DFS=1). The 32K form (test_bbc_ram32.py) relies on these.
+
+Self-hosting under the DFS's names (the compiler's self-compile and the rebuild loop on DFS discs)
+was dropped on 2026-11-18, the owner's decision: self-hosting on the BBC is on ADFS
+(test_bbc_adfs.py, test_bbc_rom128.Adfs128).
 """
 import dataclasses
 import os
@@ -36,7 +40,6 @@ DFS_BOARD = dataclasses.replace(boards.BOARDS['bbc'], options=boards.BOARDS['bbc
 
 
 ALL = os.environ.get('LATHE_BBC_DFS') == '1'
-SELFHOST = os.environ.get('LATHE_BBC_SELFHOST') == '1'
 REPORT = os.environ.get('LATHE_BBC_DFS_REPORT') == '1'
 COMPILER_ENV = os.path.join(LATHE, 'src', 'lathec-bbc.env')
 LINKER_ENV = os.path.join(LATHE, 'src', 'linker-bbc.env')
@@ -505,8 +508,6 @@ class Toolchain(unittest.TestCase):
         self.assertTrue(files['averylongone.lo'] != files['averylongtwo.lo'])
         os.unlink(os.path.join(disk, 'averylongtwo.lth'))
         to_dfs(disk)
-        import test_msgfile
-        test_msgfile.put_on(disk, 1)        # the texts of the errors, as $.LATHERR
         self.assertEqual(sorted(os.listdir(disk)).count('L.AVERYLO'), 1)
         two = [c for c in compiles if c[-2] == 'averylongtwo.lth'][0]
         main = [c for c in compiles if c[-2] == 'meeting.lth'][0]
@@ -554,181 +555,6 @@ class Toolchain(unittest.TestCase):
         status, out, mos, written, _, _ = bbc('LATHE', main)
         self.assertEqual((status, out), host_compiles('main', main, [('averylongtwo.li', 'averylongone.li')]))
         self.assertIn(b'error 51', out)
-
-
-@unittest.skipUnless(HAVE_TOOLS and (SELFHOST or REPORT), 'LATHE_BBC_SELFHOST=1 runs it')
-class SelfHost(unittest.TestCase):
-    """test_bbc_selfhost.py's ROM form under the DFS's names: the compiler built with BBCFS 1
-    compiles each of its own modules on the B+128 with --bbc-fs dfs, `*LATHE OPTIONS NAME.lth .`
-    on a disc that holds L.NAME and I.* of the host's interfaces of what it imports; status,
-    output and every file written are the host's, under their DFS names."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.dir = tempfile.mkdtemp(prefix='lathe-bbc-dfs-self-')
-        cls.module, cls.maps = build_image(os.path.join(cls.dir, 'image'))
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.dir, ignore_errors=True)
-
-    def test_the_compiler_compiles_itself_under_dfs_names(self):
-        import memory_report
-        import test_src_selfhost as selfhost
-        disc = {}                   # every file of the self-compile on one disc: DFS name -> bytes
-        most = (0, 0)
-        for name in selfhost.MODULES:
-            options = tuple(memory_report.options_of(os.path.join(LATHE, 'src', name + '.lth')))
-            disk, host = selfhost.prepare(name, os.path.join(self.dir, 'work-' + name), options)
-            to_dfs(disk)
-            disc.update(files_of(disk))
-            args = list(options) + [name + '.lth', '.']
-            status, out, mos, written, cycles, m = run_dfs(self.module, disk, [boards.module_command('LATHE', args)])
-            most = tuple(max(a, b) for a, b in zip(most, m))
-            if REPORT:
-                print('\n%-9s most open %d, writing %d; its disc: %d files, %d bytes' % (
-                    (name,) + m + (len(files_of(disk)), sum(len(d) for d in files_of(disk).values()))), end='')
-            disc.update(written)
-            with self.subTest(module=name):
-                self.assertEqual((status, out, mos), (host[0], host[1] + host[2], b''))
-                want = {bbcfs.host_file(bbcfs.dfs_name(f)): d for f, d in host[3].items()}
-                self.assertEqual(sorted(written), sorted(want))
-                for f in want:
-                    self.assertTrue(written[f] == want[f], f + ' differs')
-        # The source and one interface, then the source and the object file (five, the DFS's
-        # limit, until 2026-11-16: three interfaces were read inside one another).
-        self.assertEqual(most, (2, 1))
-        if REPORT:
-            kinds = {}
-            for f, d in disc.items():
-                n, size = kinds.get(f[0], (0, 0))
-                kinds[f[0]] = (n + 1, size + len(d))
-            print('\nthe self-compile: most open %d, writing %d; on one disc %d files, %d bytes: %s' % (
-                most + (len(disc), sum(len(d) for d in disc.values()),
-                        ', '.join('%s %d files %d bytes' % (k, n, s) for k, (n, s) in sorted(kinds.items())))))
-            for f in sorted(disc, key=lambda f: -len(disc[f]))[:6]:
-                print('  %-10s %6d' % (f, len(disc[f])))
-
-
-LOOP = os.environ.get('LATHE_BBC_DFS_LOOP') == '1'
-SIDE = 800 * 256 - 2 * 256      # bytes of an 80-track side beside its catalogue's two sectors
-CATALOGUE = 31                  # files a DFS catalogue holds
-
-
-@unittest.skipUnless(HAVE_TOOLS and (LOOP or REPORT), 'LATHE_BBC_DFS_LOOP=1 runs it')
-class Loop(unittest.TestCase):
-    """test_bbc_selflink.py's loop under the DFS's names, both tools and the compiler they make
-    built with BBCFS 1 from the environments as committed: in one run of the emulator with
-    --bbc-fs dfs, `*LATHE` compiles the compiler's modules from their sources, `*LLINK @LINKARG`
-    links them, and the compiler just made, `*RUN LATHEC` from the module's RAM form (filled by
-    LOADMOD from the short image), compiles two of them again. Every file written is the host
-    tools' of the same arguments, under its DFS name; one file is written at a time.
-
-    The four drives, as near to an 80-track side each as the files allow (a catalogue holds 31):
-    drive 0 the environment, the command file, LOADMOD, the image and its bank files (the
-    developer's form loads its banks from the drive it runs on), which fits a side; drives 1 and 2
-    the objects and interfaces (a compile writes both in one directory and names the other drive
-    as its directory of interfaces), 413 KB, more than two sides: one of them fits; drive 3 the
-    sources, the map and the short image, which cannot fit (the sources alone are 570 KB)."""
-
-    def test_the_compiler_rebuilds_itself_under_dfs_names(self):
-        import subprocess
-        import test_bbc_selflink as selflink
-        import test_bbc_toolchain as toolchain
-        work = tempfile.mkdtemp(prefix='lathe-bbc-dfs-loop-')
-        self.addCleanup(shutil.rmtree, work, True)
-        module, _ = build_image(os.path.join(work, 'image'))
-        env = dfs_env(COMPILER_ENV, os.path.join(work, 'lathec.env'))
-        steps = toolchain.recorded(os.path.join(LATHE, 'src', 'lathec.lth'), env, os.path.join(work, 'build'))
-        flat = os.path.join(work, 'flat')
-        os.makedirs(flat)
-        compiles, link = toolchain.lay_out(steps, flat)
-        # The sizes of each module's object and interface, from a host run on one directory.
-        sized = os.path.join(work, 'sized')
-        shutil.copytree(flat, sized)
-        flat_files, said = toolchain.host_files(compiles, link, sized)
-        self.assertEqual(said, [(0, b'')] * len(said))
-        # The objects and interfaces are more than two sides hold, so drive 1 takes, largest
-        # first, the modules that fit a side and its catalogue, and drive 2 the rest, but no more
-        # than its catalogue holds: once it is full, the rest (the smallest) go to drive 1.
-        sizes = {}
-        for args in compiles:
-            stem = os.path.splitext(args[-2])[0]
-            sizes[stem] = len(flat_files[stem + '.lo']) + len(flat_files.get(stem + '.li', b''))
-        drive = {}
-        used = 0
-        for stem in sorted(sizes, key=lambda m: -sizes[m]):
-            fits = used + sizes[stem] <= SIDE and 2 * (list(drive.values()).count('1') + 1) <= CATALOGUE
-            if not fits and 2 * (list(drive.values()).count('2') + 1) > CATALOGUE:
-                fits = True
-            drive[stem] = '1' if fits else '2'
-            used += sizes[stem] if fits else 0
-        disk = os.path.join(work, 'host')
-        for d in ('1', '2', '3'):
-            os.makedirs(os.path.join(disk, d))
-        shutil.copy(os.path.join(flat, os.path.basename(env)), disk)
-        moved = []
-        for args in compiles:
-            name = args[-2]
-            d = drive[os.path.splitext(name)[0]]
-            shutil.copy(os.path.join(flat, name), os.path.join(disk, '3', name))
-            moved.append(args[:-2] + ['3/' + name, d, '2' if d == '1' else '1'])
-        compiles = moved
-        link = link[:3] + ['3/' + link[3]] + ['%s/%s' % (drive[os.path.splitext(o)[0]], o) for o in link[4:]]
-        with open(os.path.join(disk, selflink.COMMAND_FILE), 'w') as f:
-            f.write(''.join(a + '\n' for a in link))
-        again = [args for args in compiles if os.path.splitext(os.path.basename(args[-3]))[0] in selflink.LOOP_AGAIN]
-        self.assertEqual(len(again), len(selflink.LOOP_AGAIN))
-        # The host's tools on a copy, with the same arguments.
-        host = os.path.join(work, 'hostrun')
-        shutil.copytree(disk, host)
-        before = set(files_of(host))
-        for args in compiles:
-            r = subprocess.run([sys.executable, build.COMPILER] + args, cwd=host, capture_output=True)
-            self.assertEqual((r.returncode, r.stdout + r.stderr), (0, b''), args)
-        r = subprocess.run([sys.executable, build.LINKER] + link, cwd=host, capture_output=True)
-        self.assertEqual((r.returncode, r.stdout + r.stderr), (0, b''))
-        files = {f: d for f, d in files_of(host).items() if f not in before}
-        want = {bbcfs.host_file(bbcfs.dfs_name(f)): d for f, d in files.items()}
-        # The BBC's disc: each file under its DFS name; LOADMOD on drive 0, the short image on 3.
-        bbc = os.path.join(work, 'bbc')
-        os.makedirs(bbc)
-        for f, d in files_of(disk).items():
-            put(bbc, f, d)
-        with open(os.path.join(os.path.dirname(module), 'LOADMOD'), 'rb') as f:
-            put(bbc, 'LOADMOD', f.read())
-        with open(bbcfs.host_path(bbc, 'LOADMOD') + '.inf', 'w') as f:
-            f.write(boards.inf_text('$.LOADMOD', 0x1900, os.path.getsize(bbcfs.host_path(bbc, 'LOADMOD'))))
-        with open(module + '.disc', 'rb') as f:
-            put(bbc, '3/MODULE', f.read())
-        image = link[2]
-        load = mapenv.read_env(env).code[0]
-        lines = ['RUN LOADMOD :3.MODULE']
-        lines += [boards.module_command('LATHE', args) for args in compiles]
-        lines.append(boards.module_command('LLINK', ['@' + selflink.COMMAND_FILE]))
-        lines += ['LOAD %s %X' % (image, load), 'SAVE %s %X +%X %X' % (image, load, len(files[image]), load)]
-        lines += [boards.module_command('RUN', [image] + args) for args in again]
-        saved = globals()['CAP']
-        globals()['CAP'] = selflink.CAP
-        try:
-            status, out, mos, written, cycles, most = run_dfs(module, bbc, lines, loaded=True)
-        finally:
-            globals()['CAP'] = saved
-        self.assertEqual((status, out, mos), (0, b'', b''))
-        self.assertEqual(sorted(written), sorted(want))
-        for f in want:
-            self.assertTrue(written[f] == want[f], f + ' differs')
-        # The compiler has two files open at most (a source or an interface, and the object);
-        # the linker two (an object file, and the image, a bank file or the map).
-        self.assertEqual(most, (2, 1))
-        cat = catalogue(bbc)
-        self.assertLessEqual(max(n for n, _ in cat.values()), CATALOGUE)
-        self.assertLessEqual(cat[0][1], SIDE)
-        self.assertLessEqual(min(cat[1][1], cat[2][1]), SIDE)    # together they are more than two sides
-        if REPORT or LOOP:
-            print('\nthe loop under DFS names: %d cycles, %.1f minutes at 2 MHz; most open %d, writing %d;'
-                  ' the disc: %s' % ((cycles, cycles / 2e6 / 60) + most + (
-                      ', '.join('drive %d %d files %d bytes' % (d, n, sz) for d, (n, sz) in sorted(cat.items())),)))
 
 
 @unittest.skipUnless(HAVE_TOOLS and (ALL or REPORT), 'LATHE_BBC_DFS=1 runs it')

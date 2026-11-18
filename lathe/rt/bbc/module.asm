@@ -4,9 +4,12 @@
 ; for n 0 to 7, $BFF8-$BFFF their mirror). lathe/host/driver/bbcrom.py assembles this file with
 ; asm/pyasm.py, with two constants before it, `home` (the bank that holds the module's own code
 ; and tables, the home bank) and `home_at` (their address there), and its own tables (the command
-; table, the copy lists, the *HELP text) after the line `; ---- the tables ----` at the end, and
+; table, the copy lists, the *HELP text, then the texts of the errors, lathe/host/driver/
+; msgpack.py's) after the line `; ---- the tables ----` at the end, and
 ; puts the reserved bytes in every bank. Written for the repository's own assembler: upper-case
-; mnemonics, constants before their use.
+; mnemonics, constants before their use. bbcrom.py also gives `entry_rest`, the bytes of a command's
+; entry in the table after its name's zero (5, or 7 with the check below), and `check_himem` when
+; the image checks HIMEM.
 ;
 ; Every bank begins with the same RESERVED bytes, $8000-$804F: the sideways ROM header, the
 ; service code and the bank's own number at $804F (the one byte that differs), so that the MOS
@@ -14,19 +17,27 @@
 ; any bank is selected, and the MOS issues service calls while a tool runs in any bank. A Lathe
 ; program's banks are linked with the window $8050-$BFDF (lathe/env/bbc-rom.env).
 ;
-; The service code answers only service calls 4 (an unknown * command) and 9 (*HELP). For any
-; other it returns at once with A, X and Y as they were (only the flags change). For 4 and 9 it
-; pushes the call and this bank's number, selects the home bank by a read of $BFF0+home, an
+; The service code answers only service calls 4 (an unknown * command), 9 (*HELP) and $4C, the
+; module's own (a tool's ROM form asks for the text of an error: "An error's text", below; the
+; reserved bytes have one byte to spare). For any other it returns at once with A, X and Y as
+; they were (only the flags change). For 4, 9 and $4C it pushes the call and this bank's number, selects the home bank by a read of $BFF0+home, an
 ; instruction of the reserved bytes, so that the next one, the same in the home bank, goes on
 ; there; and the home bank returns through `back` or `claim`, which select the bank of entry
 ; again in the same way and return from the service call: unclaimed with A, X (the slot, from
 ; $F4) and Y as given, or claimed with A = 0.
 ;
 ; The home bank holds, at home_at (after its program's code, if a program has code in it; bank 0
-; and $8050 in the sixteen-bank image), the code below and the tables; the programs' resident
+; and $8050 in the sixteen-bank image), the code below and the tables, and after them the packed
+; texts of the compiler's and the linker's errors, in every image; the programs' resident
 ; parts and their regions' constants are in the ends of the banks, in pieces, wherever there is
 ; room. For a command of its table it:
 ;
+;   0. with check_himem (bbcrom.image(check_himem=True), every image bbcrom.py makes by default:
+;      lathe/docs/bbc.md, "Started in another screen mode"), refuses the command if HIMEM (OSBYTE 132) is below the top of the
+;      program's memory, the word after its entry's start address: the screen of the mode would be
+;      in its tables, and the MOS's text would write over them. The error, `Mode 7 needed`, is
+;      copied to $0100 and raised there, as a sideways ROM's errors must be (the language that
+;      prints it is in the window then), before anything is copied or written;
 ;   1. copies the command's tail, after the spaces, from ($F2),Y to $0700, ended by CR (at most
 ;      239 bytes; from the end down when the line is below $0700, so that it may overlap);
 ;   2. writes the stub, 16 bytes at $07F0-$07FF, with the program's start address and the slot
@@ -73,6 +84,8 @@ cli_ptr: = $F2
 romsel: = $FE30
 latch: = $BFF0
 osasci: = $FFE3
+oswrch: = $FFEE
+text_call: = $4C               ; the service call that asks for an error's text
 osbyte: = $FFF4
 tail: = $0700
 stub_ram: = $07F0
@@ -107,6 +120,8 @@ service:
   CMP #$04
   BEQ .ours
   CMP #$09
+  BEQ .ours
+  CMP #text_call
   BEQ .ours
   RTS
 .ours:
@@ -148,6 +163,10 @@ reserved_end:
 bank0:
   TSX
   LDA $0102,X                  ; the call
+  CMP #text_call
+  BNE .not_text
+  JMP text
+.not_text:
   CMP #$09
   BNE .command
   JMP help
@@ -183,13 +202,36 @@ bank0:
 .after:
   TXA                          ; X at the name's zero: its list and start follow
   CLC
-  ADC #$05
+  ADC #entry_rest
   TAX
   JMP .next
 .none:
   LDY w0
   JMP back
 .found:
+  .ifdef check_himem
+  STY w2                       ; where the tail starts in the line
+  STX w3                       ; the entry
+  LDA #$84                     ; OSBYTE 132: HIMEM, in X and Y
+  JSR osbyte
+  STX w0
+  STY w1
+  LDX w3
+  LDA w0                       ; HIMEM less the top of the program's memory
+  CMP commands+5,X
+  LDA w1
+  SBC commands+6,X
+  BCS .room
+  LDX #too_low_end-too_low-$01 ; below: the error, from $0100
+.error:
+  LDA too_low,X
+  STA $0100,X
+  DEX
+  BPL .error
+  JMP $0100
+.room:
+  LDY w2
+  .endif
   LDA commands+1,X
   STA w4                       ; the copy list
   LDA commands+2,X
@@ -343,6 +385,74 @@ help:
 .quiet:
   LDY w0
   JMP back
+
+  .ifdef check_himem
+; The error when HIMEM is below the program's memory: BRK, its number, its text, 0.
+too_low:
+  .byte $00, $00
+  .asciiz "Mode 7 needed"
+too_low_end:
+  .endif
+
+; An error's text: a tool's ROM form asks for text Y with OSBYTE 143, X = text_call (lathe/rt/
+; bbc.lth, error_text), and the module writes ": " and the text with OSWRCH and claims the call;
+; when no ROM claims it, nothing is written, and the error is its number alone. Text n is the
+; compiler's error n, text 255 - n the linker's. The texts (lathe/host/driver/msgpack.py packs
+; them from the host's tables; bbcrom.py puts them after the tables below) are in text_texts in
+; order from 0, each its codes ended by a zero; a code is a character, or a pair of codes, which
+; text_first and text_second give at the code plus $80 if that is below their length.
+text:
+  LDA #$3A                     ; ": "
+  JSR oswrch
+  LDA #$20
+  JSR oswrch
+  LDA #<text_texts
+  STA w0
+  LDA #>text_texts
+  STA w1
+  TYA
+  TAX                          ; the texts before it
+  LDY #$00
+  CPX #$00
+  BEQ .write
+.pass:
+  LDA (w0),Y
+  INY
+  BNE .same
+  INC w1
+.same:
+  CMP #$00
+  BNE .pass                    ; to the end of this text
+  DEX
+  BNE .pass
+.write:
+  LDA (w0),Y
+  BEQ .done
+  JSR put_code
+  INY
+  BNE .write
+  INC w1
+  BNE .write                   ; always
+.done:
+  JMP claim
+
+; One code: a character, or a pair, its first code and then its second (the 6502's stack holds
+; the second while the first is written: three bytes a level, at most eight levels).
+put_code:
+  CLC
+  ADC #$80
+  CMP #text_second-text_first
+  BCS .character
+  TAX
+  LDA text_second,X
+  PHA
+  LDA text_first,X
+  JSR put_code
+  PLA
+  JMP put_code
+.character:
+  SBC #$80                     ; the carry is set: the code as it was
+  JMP oswrch
 
 ; The stub, copied to $07F0 (above).
 stub:

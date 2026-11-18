@@ -126,6 +126,13 @@ def lists_input(title, source):
 # variable and a table in a region, and one that imports a function that is `interrupt`, a
 # variable and a table in a region (an interface made by hand); and one with so many initial
 # values that they are written out in parts (gen.INIT_FLUSH).
+# Blocks of the regions r, q and s, for -fREGION: r and q fixed, s in a bank.
+WITH_FIXED = (b'module m\nvar t: [4]byte in r\nvar u: byte in s\nvar w: byte in q\nvar n: byte\n'
+              b'func g(): byte\n  return 1\nend\n'
+              b'func f(i: byte): byte\n  with r do\n    t[i] = g()\n    with s do\n      u = g()\n'
+              b'      with q do\n        w = g()\n      end\n    end\n    if t[0] == 0 then\n      return t[1]\n'
+              b'    end\n  end\n  with s do\n    with r do\n      t[0] = u\n    end\n  end\n  return n\nend\n')
+
 MADE = [
     ('no arguments', [], {}),
     ('-c of no CPU', ['-c8080', 'm.lth', '.'], {'m.lth': M}),
@@ -137,6 +144,20 @@ MADE = [
     ('-d with a number above 65535', ['-dA=65536', 'm.lth', '.'], {'m.lth': M}),
     ('-d with a letter in the number', ['-dA=1x', 'm.lth', '.'], {'m.lth': M}),
     ('-d with the largest number', ['-dA=65535', '-c65c02', '-c6502', 'm.lth', '.'], {'m.lth': M}),
+    # -fREGION: a region in fixed memory, whose blocks map nothing (lathe/docs/language.md,
+    # "Banked data"); a block of another region inside and around one, and the option's errors
+    ('-f: blocks of a region in fixed memory, inside and around another', ['-fr', '-fq', '-fr', 'm.lth', '.'],
+     {'m.lth': WITH_FIXED}),
+    ('-f: the same blocks with no region fixed', ['m.lth', '.'], {'m.lth': WITH_FIXED}),
+    ('-f: a fixed region\'s names used outside its block (118)', ['-fr', 'm.lth', '.'],
+     {'m.lth': b'module m\nvar t: byte in r\nfunc f()\n  t = 1\nend\n'}),
+    ('-f: a block of a fixed region that names nothing of it (184)', ['-fq', 'm.lth', '.'],
+     {'m.lth': b'module m\nvar t: byte in r\nfunc f()\n  with q do\n  end\nend\n'}),
+    ('-f of no name', ['-f', 'm.lth', '.'], {'m.lth': M}),
+    ('-f of a keyword', ['-fwith', 'm.lth', '.'], {'m.lth': M}),
+    ('-f with a number', ['-fr=1', 'm.lth', '.'], {'m.lth': M}),
+    ('-f of nine regions', ['-fa', '-fb', '-fc', '-fd', '-fe', '-ff', '-fg', '-fh', '-fi', 'm.lth', '.'],
+     {'m.lth': M}),
     ('an option not known', ['-x', 'm.lth', '.'], {'m.lth': M}),
     ('options and no source', ['-c6502'], {}),
     ('no output directory', ['m.lth'], {'m.lth': M}),
@@ -518,14 +539,12 @@ def run_host_full(item, work):
 
 def run_bbc(image, item, work):
     """(status, output, what the MOS said, {file: bytes}) of the compiler in the ROM form on
-    the BBC (test_bbc_selfhost.report_run), with the message file on the disc, or an exception's
-    text in place of the output."""
+    the BBC (test_bbc_selfhost.report_run), the texts of its errors from the module, or an
+    exception's text in place of the output."""
     import test_bbc_selfhost as bbc_selfhost
-    import test_msgfile
     kind, path, args, files = item
     with tempfile.TemporaryDirectory(dir=work) as disk:
         fill(disk, files)
-        test_msgfile.put_on(disk)
         try:
             got = bbc_selfhost.report_run('rom', image, disk, args)
         except Exception as e:      # an argument the BBC's command line cannot carry

@@ -109,6 +109,8 @@ var table_fix_addend: [MAX_TABLE_FIXES]word in OUTTAB
 var table_fix_count: word = 0
 pub var with_region: word = 0       ; the region of the innermost `with` block being compiled, or 0
 pub var with_used: word = kernel.NO_OBJ ; the first variable or table of it used there (reg.object_symbol)
+pub var with_unmapped: bool = false ; the blocks being compiled are of regions in fixed memory
+                                    ; (-fREGION), so nothing is mapped: calls are not flagged
 
 forward func put_part(name: word)
 
@@ -117,6 +119,7 @@ pub func init()
   call_count = 0
   member_count = 0
   with_region = 0
+  with_unmapped = false
 end
 
 ; Create the object file whose name is at `name`. False if it cannot be created.
@@ -275,7 +278,7 @@ end
 ; call once, however often the function makes it. A call inside a `with` block says so.
 pub func call(callee: word, flags: byte, outer: word)
   var i: byte
-  if with_region != 0 then
+  if with_region != 0 and not with_unmapped then
     flags = flags | CALL_WITH
   end
   for i = 0 until call_count do

@@ -21,7 +21,10 @@ What goes where (layout()):
   in bank n, from $8050.
 - The home bank: the module's own code and tables, after the code of the bank (bank 0, at
   $8050, in the sixteen-bank image; in the eight-bank one the bank with the most room after its
-  code of those up to the last program's, or the first bank no program uses).
+  code of those up to the last program's, or the first bank no program uses), and after them the
+  texts of the Lathe tools' errors, packed by msgpack.py from the host's tables (3,673 bytes), in
+  every image: the module writes one when a tool's ROM form asks with its service call $4C
+  (lathe/docs/bbc.md, "The texts in the module").
 - The programs' resident parts and the constants of their regions (a region bank's file), in
   pieces, which the home bank copies at the * command into main RAM and the sideways RAM slots.
   In the eight-bank image (or with --tails) in the rest of every bank, to $BFEF: first in the
@@ -60,6 +63,7 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
 sys.path.insert(0, os.path.join(ROOT, 'asm'))
 
 import mapenv  # noqa: E402
+import msgpack  # noqa: E402
 import pyasm  # noqa: E402
 
 MODULE_ASM = os.path.join(ROOT, 'lathe', 'rt', 'bbc', 'module.asm')
@@ -107,6 +111,20 @@ class Program:
     load: int = 0
     resident: bytes = b''
     banks: list = field(default_factory=list)
+    top: int = 0                # the address after its memory below $8000 (check_himem)
+
+
+def memory_top(path):
+    """The address after the highest byte of main RAM an environment's program uses: the end of
+    its `code`, `data` and `more data` ranges below $8000, + 1."""
+    ends = []
+    for n, words in mapenv.read_entries(path):
+        key = [w.lower() for w in words[:2]]
+        if key[0] in ('code', 'data') and len(words) == 3:
+            ends.append(mapenv._number(words[2], f'{path}:{n}'))
+        elif key == ['more', 'data'] and len(words) == 4:
+            ends.append(mapenv._number(words[3], f'{path}:{n}'))
+    return max(e for e in ends if e < 0x8000) + 1
 
 
 def read_env_banks(path):
@@ -213,12 +231,15 @@ def assemble(text, what='lathe/rt/bbc/module.asm'):
     return code, {k[1]: v for k, v in a.symbols.items() if k[0] == 'global'}
 
 
-def tables(programs, lists):
+def tables(programs, lists, check_himem=False):
     """The asm text of the tables: the command table, the *HELP text and each command's copy
-    list, [(source, destination, count, bank, unit)]."""
+    list, [(source, destination, count, bank, unit)]. With check_himem each command's entry also
+    has the top of its program's memory, which HIMEM must not be below."""
     out = ['commands:']
     for n, p in enumerate(programs):
         out += [f'  .byte "{p.command}", $00', f'  .word list_{n}', f'  .word ${p.load:04X}']
+        if check_himem:
+            out += [f'  .word ${p.top:04X}']
     out += ['  .byte $00', 'help_text:', '  .byte $0D', '  .byte "Lathe"', '  .byte $0D']
     for p in programs:
         out += [f'  .byte "  {p.command}"', '  .byte $0D']
@@ -231,12 +252,27 @@ def tables(programs, lists):
     return '\n'.join(out) + '\n'
 
 
+_texts = []
+
+
+def error_texts():
+    """The asm text of the packed texts of the tools' errors (msgpack.py), which every image holds
+    after the module's tables: packed once."""
+    if not _texts:
+        _texts.append(msgpack.tables()[0])
+    return _texts[0]
+
+
 def module_code(programs, lists, home=0, at=FIRST):
-    """The module's code assembled with its home bank `home` and its code and tables at `at` there:
-    (the reserved bytes, the code and tables, the global labels)."""
+    """The module's code assembled with its home bank `home` and its code and tables at `at` there,
+    with the check of HIMEM if a program has a top (image(check_himem=True)): (the reserved bytes,
+    the code and tables, the global labels)."""
     with open(MODULE_ASM) as fh:
         source = fh.read()
-    code, labels = assemble(f'home: = ${home:02X}\nhome_at: = ${at:04X}\n' + source + tables(programs, lists))
+    check_himem = any(p.top for p in programs)
+    head = f'home: = ${home:02X}\nhome_at: = ${at:04X}\n'
+    head += 'check_himem: = $01\nentry_rest: = $07\n' if check_himem else 'entry_rest: = $05\n'
+    code, labels = assemble(head + source + tables(programs, lists, check_himem) + error_texts())
     if labels['reserved_end'] != FIRST or len(code) > LAST - WINDOW + 1:
         raise ImageError(f'module.asm: the reserved bytes must end at ${FIRST:04X}, and its code fit a bank')
     return code[:RESERVED], code[at - WINDOW:], labels
@@ -380,18 +416,23 @@ def layout(programs, banks=BANKS, tails=None):
     return lay
 
 
-def image(specs, out, listing=None, short=None, banks=BANKS, tails=None):
+def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_himem=True):
     """Writes the module image `out` (banks of 16 KB: sixteen, 262,144 bytes, scheme direct16, or
     eight, 131,072 bytes, scheme direct8) for the programs specs, [(command, resident image,
     environment[, map])], and the listing (text) to `listing` if given; with `short`, also the
     image's banks from 0 to the last one in use (the home bank, a program's code or a piece), to
-    that file; tails as layout() has it. Returns the listing."""
+    that file; tails as layout() has it. With check_himem (the default) a command is refused with the MOS error
+    `Mode 7 needed` when HIMEM is below the top of its program's memory (the end of the highest
+    of its `code`, `data` and `more` ranges, + 1): module.asm, step 0. Returns the listing."""
     if banks not in SCHEMES:
         raise ImageError(f'an image has 16 or 8 banks, not {banks}')
     programs = [load_program(Program(s[0].upper(), s[1], s[2], s[3] if len(s) > 3 else None), banks)
                 for s in specs]
     if not programs:
         raise ImageError('no program')
+    if check_himem:
+        for p in programs:
+            p.top = memory_top(p.env)
     for p in programs:
         if [q.command for q in programs].count(p.command) > 1:
             raise ImageError(f'the command {p.command} is given twice')
@@ -497,7 +538,7 @@ def loader(out, load=LOADER_LOAD):
 
 # ---- A program's environment for the ROM form ----------------------------------------------
 
-def rom_env(source, out, first=1, banks=BANKS):
+def rom_env(source, out, first=1, banks=BANKS, settings=None):
     """Writes to `out` the ROM form of the environment `source` (a program's *RUN environment,
     such as lathe/env/bbc-bank.env with the program's lines): the window $8050-$BFDF, each bank
     of the module ($8n) renumbered, in the order of the `bank` lines, as banks first, first + 1,
@@ -511,15 +552,26 @@ def rom_env(source, out, first=1, banks=BANKS):
     banks (the 128 KB module, scheme direct8) a source's `define ROM128 0` becomes 1, so that
     `when ROM128` and `unless ROM128` entries give what differs there (a tool in fewer banks:
     lathe/docs/bbc.md, "The 128 KB module"). A `bank` entry of the module under `when` or
-    `unless` is renumbered if it is an entry of the result, and left as it is if not."""
+    `unless` is renumbered if it is an entry of the result, and left as it is if not.
+
+    `settings` ({NAME: number}) sets the value of a source's `define NAME N` in the same way, for
+    a variant the source describes under a define of its own: {'RAM32': 1} for the tools' 32K
+    Model B form (lathe/docs/bbc.md, "The 32K Model B"). A name the source does not define is an
+    error."""
     if banks not in SCHEMES:
         raise ImageError(f'an image has 16 or 8 banks, not {banks}')
     lines, roms, n = [], [], first
     defined = {}
+    settings = {name.lower(): value for name, value in (settings or {}).items()}
+    unset = set(settings)
     with open(source) as fh:
         for line in fh:
             words = line.split(';', 1)[0].split()
-            if [w.lower() for w in words[:2]] == ['define', 'romform'] and len(words) == 3:
+            if len(words) == 3 and words[0].lower() == 'define' and words[1].lower() in settings:
+                line = re.sub(r'(?i)^(\s*define\s+\w+\s+)\S+', r'\g<1>%d' % settings[words[1].lower()], line,
+                              count=1)
+                unset.discard(words[1].lower())
+            elif [w.lower() for w in words[:2]] == ['define', 'romform'] and len(words) == 3:
                 line = re.sub(r'(?i)(romform\s+)\S+', r'\g<1>1', line, count=1)
             elif [w.lower() for w in words[:2]] == ['define', 'rom128'] and len(words) == 3:
                 line = re.sub(r'(?i)(rom128\s+)\S+', r'\g<1>' + ('1' if banks == 8 else '0'), line, count=1)
@@ -539,6 +591,8 @@ def rom_env(source, out, first=1, banks=BANKS):
                 roms.append(f'rom       {entry[1]} {entry[2]}\n')
                 n += 1
             lines.append(line)
+    if unset:
+        raise ImageError(f'{source}: no define of {", ".join(sorted(unset)).upper()} to set')
     with open(out, 'w') as fh:
         fh.write(''.join(lines) + ''.join(roms))
     return n
@@ -567,6 +621,8 @@ def main(argv):
                     help='16 (scheme direct16, the default) or 8 (direct8, a 128 KB EPROM)')
     ap.add_argument('--tails', action='store_true', help='put the resident parts and region constants in '
                     'the ends of the code banks too (the eight-bank image does so anyway)')
+    ap.add_argument('--no-check-himem', action='store_true', help='do not refuse a command when HIMEM is '
+                    'below its program\'s memory (by default the MOS error Mode 7 needed)')
     ap.add_argument('programs', nargs='+', metavar='COMMAND=PROGRAM,ENV[,MAP]')
     a = ap.parse_args(argv)
     specs = []
@@ -578,7 +634,7 @@ def main(argv):
             return 2
         specs.append([command] + parts)
     try:
-        text = image(specs, a.out, a.listing, a.short, a.banks, a.tails or None)
+        text = image(specs, a.out, a.listing, a.short, a.banks, a.tails or None, not a.no_check_himem)
         if a.loader:
             loader(a.loader)
     except (ImageError, mapenv.FormatError, OSError) as e:

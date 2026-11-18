@@ -856,6 +856,27 @@ If the owner wants the sources on the disc readable as they are in the repositor
 
 Not done here: anything on a real disc or a real DFS; the decoders and the format change themselves (every ROM cost above is an estimate); the BBC runs of the disc copies (the host's tools compiled and linked them, and `test_bbc_dfs.Loop` shows the BBC's tools write what the host's write); the linker's rebuild on the BBC under DFS names (its files were measured from the host's tools only).
 
+## The compiler in a 32K Model B, measured (2026-11-18)
+
+The compiler's 32K form ([`bbc.md`](bbc.md), "The 32K Model B"), `BBCFS 1`, the eight-bank ROM form, linked by a stand-in for the host linker that lets a bank be over as judged and puts the variables where they all fit (`lathe/tests/lk_mainram.py`'s way), so that what does not fit is measured too. Main RAM is `$1900-$7BFF` and `$0401-$06FF`, 26,111 bytes.
+
+| Build | Resident (code, stubs, constants) | Variables and frames | Free | Banks as judged (over) |
+|---|---|---|---|---|
+| The B+128's layout, regions fixed, small capacities, the linker keeping functions with blocks fixed | 11,853 (8,026 of it kept) | 18,364 | **-4,106** | fit |
+| The same, nothing kept (a measuring linker that ignores the marks: blocks would map slot 0 over the running bank, so not a build) | 4,057 | 18,364 | 3,690 | bank 4 over by 4,107 |
+| `-fREGION` for every region (the compiler told), small capacities, the B+128's layout | 4,033 | 18,386 | 3,692 | bank 4 over by 3,239 |
+| `-fREGION`, the 32K layout (`fold` fixed), small capacities | 5,419 | 18,400 | 2,292 | fit: 16,170 / 15,988 / 16,007 / 15,667 / 15,818 |
+| **as built**: names 3,072, buffer 1,536, types 40, import rows 56 | 5,419 | 20,582 | **110** | the same |
+| import rows 64 instead of 56 | 5,419 | 20,664 | 28 in all, but link error 26, 256 bytes over: a table did not fit what `more data` had left | |
+
+The choice of capacities: each module of the corpus compiled by the host compiler with `memory_report.py`'s gauges, its peak in each table noted, and every set of capacities within the 2,292 bytes searched for the most modules of `lathe/src` and `lathe/rt` that fit (names 2,048 to 4,352 by 256, buffer 1,024 to 2,048 by 256, types 32 to 48, import rows 48 to 80, string and table 264 or 512): names 3,072 with a buffer of 1,536 and 40 types fit 45 of 70 modules there, and as many cases (155 of 179) as any other; a larger name heap with the small buffer fits fewer (names 3,584, buffer 1,024: 25 of the 61 of `lathe/src`), as do longer strings. On the Model B the 32K form compiles 52 of the 75 modules the assessment takes (`test_bbc_ram32.Assessment`), the first limit reached being the name heap in 11 of the 23 refused, an import list's rows in 8, the function buffer in 4 and the string in 1.
+
+The linker's 32K form told of its fixed regions (2026-11-18, `BBCFS 1`, the same measuring linker): in the eight-bank form, `-f` for all five regions leaves nothing kept and the resident part 7,821 bytes (9,095 before), but bank 3 (lk_alloc and lk_graph) is 16,327 bytes as judged, 55 over; without `LKWORK` 530 bytes stay kept (lk_alloc 184, lk_graph 180, lk_fix 166), the resident part is 8,434 bytes and bank 3 16,031; in the sixteen-bank form all five are told and the resident part is 7,839. One region left out at a time, only `LKWORK` brings bank 3 back: `LKNODES`, `LKSLOTS` and `LKCALLS` each leave it at 16,327 and only shorten `lk_tab`'s blocks.
+
+The 32K image, both tools' 32K forms and the texts of the errors (merged 2026-11-18): the module's code and tables with the texts are 4,227 bytes, which must be in one bank after its code; in the eight-bank form the most room after a bank's code is 3,230 (the linker's bank 3), so the image is the sixteen-bank form, banks 0 to 11 in use, 80,134 bytes free. On the emulated Model B: 57 programs of the corpus compiled, linked and run (one, `regions`, not run: its regions are in sideways RAM), 3,080 million cycles for the compiles and the links, 25.7 minutes at 2 MHz; farcall's 98.8 million (49 s), `reg_args`'s 89.7 million.
+
+Cycles, from the image on the emulated Model B: the 52 compiles 750.6 million (6.3 minutes at 2 MHz), the largest, `lk_map.lth` and `lk_name.lth`, 50 million each (25 s), `fbuf.lth` 47 million; `farcall.lth`'s twelve modules 59.4 million. `src.lth` 11.6 million against 9.2 million from the B+128's eight-bank image (`BBCFS 0`), `fold.lth` 18.3 against 16.0.
+
 ## The tools' source, a second look (measured)
 
 The question: which changes to the tools' own Lathe source (and the host modules they are twins of) make the compiled code smaller without making it harder to read, after "Built: the compiler's source made smaller" above. Measured from 8dd784a: the eight-bank account of `test_bbc_rom128.build_tools` (123,970 bytes in use, **5,815 free**), each tool's bytes as placed by module from its map, main RAM free at ADFS's PAGE in the eight-bank ROM form (`adfs_main_ram`: 2,253 bytes for the compiler, 1,581 for the linker), and for the changes kept together the cycles of the self-compile on Wendy 2 (`bank_report.py --selfhost`). "Measured" is a build of the change in host and twin; "estimated" is a count of sites times bytes a site measured on a like change. Nothing here is committed but the finder: each experiment was a diff against 8dd784a, kept out of the tree.
@@ -932,3 +953,98 @@ Made of real programs (`lk_ram32.glue`): each piece's own modules renamed (`g1le
 | errtest | 22,086 | 24,272 | fix-ups of one function, 344 |
 
 The time of a link on the emulated BBC, 157 to 289 million cycles (1.3 to 2.4 minutes at 2 MHz) for 15 to 26 KB programs, and the files, are in [`bbc.md`](bbc.md).
+
+## Error messages back in the ROM, measured (2026-11-18)
+
+The owner's request: the texts of both tools' errors back in the 128 KB module, so that it stands alone without `LATHERR`, at as little cost as can be had, on a machine with sideways RAM (the B+128) and on one without (the `RAM32` build for a 32K Model B: nothing may be copied to a sideways RAM slot). From 8dd784a, where the gate (`test_bbc_rom128.py`) has 5,815 bytes free with `BBCFS 0` and 4,610 in the ADFS build. "Measured" is a build or a run; "estimated" says how.
+
+### The schemes, on the real texts
+
+`lathe/tests/msg_pack_report.py` packs `err.MESSAGES` and `lk_err.MESSAGES` (the compiler's 131 texts, 4,915 bytes, numbers 1 to 184; the linker's 61, 2,740 bytes) by each scheme, to the byte. Each text is in number order with an end of its own (a number with no text is an empty one), so a reader finds text n by passing n - 1 ends and needs no index; "apart" is each tool with its own tables, "both" one table for both tools. Data bytes (texts and the scheme's tables):
+
+| Scheme | Compiler | Linker | Apart | Both |
+|---|---|---|---|---|
+| raw, each text ended by a zero (the numbers dropped) | 5,099 | 2,801 | 7,900 | 7,900 |
+| packed 5-bit alphabet (30 codes, an escape to a byte) | 3,306 | 1,821 | 5,127 | 5,108 |
+| packed 6-bit | 3,890 | 2,151 | 6,041 | 5,992 |
+| Huffman of the characters | 2,884 | 1,602 | 4,486 | 4,442 |
+| words 128 (a dictionary the tool chooses, a word one byte) | 2,613 | 1,400 | 4,013 | 3,712 |
+| words 64 + Huffman | 2,343 | 1,277 | 3,620 | 3,359 |
+| words 96 + Huffman | 2,361 | 1,296 | 3,657 | 3,309 |
+| byte pairs (BPE), 128 pairs | 2,563 | 1,321 | 3,884 | 3,873 |
+| **BPE, 159 pairs** (codes $80-$FF and $01-$1F) | **2,432** | **1,270** | **3,702** | **3,660** |
+| BPE 159 + Huffman | 2,393 | 1,297 | 3,690 | 3,468 |
+
+Against 5,494 + 2,803 = 8,297 as the tools held them (`number text` lines; the linker's with its fixed texts). Sharing the tables between the tools saves little for byte pairs (42 bytes) and about 300 for a word dictionary.
+
+**The decoders, written in Lathe and compiled** (the compiler's, in fixed memory, reading the texts in the region `MSGS` inside `with MSGS`, its two tables of at most 2,048 bytes chosen by the error's number; bytes as placed in the eight-bank ROM form):
+
+| Scheme | Decoder | Main RAM | Data (as built) | Total |
+|---|---|---|---|---|
+| **BPE 159** (`put_text`, a stack of 8 bytes for the pairs; run on the BBC) | **158** | 8 of frame | 2,434 | **2,592** |
+| words 128 (`put_text`, the dictionary walked for each word) | 186 | 0 | 2,613 | 2,799 |
+| Huffman, canonical (`symbol` 203, `put_text` 77) | 280 | 4 | 2,885 | 3,165 |
+| words 64 + Huffman (`symbol` 176, `put_word` 79, `put_text` 90) | 345 | 4 | 2,344 | 2,689 |
+
+The linker's BPE decoder in its bank 1, reading its tables by a word index so that they stay in the bank (a table whose address is taken is kept fixed): 141 bytes. Only the BPE decoders were run; the others were compiled and placed, not run. Byte pairs win in Lathe and are the plainest decoder: a code is a character, or a pair of two codes written in turn. The Huffman schemes save at most 250 bytes of data over them and lose it again in decoder, and their reader must decode every text before the one wanted (estimated: up to about 1.4 million cycles, against at most 55,000 below).
+
+In assembly the 6502's own stack makes the pairs plainer still: one routine of 27 bytes, which pushes the second code and calls itself for the first (at most 6 levels, 3 bytes each).
+
+### Where the texts live
+
+**(a) Constants of each tool in a bank of the module, read in place.** Built: a generated module `errtext.lth` (the packed tables, written from `err.py` by a host tool, compiled like any other source) with its tables `in MSGS`, and `region MSGS WIN 4` in the ROM form (the compiler's fourth bank, image bank 3, which had 3,930 bytes left as judged); `err.put_text` reads them in a `with MSGS` block, which is right inside the `with` blocks of other regions that `err.fatal` is called in (there is one window: the block maps bank 3 and puts back the slot or bank it replaced). The linker's `lk_errtext.lth` is placed with `lk_err` in its bank 1 and read with no block. Measured: errors from the ROM with no file, the host's texts, one of them raised inside `with STRING` (sideways slot 13). But the linker's bank 1 had 963 bytes left as judged and needs 1,410: `lk_file` (651, few calls) had to move to bank 2, and the ADFS build, whose `bbcfs` is in that bank too, is then **357 bytes over**, with no other module small enough to move (the linker's three banks have 426 bytes left as judged in all in that build). Image: 2,063 bytes free with `BBCFS 0`. It also costs two generated sources (11 KB and 5.6 KB of text on the rebuild's discs), a module more in the self-compile, and texts in three places (`err.py`, `err.lth`'s copy for the other builds, the generated file).
+
+**(b) The texts in the module, written by the module's own code (recommended).** The tools hold no texts in their ROM forms, as with the message file. `bbcrom.py` appends the packed tables of both tools (one table of pairs, written by a host tool from `err.py` and `lk_err.py` when the image is made) to the module's code in the home bank, and the module writes a text when a tool asks for it:
+
+- The tool calls OSBYTE 143 (a service call to the ROMs) with X = `$4C` and Y = which text: the compiler's error n is text n, the linker's error n text 255 - n (one byte, one service call; the host tool checks that the two ranges do not meet: the compiler's numbers can grow to 193 before they would). `bbc.error_text` is 7 bytes of fixed code; `err.put_text` writes `: ` and calls it (17 bytes, fixed); `lk_err.put_text` likewise (23, in its bank).
+- The MOS pages each ROM in and calls its service entry; the module's service code (the reserved bytes, the same in every bank, now 78 of 79) takes `$4C` as it takes 4 and 9: it pushes the bank it came in on and selects the home bank, which passes Y texts (each ended by a zero), writes the codes with OSWRCH, the pairs by the 27-byte routine above, and returns claimed through `claim`, which selects the bank of entry again. The MOS then selects again the slot that was selected before. So it works from any bank, from fixed code inside a `with` block of a sideways RAM slot (the MOS puts that slot back, since `rt_bbc` keeps `$F4` right), and on a machine with no sideways RAM. The routine uses `$A8`/`$A9` (the MOS's workspace for * commands, not the tools') and at most 21 bytes of stack.
+- The code: 81 bytes in the home bank and 4 of the reserved bytes, assembled by `asm/pyasm.py` as `bbcrom.py` assembles `module.asm` (vasm is not used for it), and run on the emulated B+128. The data: 3,673 bytes (the 256 texts, the empty ones too; 320 of them the tables).
+
+**(c) Looked at and left**: a reader in each tool that switches to a blob `bbcrom.py` places (fixed code in both tools, so main RAM in the linker too); a region both tools share (a bank file belongs to one program); copying a text to main RAM before writing it (a buffer of 160 bytes in each tool for nothing, since the module can write the text itself).
+
+**Self-hosting.** In (b) the objects, interfaces, images and bank files of both tools are what they are today (no texts in the ROM forms), so the rebuild on the BBC gives the host's files as before; the texts come into the image where the image is made, on the host, from the tables the host tools print from. If the texts change and only the tools are rebuilt on the BBC, the module says the old texts until the image is made again, as `LATHERR` did until it was written again. In (a) the generated sources are compiled on the BBC like the rest and give the host's files too, but must be generated again (and tested to be current) whenever a text changes. The texts stay plain in one place, `err.py` and `lk_err.py`, in both designs (the twins keep their copy for every other build, as now).
+
+### The fall-back
+
+Drop `LATHERR` once the texts are in the ROM: it is the simplest and the smallest. The file's readers go (the compiler's 168 bytes of fixed code: `put_text` 89, the file's name 8, `bbc.open_unmapped` 54, `bbc.seek` 17; the linker's 77 in its bank and 25 fixed), and so do `msgfile.py` and the 9,258 bytes on every disc; `MESSAGE_FILE` becomes two-valued, the texts in the tool or in the module. Keeping the file as an override would cost those bytes again and a test for each way. On a machine where another ROM claims service call `$4C` first, an error prints its number and `: ` alone, with the same status.
+
+### The experiment (b), measured
+
+Built on 8dd784a and not committed (`messages-in-module.diff`, below): `lathe/host/driver/msgpack.py`, `module.asm`'s routine, `bbcrom.py` appending the tables (with `LATHE_MODULE_TEXTS=1`, for the experiment), `bbc.error_text`, `sys.error_text`, and `MESSAGE_FILE 2` in both tools' ROM forms.
+
+| | Before (the message file) | After (the texts in the module) |
+|---|---|---|
+| The gate, `BBCFS 0`: free | **5,815** | **2,271** (the module's code and tables 4,281 bytes, 519 before) |
+| The ADFS build (`BBCFS 2`, `ADFS 1`): free | **4,610** | **1,083** (the fullest bank as judged: the linker's bank 1, 403 left, 338 before) |
+| The tools' banks as judged | | as before, but the linker's bank 1: 15,309 to 15,244 (15,869 with ADFS) |
+| Resident parts, the compiler and the linker | 11,849 and 9,829 | 11,703 and 9,811 |
+| Main RAM free, eight-bank ROM form, `BBCFS 0` | 3,874 and 3,215 | 4,020 and 3,233 |
+| Main RAM free at ADFS's PAGE, `BBCFS 2` | 2,253 and 1,581 | 2,399 and 1,607 |
+
+So the texts cost 3,544 bytes of the image (3,527 in the ADFS build): 3,673 of data, 81 of code and an entry of 8 more in a copy list, less the readers of the file; and they give the compiler 146 bytes of main RAM and the linker 18 (26 at ADFS's PAGE).
+
+**On the emulated B+128, no file on the disc** (`--bbc-strict`, direct8): every case of `test_msgfile`'s (errors 136 with its value, 181 with `#error`'s text, 40, the usage 60; link errors 1 and 2, with the file's name) and two more, error 5 raised inside `with STRING` (slot 13) and error 182 (the longest text), print exactly what the host tools print; with `LATHERR` on the disc the same (the file is not read). From the eight-bank image the tool chain passes (`test_the_tool_chain_from_the_128k_image`), and the self-compile gives every file the host's, in 874.6 million cycles in the ROM form (877.0 before) and 912.5 million through LOADMOD (915.0). The gate's `test_errors_from_the_128k_image` fails as it must, in its cases without the file only: they expect the number alone. Not run: the linker's link of the compiler, the rebuild loops (the linker's code is the same but `lk_err.put_text`), the sixteen-bank image.
+
+**Cycles.** `*LATHE` compiling an empty module, with no error: 878,957 (887,524 before: the resident part is 146 bytes shorter). Writing a text, with the start-up's difference taken out: error 60, 80 characters, about 11,600 cycles (11,700 from the file in the emulator, whose file reads cost nothing; on a real DFS the file's three sectors add about half a second); error 136, about 28,200; the linker's error 1, which passes every text before it, about 53,000 (27 ms at 2 MHz), the most any text takes.
+
+**Readability.** 60 lines of `module.asm`, commented, the host tool (about 150 lines), and 4 to 7 lines in each of `err.lth`, `lk_err.lth`, `bbc.lth` and `sys.lth`; no generated source, and no texts in the tools' ROM forms.
+
+**What remains to land it**: `bbcrom.py` holding the texts always (the module is Lathe's) or as an option the tools' images take, with its tests (`test_bbc_rom128.Layout` and `test_bbc_rom.py` check the home bank and the image's bytes, which change); `module.asm`'s header and `bbcrom.py`'s docstring; `MESSAGE_FILE` renamed and the file's path taken out of both twins (and their tables of "Where the Lathe differs"), with `bbc.open_unmapped`, `bbc.seek` and their `sys` wrappers if nothing else wants them; `msgfile.py` and `test_msgfile.py` replaced by a test of `msgpack.py` (every text unpacks to the host's, the numbering, the depth) and an emulator test that asks the module for every text; the cases without the file in `test_msgfile`, `test_bbc_dfs` and `test_bbc_adfs` (the loops' `message_file=True`); `bbc.md` ("The message file", "The 128 KB module", the gate's numbers); and the owner's choice of the service call's number (`$4C` is a guess at one no other ROM uses).
+
+### Rewording, proposals for the owner (not applied)
+
+Packed, a character saves about 0.46 bytes, so rewording pays little:
+
+- The texts of link errors 38, 55 and 56, which are no longer reported (`lk_err.py`): left out, 60 bytes.
+- The longest texts, if the owner finds shorter forms that are as clear: link error 40 (160 characters, 59 bytes packed), compiler 182 (123, 57), link 54 (109), compiler 136 (95), 184 (92) and 173 (90). I found nothing that says the same in fewer words without making it worse.
+- No near-duplicates are worth merging: compiler 71 and link 9 are the same text (`too many symbols`), and the pairs share it already; 134 and 150 differ in one word; the linker's 19 prefixes `environment file: ` cost about 2 bytes each.
+
+### Built: the texts in the module (2026-11-18)
+
+The owner chose (b), with the service call `$4C`; built in place of the message file, which is gone ([`bbc.md`](bbc.md), "The texts in the module"; `define TEXTS_IN_MODULE`). The module writes `: ` as well as the text, so that an error is its number alone when no ROM answers; its routine is 91 bytes. The gate: **2,295 bytes free** with `BBCFS 0`, **1,107** in the ADFS build; main RAM free in the eight-bank ROM form 4,037 and 3,233 with `BBCFS 0`, 2,416 and 1,607 at ADFS's PAGE. Every build that is not a ROM form is byte for byte as before (images, bank files, maps, objects and interfaces) but `bbc`'s object and interface and `sys`'s interface, which lost `open_unmapped` and `seek` and gained `error_text`.
+
+### Recommendation
+
+(b): byte pairs, both tools' texts in one table in the home bank, written by the module at a service call, and `LATHERR` dropped. The module stands alone, nothing is copied to a sideways RAM slot, the tools lose code and gain main RAM, and the image keeps 2,271 bytes free (1,083 in the ADFS build). (a) fits the `BBCFS 0` build with 2,063 free but not the ADFS build, and costs generated sources.
+
+The experiment's files are in the session's scratchpad, in `research-messages/`: `messages-in-module.diff` (design (b); it applies to 8dd784a), `design-a.diff` with `errtext.lth` and `lk_errtext.lth` (design (a)), `variants.py` (the decoders compiled), `errruns.py` (the errors on the BBC) and their logs.

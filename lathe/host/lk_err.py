@@ -4,8 +4,8 @@ A link error is written to the error output as `link error N: text`, followed by
 involved, and the linker exits with status 1. Nothing catches an error. A message is put together
 from begin(), the callers' own names and separators, and end(); fail() is the two in one.
 
-The BBC's ROM form of the twin reads the texts from LATHERR, which lathe/host/driver/msgfile.py
-writes from MESSAGES (docs/bbc.md, "The message file").
+The BBC's ROM form of the twin holds no texts: the module image writes them, packed into it from
+MESSAGES by lathe/host/driver/msgpack.py (docs/bbc.md, "The texts in the module").
 """
 import env
 
