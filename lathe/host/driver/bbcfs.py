@@ -22,6 +22,12 @@ With BBCFS 2, ADFS:
     adfs_name('2/x.lo')         -> None           (ADFS has drives 0 and 1)
     adfs_host_file(':1.li.x')   -> ':1/li/x'      (the --disk directory's file)
 
+With BBCFS 3, the filing system asked of the MOS when a name is mapped (OSARGS's number):
+
+    asked_name('expr.lth', 4)   -> 'L.EXPR'       (the DFS)
+    asked_name('expr.lth', 8)   -> 'lth.expr'     (ADFS)
+    asked_name('expr.lth', 5)   -> 'expr.lth'     (any other: as given)
+
 The tests keep every mapping of a name through here, so that the host side of a test finds what
 the BBC wrote.
 """
@@ -128,6 +134,33 @@ def adfs_host_path(disk, name):
     if adfs is None:
         raise ValueError(f'bbcfs makes no ADFS name of {name!r}')
     return os.path.join(disk, adfs_host_file(adfs))
+
+
+# With BBCFS 3 map() asks the MOS which filing system is current (OSARGS with A = 0 and Y = 0)
+# and maps by the number it gives: these two, and any other number leaves the name as given.
+DFS_NUMBER = 4
+ADFS_NUMBER = 8
+
+
+def asked_name(name, number):
+    """The name bbcfs.map() makes of `name` with BBCFS 3 when OSARGS gives `number` for the
+    filing system: the DFS's name (4), ADFS's (8), or for any other number the name as given."""
+    if number == DFS_NUMBER:
+        return dfs_name(name)
+    if number == ADFS_NUMBER:
+        return adfs_name(name)
+    return name
+
+
+def asked_host_file(name, number):
+    """Where the emulator keeps the file the BBC opens as `name` with BBCFS 3, relative to
+    --disk: under --bbc-fs dfs (4), --bbc-fs adfs (8), or --bbc-fs host with any other number
+    (--bbc-fs-number), where the name as given is a path of the --disk directory."""
+    if number == DFS_NUMBER:
+        return host_file(dfs_name(name))
+    if number == ADFS_NUMBER:
+        return adfs_host_file(adfs_name(name))
+    return os.path.normpath(name)
 
 
 def find(disk, name):

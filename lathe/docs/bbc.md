@@ -612,7 +612,7 @@ The extensions are compared without regard to case. The letters follow Acorn's o
 
 **Where it lives.** `bbcfs` is a module of its own so that the tools can place it in a bank: `place bbcfs WIN 5` in `lathec-bbc.env` and `place bbcfs WIN 1` in `linker-bbc.env`, which change nothing with `BBCFS 0`. `bbc.open_mode` calls it only under `#if bbcfs.MAPS`, so with `BBCFS 0` the code is what it was: the compiler, the linker and every BBC program built with `BBCFS 0` are byte for byte what they were before `bbcfs` (images, bank files and maps compared), and so are the `PORTS` 0 and 1 builds. `lathe/rt/bbcfs.lth` exists because `build.py` compiles every module an `import` line names, so the other machines compile `bbc.lth` and need a `bbcfs` with the same names; it is never linked there. `build.py` finds `lathe/rt/bbc/bbcfs.lth` first for the BBC.
 
-**The choice, in the environment file.** `define BBCFS 0` (every BBC environment now says it): names as given, the emulator's directory as before. `define BBCFS 1`: the DFS's names; `lathe/env/bbc-dfs.env` is `bbc.env` so. `define BBCFS 2`: ADFS's names ("ADFS", below).
+**The choice, in the environment file.** `define BBCFS 0` (every BBC environment now says it): names as given, the emulator's directory as before. `define BBCFS 1`: the DFS's names; `lathe/env/bbc-dfs.env` is `bbc.env` so. `define BBCFS 2`: ADFS's names ("ADFS", below). `define BBCFS 3`: the DFS's or ADFS's, as the MOS names the current filing system when the tool runs ("The filing system asked when a tool runs", below).
 
 ### Drives
 
@@ -651,6 +651,42 @@ Measured from the maps (2026-11-16), the ROM forms of the module image:
 ### ADFS
 
 Built on 2026-11-17: "ADFS", below. (Until then `BBCFS 2` stopped the compiler with `#error`.)
+
+### The filing system asked when a tool runs
+
+**Built (2026-11-20).** The owner's decision: a ROM image must work with either the DFS or ADFS, so the mapping is chosen when the tool runs, not when it is linked. `define BBCFS 3` (`lathe/rt/bbc/bbcfs.lth`, its last section; the twin is `bbcfs.asked_name` and `asked_host_file` in `lathe/host/driver/bbcfs.py`): each time `map()` is called (each `bbc.open` and `open_out`) it asks the MOS which filing system is current, by OSARGS with A = 0 and Y = 0, which gives its number in A, keeps the number for `cdir()`, and maps by it:
+
+| OSARGS gives | The filing system | The name |
+|---|---|---|
+| 4 | the disc filing system, the DFS | `BBCFS 1`'s: `L.EXPR`, drives `0/` to `3/`, seven characters, 12 at most |
+| 8 | ADFS | `BBCFS 2`'s: `lth.expr`, drives `0/` and `1/`, ten characters, 24 at most, and `open_out`'s `*CDIR` of a directory that is not there |
+| any other | none it knows: 0 no filing system, 1 and 2 the cassette, 3 the ROM filing system, 5 the network, 6 Telesoftware, 7 IEEE, and any later one | as given, `BBCFS 0`'s rule: the name is the filing system's to take or refuse |
+
+**Any other number: the name as given, not a refusal.** A name the filing system cannot take is refused by it (Bad name, Not found), which `bbc.open` catches, and the tool says what it says of any file it cannot open, naming the host's name; a filing system that does take such names (a host filing system on an emulator or a second processor) works as the emulator's own directory does. A refusal at the start would cost a message and a check in fixed memory or the module for a case no gate has, and would stop a filing system that works. Not chosen either: asking once at the start of a tool (`map()` asks at each name: OSARGS is a vector call of a few dozen cycles, against the hundreds a disc spends a byte, and it needs no start-up code, which in the developer's form would be fixed and in the ROM form in `rt_bbc`).
+
+**What is from memory, not checked:** that OSARGS A = 0, Y = 0 gives 4 for the DFS is BeebWiki's (`emulator/NOTES-bbcbplus.md`) and 8 for ADFS the ADFS guide's; the other numbers in the table are memory, as is that third-party DFSs (Watford, Opus, Solidisk and the 1770 DFS of the B+) answer 4 and keep the DFS's names; a DFS that answered otherwise would get the names as given.
+
+**The emulator** answers OSARGS for the filing system it emulates: 4 under `--bbc-fs dfs` (and the default, `host`), 8 under `--bbc-fs adfs`; `--bbc-fs-number N` makes it give N instead, a filing system the tools do not know (`emulator/README.md`; the C tests `osargs_gives_the_number_of_the_filing_system` and `test_cli.c`'s). The default's 4 is as before, so the goldens are unchanged.
+
+**One `made()` for both.** The two rules differ in the last drive, the room in `out`, the stem's length, the directory (the table's letter or the extension as it is), an empty extension (the DFS's `X.A`, none for ADFS) and capitals; `made()` takes each from the number, and `cdir()` and its `*CDIR` are one function for `BBCFS 2` and `3`, which under any number but 8 gives false. `BBCFS 1` and `2` keep their own `made()`, so that their builds are the bytes they were: the images, bank files, maps, objects and interfaces of both tools in the developer's, sixteen- and eight-bank ROM forms with `BBCFS` 0, 1 and 2 (`ADFS 1` with 2), the 32K forms with `BBCFS` 0 and 1, and hello with `BBCFS` 0, 1 and 2, compared before and after.
+
+**What it costs**, measured from the links (`lk_judged.py`, as `test_bbc_rom128.Account` reads them), the eight-bank image:
+
+| | `BBCFS 0` | `BBCFS 1` | `BBCFS 2`, `ADFS 1` | `BBCFS 3`, `ADFS 1` |
+|---|---|---|---|---|
+| `bbcfs` in a bank, judged / placed | | 490 / 416 | 616 / 521 | 909 / 775 |
+| image bank 4 as judged, the compiler's fifth (of 16,272) | 13,360 | 13,850 | 13,976 | 14,269 |
+| the linker's bank 1 (image bank 5) as judged | 15,529 | 16,019 | 15,945 (`link` in bank 2) | **16,238: 34 left** (`link` in bank 2) |
+| resident parts, the compiler / the linker | 11,886 / 9,601 | 11,899 / 9,618 | 11,946 / 9,694 | 11,946 / 9,699 |
+| the image's free bytes | 4,715 | 3,853 | 3,507 | **2,989** |
+| main RAM free at `$1F00`, the compiler / the linker, ROM form | | | 2,161 / 1,733 | 2,158 / 1,727 |
+| the same, developer's form (`bbcfs` fixed) | | | 5,266 / 2,946 | 5,011 / 2,681 |
+
+Nothing moved between banks: with `ADFS 1` the linker's `link` is already in its bank 2 (`when ADFS when ROM128 place link WIN 2`), which leaves `bbcfs` room in bank 1. Without it (`BBCFS 3` with `ADFS 0`) the linker's bank 1 is 166 bytes over (16,438 judged), and in the 32K form (`RAM32 1`, `ADFS 0` only) 198 over: neither is built. Neither would serve ADFS anyway, whose PAGE is `$1F00` with the DFS beside it, so a build from `$1900` would write over ADFS's workspace; once the tools find PAGE when they start (another agent's work), the linker's `link` should go to bank 2 whatever `ADFS` says, and `BBCFS 3` then fits the eight-bank linker as it does here; the 32K linker's bank 1 needs 198 bytes more for it.
+
+**Tested** (`lathe/tests/test_bbc_asked_fs.py`, by default, about 20 s): the twin for every number; `map()` and `cdir()` on the BBC giving the twin's names under `--bbc-fs dfs`, `--bbc-fs adfs` and `--bbc-fs host` with nine other numbers; and the 128 KB image of both tools built with `BBCFS 3` and `ADFS 1`, which fits with the compiler in banks 0 to 4 and the linker in 5 to 7 and has main RAM free at `$1F00`, compiling each module of hello and of a program of two modules (`longname` and `averylongone`, `AVERYLO` on the DFS and `averylongo` on ADFS), linking them and running the result under `--bbc-fs dfs` and under `--bbc-fs adfs` (on a disc with only the sources: the directories made by the tools), every file the host tools' under that disc's names, and the same under `--bbc-fs-number 5` with the names as given. `LATHE_BBC_ASKED_FS_REPORT=1` prints the account.
+
+**What it makes redundant** (nothing removed): the separate ROM images built with `BBCFS 1` and with `BBCFS 2` (`test_bbc_dfs.build_image`, `test_bbc_adfs.build_image`, `test_bbc_rom128.Adfs128`'s and `AdfsMainRam`'s builds), since one `BBCFS 3` image serves both machines; their tests could run that image instead, `test_bbc_dfs.Toolchain` under `--bbc-fs dfs` and `test_bbc_adfs.Toolchain`, `SelfHost`, `Loop` and `Adfs128` under `--bbc-fs adfs`. The compile-time values still serve the developer's forms (whose `bbcfs` is fixed, 255 to 265 bytes of main RAM more with `BBCFS 3`), user programs (`lathe/env/bbc-dfs.env`) and the 32K form, which serves the DFS alone. The environments still say `define BBCFS 0`: making `BBCFS 3` the ROM forms' own (an entry `when ROMFORM`) would change the ROM builds every gate makes with `BBCFS 0` and runs under the emulator's default, where OSARGS gives 4: they would then need `--bbc-fs dfs`, or the default an answer of its own.
 
 ### The `*` commands
 

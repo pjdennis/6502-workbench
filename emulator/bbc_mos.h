@@ -58,6 +58,8 @@ struct bbc_config {
     int strict;             /* --bbc-strict: a failed check ends the run */
     int dfs;                /* --bbc-fs dfs: names and limits of the Acorn DFS (bbc_mos.c) */
     int adfs;               /* --bbc-fs adfs: names, directories, limits and space of ADFS */
+    int fs_number_given;    /* --bbc-fs-number N: OSARGS A=0 Y=0 gives fs_number, not the */
+    uint8_t fs_number;      /* number of the filing system emulated (4 the DFS's, 8 ADFS's) */
     uint32_t adfs_sectors;  /* sectors of each ADFS drive (0: BBC_ADFS_SECTORS; tests set less) */
     const char *command;    /* --bbc-command: passed to OSCLI after reset, or NULL */
     const char *const *more_commands;   /* further --bbc-command lines, each passed to OSCLI from

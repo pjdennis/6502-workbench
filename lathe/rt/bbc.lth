@@ -59,7 +59,8 @@
 ; File names. With `define BBCFS 1` in the environment, open and open_out give the name to
 ; bbcfs.map (lathe/rt/bbc/bbcfs.lth), which makes `expr.lth` the DFS's `L.EXPR`; with BBCFS 2
 ; ADFS's `lth.expr`, and open_out makes the directory it creates a file in (`*CDIR lo`) if
-; OSFILE 5 does not find it; with BBCFS 0 the name goes to OSFIND as it is, and the
+; OSFILE 5 does not find it; with BBCFS 3 the one or the other, as OSARGS names the current
+; filing system when the name is mapped; with BBCFS 0 the name goes to OSFIND as it is, and the
 ; code is what it was before bbcfs (lathe/docs/bbc.md, "File names on the BBC").
 module bbc
 

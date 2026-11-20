@@ -15,6 +15,12 @@
 ;   | 2     | ADFS          | STEM.EXT is EXT.STEM, the directory named by the extension,   |
 ;   |       |               | STEM as given and cut to its first ten characters; a name     |
 ;   |       |               | with no "." is as given                                       |
+;   | 3     | the current   | asked of the MOS at each name (OSARGS with A = 0 and Y = 0):  |
+;   |       | one           | 4, the DFS, BBCFS 1's rules; 8, ADFS, BBCFS 2's; any other    |
+;   |       |               | number the name as given, BBCFS 0's (the last section)        |
+;
+; BBCFS 3 is what the tools' ROM forms are built with for a machine that may have either filing
+; system: one image serves both (lathe/docs/bbc.md, "The filing system asked when a tool runs").
 ;
 ; With BBCFS 2 (the second half of this file): every leading "./" is dropped; a leading "0/" or
 ; "1/" is the drive, ":D." in front (ADFS has two floppy drives, each disc both sides); any other
@@ -40,10 +46,10 @@
 ; to find the files the BBC wrote.
 module bbcfs
 
-#if BBCFS > 2
-#error "BBCFS is 0 (no mapping), 1 (the DFS) or 2 (ADFS)"
+#if BBCFS > 3
+#error "BBCFS is 0 (no mapping), 1 (the DFS), 2 (ADFS) or 3 (the one OSARGS names)"
 #end
-#if BBCFS != 2
+#if BBCFS < 2
 
 pub const MAPS = BBCFS == 1         ; bbc.lth calls map() only if true
 pub const DIRS = false              ; bbc.lth calls cdir() and again() only if true
@@ -162,8 +168,9 @@ pub func map(name: ^byte)
     name[i] = out[i]
   end
 end
+#end
 
-#else
+#if BBCFS == 2
 ; ---- BBCFS 2: ADFS -----------------------------------------------------------------------------
 
 pub const MAPS = true
@@ -271,6 +278,195 @@ pub func map(name: ^byte)
   again(name)
 end
 
+#end
+
+#if BBCFS == 3
+; ---- BBCFS 3: the filing system the MOS names ---------------------------------------------------
+; The rules of BBCFS 1 and BBCFS 2 in one build, so that one ROM image serves a machine with
+; either filing system: map() asks the MOS which filing system is current (OSARGS with A = 0 and
+; Y = 0 gives its number) and makes the DFS's name if it is 4 (DFS, the number Acorn's DFS gives),
+; ADFS's if it is 8, and leaves the name as given (BBCFS 0's rule) for any other number: the
+; cassette, the ROM filing system, the network and the rest, whose rules this does not know. A
+; name the filing system cannot take is then its own error, as with BBCFS 0, and open gives 0.
+; cdir() makes a directory under ADFS alone. The two filing systems' rules share one made().
+
+pub const MAPS = true
+pub const DIRS = true               ; open_out makes a directory that is not there, under ADFS
+
+const CR: byte = 13
+const NONE: byte = 255              ; no "." in the name
+const DFS: byte = 4                 ; OSARGS's number of the disc filing system, the DFS
+const ADFS: byte = 8                ; OSARGS's number of ADFS
+const DFS_LONGEST = 7               ; the DFS's longest name
+const ADFS_LONGEST = 10             ; ADFS's longest name, and the longest extension taken
+const DFS_OUT_SIZE = 13             ; ":D.X.NAME" and the CR: 3 + 2 + 7 + 1
+const OUT_SIZE = 25                 ; ":D.EXT.STEM" and the CR: 3 + 10 + 1 + 10 + 1, ADFS's
+; The DFS's directory of each extension, as for BBCFS 1: five bytes, the extension in small
+; letters with 0 after it, then the directory. Any other extension's directory is OTHER.
+const KINDS = 6
+const TABLE: [30]byte = ['l', 't', 'h', 0, 'L', 'l', 'o', 0, 0, 'O', 'l', 'i', 0, 0, 'I',
+                         'm', 'a', 'p', 0, 'M', 'e', 'n', 'v', 0, 'E', 'b', 'i', 'n', 0, 'B']
+const OTHER: byte = 'X'
+
+var out: [OUT_SIZE]byte
+var system: byte                    ; the number OSARGS gave at the last map()
+
+extern func osargs(code: byte in a, handle: byte in y): byte in a       at $FFDA
+
+; The name at `name` (zero-terminated) in out by the rules of `system`, the DFS's or ADFS's: its
+; length, or 0 if there is none.
+func made(name: ^byte): byte
+  var i: byte
+  var n: byte                       ; the length in out
+  var stem: byte                    ; where the stem starts
+  var dot: byte                     ; the last "."
+  var k: byte
+  var c: byte
+  var drives: byte                  ; the last drive's digit: 3 on the DFS, 1 on ADFS
+  var size: byte                    ; the room in out, the CR's byte with it
+  var longest: byte                 ; the stem's characters kept
+  if system == ADFS then
+    drives = '1'                    ; two floppy drives, each disc both sides
+    size = OUT_SIZE
+    longest = ADFS_LONGEST
+  else
+    drives = '3'
+    size = DFS_OUT_SIZE
+    longest = DFS_LONGEST
+  end
+  stem = 0
+  while name[stem] == '.' and name[stem + 1] == '/' do
+    stem += 2
+  end
+  n = 0
+  c = name[stem]
+  if name[stem + 1] == '/' and c >= '0' and c <= drives then
+    out[0] = ':'
+    out[1] = c
+    out[2] = '.'
+    n = 3
+    stem += 2
+  end
+  dot = NONE
+  i = stem
+  loop
+    c = name[i]
+    if c == 0 then
+      break
+    end
+    if c == '/' then
+      return 0
+    end
+    if c == '.' then
+      dot = i
+    end
+    i += 1
+  end
+  if dot == NONE then               ; as it is
+    while name[stem] != 0 do
+      if n == size - 1 then
+        return 0
+      end
+      out[n] = name[stem]
+      n += 1
+      stem += 1
+    end
+    return n
+  end
+  if dot == stem then
+    return 0
+  end
+  if system == ADFS then            ; the directory: the extension as it is
+    i = dot + 1
+    if name[i] == 0 then
+      return 0
+    end
+    while name[i] != 0 do
+      if i - dot > ADFS_LONGEST then
+        return 0
+      end
+      out[n] = name[i]
+      n += 1
+      i += 1
+    end
+  else                              ; the directory: the letter of the extension's kind
+    out[n] = OTHER
+    k = 0
+    while k < KINDS * 5 do
+      i = 0
+      loop
+        c = name[dot + 1 + i]
+        if c >= 'A' and c <= 'Z' then
+          c += 32
+        end
+        if c != TABLE[k + i] then
+          break
+        end
+        if c == 0 then
+          out[n] = TABLE[k + 4]
+          break
+        end
+        i += 1
+      end
+      k += 5
+    end
+    n += 1
+  end
+  out[n] = '.'
+  n += 1
+  k = n + longest                   ; the stem, its first characters; on the DFS in capitals
+  while stem < dot do
+    c = name[stem]
+    if c == '.' then
+      return 0
+    end
+    if system == DFS and c >= 'a' and c <= 'z' then
+      c -= 32
+    end
+    if n < k then
+      out[n] = c
+      n += 1
+    end
+    stem += 1
+  end
+  return n
+end
+
+; The name made last (in out, ended by CR) written back at `name`.
+pub func again(name: ^byte)
+  var i: byte
+  i = 0
+  loop
+    name[i] = out[i]
+    if out[i] == CR then
+      return
+    end
+    i += 1
+  end
+end
+
+; The name at `name` (zero-terminated) as the current filing system takes it, written back at
+; `name` and ended by CR: the DFS's or ADFS's name, empty (the CR alone) if it is no name that
+; filing system can take; under any other filing system the name as given.
+pub func map(name: ^byte)
+  var i: byte
+  system = osargs(0, 0)
+  if system == DFS or system == ADFS then
+    out[made(name)] = CR
+    again(name)
+    return
+  end
+  i = 0
+  while name[i] != 0 do
+    i += 1
+  end
+  name[i] = CR
+end
+#end
+
+#if BBCFS >= 2
+; ---- BBCFS 2 and 3: the directory ADFS needs before a file is created in it ----------------------
+
 const COMMAND: [5]byte = ['C', 'D', 'I', 'R', ' ']
 const BLOCK = 40                    ; OSFILE's block in the caller's buffer, after "CDIR DIR"
 extern func osfile(code: byte in a, block: ^byte in xy): byte in a      at $FFDD
@@ -284,10 +480,17 @@ extern func osfile(code: byte in a, block: ^byte in xy): byte in a      at $FFDD
 ; RAM after LOADMOD has no ROM header in its banks while the MOS's table says that the slot holds
 ; a ROM (lathe/docs/bbc.md, "ADFS", "Faults found"; rt_bbc.start now unmarks it, and this keeps
 ; the error out of normal use all the same).
+;
+; With BBCFS 3, only under ADFS: under any other filing system always false.
 pub func cdir(name: ^byte): bool
   var i: byte
   var last: byte                    ; the last "." of the name
   var a: word
+#if BBCFS == 3
+  if system != ADFS then
+    return false
+  end
+#end
   last = 0
   i = 0
   while out[i] != CR do

@@ -66,6 +66,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->bbc_strict = 0;
     opts->bbc_dfs = 0;
     opts->bbc_adfs = 0;
+    opts->bbc_fs_number = -1;
     opts->bbc_options = 0;
     opts->cycle_cap = 200000000ULL;
     opts->cycle_cap_set = 0;
@@ -179,6 +180,9 @@ void emu_opts_usage(FILE *fp) {
 "                         ADFS's (paths of ten-character parts, directories as host\n"
 "                         directories, 10 files open, 47 entries a directory, an\n"
 "                         L disc of 2,560 sectors a drive; drive 1 is :1 of --disk)\n"
+"  --bbc-fs-number N      OSARGS with A=0, Y=0 gives N (0 to 255) for the filing\n"
+"                         system, not its own number (4 the DFS's and host's, 8\n"
+"                         ADFS's): a filing system a program does not know\n"
 "  --kbd-scancodes <list> michael: comma-separated hex bytes the PS/2 keyboard sends\n"
 "                         once the program has set it up (e.g. 1c,f0,1c types 'a')\n"
 "  --keys <path>          michael: type these keys once the program has set up the\n"
@@ -378,6 +382,8 @@ static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
             fprintf(stderr, "error: --bbc-fs must be 'host', 'dfs' or 'adfs'\n");
             return 1;
         }
+    } else if (strcmp(arg, "--bbc-fs-number") == 0) {
+        if (take_int_in(argc, argv, i, arg, 0, 255, "0 to 255", &opts->bbc_fs_number)) return 1;
     } else if (strcmp(arg, "--bbc-model") == 0) {
         if (take_str_value(argc, argv, i, arg, &value)) return 1;
         if (strcmp(value, "b") == 0) opts->bbc_model = BBC_MODEL_B;

@@ -996,13 +996,14 @@ static void os_bput(struct bbc_machine *m) {
     bf->eof_hit = 0;
 }
 
-/* OSARGS: Y = 0: A = 0 the filing system (4, the DFS), 1 the command line
- * tail into X..X+3, $FF flush all. Y a handle: A = 0 read PTR, 1 write
- * PTR, 2 read EXT, $FF flush; the value in zero page X..X+3. */
+/* OSARGS: Y = 0: A = 0 the filing system (4, the DFS; 8, ADFS; or the
+ * number --bbc-fs-number gives), 1 the command line tail into X..X+3, $FF
+ * flush all. Y a handle: A = 0 read PTR, 1 write PTR, 2 read EXT, $FF flush;
+ * the value in zero page X..X+3. */
 static void os_args(struct bbc_machine *m) {
     uint16_t zp = x;
     if (y == 0) {
-        if (a == 0) a = m->cfg.adfs ? 8 : 4;
+        if (a == 0) a = m->cfg.fs_number_given ? m->cfg.fs_number : m->cfg.adfs ? 8 : 4;
         else if (a == 1) poke32(m, zp, m->tail);
         else if (a == 0xFF) for (int i = 0; i < BBC_MAX_FILES; i++) if (m->files[i].f) fflush(m->files[i].f);
         return;

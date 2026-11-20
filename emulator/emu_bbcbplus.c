@@ -100,6 +100,8 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
         .strict = opts->bbc_strict,
         .dfs = opts->bbc_dfs,
         .adfs = opts->bbc_adfs,
+        .fs_number_given = opts->bbc_fs_number >= 0,
+        .fs_number = (uint8_t)(opts->bbc_fs_number >= 0 ? opts->bbc_fs_number : 0),
         .command = opts->bbc_command,
         .more_commands = opts->bbc_more_commands,
         .more_count = opts->bbc_more_count,

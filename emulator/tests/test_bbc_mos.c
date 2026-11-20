@@ -1399,6 +1399,33 @@ TEST adfs_map_holds_80_free_spaces(void) {
     PASS();
 }
 
+/* OSARGS with A = 0 and Y = 0 gives the number of the filing system emulated: 4 the DFS's under
+ * --bbc-fs dfs and host, 8 ADFS's under --bbc-fs adfs; --bbc-fs-number gives another, as a
+ * filing system the tools do not know would (Lathe's BBCFS 3 asks it: lathe/docs/bbc.md). */
+static uint8_t filing_system_number(struct bbc_config *cfg) {
+    static const uint8_t fs[] = { LDA_IMM(0), LDY_IMM(0), LDX_IMM(0x70), JSR(OSARGS), STA_ZP(0x6E), RTS };
+    fresh();
+    mem.ram[0x6E] = 0xEE;
+    if (run(fs, sizeof fs, NULL, NULL, cfg) != 0) return 0xEE;
+    return mem.ram[0x6E];
+}
+
+TEST osargs_gives_the_number_of_the_filing_system(void) {
+    make_disk();
+    struct bbc_config host = { 0 }, dfs = { .dfs = 1 }, adfs = { .adfs = 1 };
+    ASSERT_EQ(4, filing_system_number(&host));
+    ASSERT_EQ(4, filing_system_number(&dfs));
+    ASSERT_EQ(8, filing_system_number(&adfs));
+    struct bbc_config network = { .fs_number_given = 1, .fs_number = 5 };
+    ASSERT_EQ(5, filing_system_number(&network));
+    struct bbc_config none = { .fs_number_given = 1, .fs_number = 0 };
+    ASSERT_EQ(0, filing_system_number(&none));
+    struct bbc_config adfs_as_dfs = { .adfs = 1, .fs_number_given = 1, .fs_number = 4 };
+    ASSERT_EQ(4, filing_system_number(&adfs_as_dfs));
+    remove_disk();
+    PASS();
+}
+
 TEST without_dfs_names_and_limits_are_as_before(void) {
     make_disk();
     fresh();
@@ -1563,6 +1590,7 @@ SUITE(bbc_mos_suite) {
     RUN_TEST(adfs_directory_holds_47_entries);
     RUN_TEST(adfs_openout_reserves_64k_and_a_file_that_outgrows_it_moves);
     RUN_TEST(adfs_map_holds_80_free_spaces);
+    RUN_TEST(osargs_gives_the_number_of_the_filing_system);
     RUN_TEST(without_dfs_names_and_limits_are_as_before);
     RUN_TEST(jumping_straight_to_a_trap_is_a_fault);
     RUN_TEST(a_jam_opcode_is_a_fault);

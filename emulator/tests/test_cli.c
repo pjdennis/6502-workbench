@@ -715,6 +715,10 @@ TEST cli_bbcbplus_options_parsed(void) {
     ASSERT_EQ_FMT(0, parse(adfs, &opts), "%d");
     ASSERT_EQ(0, opts.bbc_dfs);                  /* the last one counts */
     ASSERT_EQ(1, opts.bbc_adfs);
+    ASSERT_EQ(-1, opts.bbc_fs_number);           /* OSARGS gives the filing system's own number */
+    char *number[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-fs-number", "5", NULL};
+    ASSERT_EQ_FMT(0, parse(number, &opts), "%d");
+    ASSERT_EQ(5, opts.bbc_fs_number);
     char *eight[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m.bin",
                      "--bbc-module-scheme", "direct8", "--bbc-module-bank", "7", NULL};
     ASSERT_EQ_FMT(0, parse(eight, &opts), "%d");
@@ -740,6 +744,8 @@ TEST cli_bbcbplus_errors(void) {
     ASSERT(bbc_error(nofile, "a code file is needed"));
     char *fs[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-fs", "nfs", NULL};
     ASSERT(bbc_error(fs, "--bbc-fs must be 'host', 'dfs' or 'adfs'"));
+    char *number[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-fs-number", "256", NULL};
+    ASSERT(bbc_error(number, "--bbc-fs-number must be 0 to 255"));
     char *badrom[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-rom", "16=a", NULL};
     ASSERT(bbc_error(badrom, "--bbc-rom must be N=FILE"));
     char *badrom2[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-rom", "3", NULL};

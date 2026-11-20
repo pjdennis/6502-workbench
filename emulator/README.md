@@ -205,6 +205,7 @@ do), and the checks with the first few offenders.
 | `--bbc-page HEX` | OSBYTE 131 (OSHWM, PAGE) answers HEX instead of `$1900` |
 | `--bbc-strict` | a write to MOS memory or to the screen (HIMEM to `$7FFF`, without `--bbc-shadow`), or a ROMSEL unlike `$F4` at a MOS call, ends the run (status 1); without it each is counted in the exit report (`mos-memory-writes`, `screen-writes`, `romsel-mismatches`) |
 | `--bbc-fs host\|dfs\|adfs` | the names the filing system takes: as given (`host`, the default), or only the Acorn DFS's, with its limits (`dfs`, below), or ADFS's, with its directories, limits and the space of an L disc (`adfs`, below) |
+| `--bbc-fs-number N` | OSARGS with A=0 and Y=0 gives N (0 to 255) for the filing system's number, not the number of the one emulated (4 under `host` and `dfs`, 8 under `adfs`): a filing system a program does not know, for a test of what it does then (Lathe's `BBCFS 3`, `lathe/docs/bbc.md`, "File names on the BBC") |
 
 ### What is modelled
 
@@ -350,7 +351,7 @@ do), and the checks with the first few offenders.
   can't be opened; A=0 closes Y (0: all). OSBGET returns C set and
   `A=$FE` at the end of the file and the error "EOF" on reading again
   there; OSBPUT to a file opened for input is the error "Read only".
-  OSARGS: Y=0 A=0 the filing system (4, the DFS's), A=1 the command line
+  OSARGS: Y=0 A=0 the filing system (4, the DFS's, or `--bbc-fs-number`'s), A=1 the command line
   tail's address, A=`$FF` flush; Y a handle: read PTR, write PTR, read
   EXT, flush. OSGBPB 1-4 (C set when the count is not used up; A=0).
   OSFILE `$FF` load (at the block's address if its execution address's
