@@ -151,14 +151,19 @@ class ImageA(unittest.TestCase):
             rom128.compile_modules(self, self.image, ('rom',), ['err', 'src'])
 
     def test_too_little_sideways_ram_is_refused(self):
-        """With two banks the regions do not fit at full size yet: `Too little sideways RAM`
-        (until the capacities are set at start-up)."""
+        """With two banks the compiler starts (its tables are set at start-up) and the linker,
+        whose regions do not fit, is refused: `Too little sideways RAM`; with none both are."""
         self.need_image()
         base = boards.BOARDS['bbc']
-        board = dataclasses.replace(base, options=base.options + ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9'))
-        with rom128.scheme(), tempfile.TemporaryDirectory() as d:
-            code, out, err, cycles = boards.run_module(board, self.image, d, 'LATHE', raw=True)
-        self.assertIn(b'Too little sideways RAM', out + err)
+        for ram, command, refused in (('8,9', 'LATHE', False), ('8,9', 'LLINK', True),
+                                      ('none', 'LATHE', True), ('none', 'LLINK', True)):
+            board = dataclasses.replace(base, options=base.options + ('--bbc-model', 'b', '--bbc-sideways-ram', ram))
+            with self.subTest(ram=ram, command=command), rom128.scheme(), tempfile.TemporaryDirectory() as d:
+                code, out, err, cycles = boards.run_module(board, self.image, d, command, raw=True)
+                if refused:
+                    self.assertIn(b'Too little sideways RAM', out + err)
+                else:
+                    self.assertIn(b'usage: lathec', out)
 
     def test_page_above_the_fixed_part_is_refused(self):
         """PAGE above $1F00: the tool refuses, `PAGE too high`. The module has copied the

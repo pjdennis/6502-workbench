@@ -113,6 +113,15 @@ pub var text_top: ^byte
 pub var path: ^byte             ; the file name being built, PATH_SIZE bytes
 pub var path_length: byte
 var tokens: [TOKEN_SIZE]byte in TOKENS  ; the token memory: INLINE's saved tokens
+#if ROOMS
+; The token memory's room: in the image for every machine with sideways RAM, the bytes the placer
+; gives region TOKENS as the tool starts (`region TOKENS WIN 33 dynamic kernel.token_room from 768
+; to 2048`: lathe/docs/bbc.md, "Capacities set at start-up"), which INLINE tests where it would
+; test SAVED_SIZE.
+pub var token_room: word
+#else
+pub const token_room = TOKEN_SIZE   ; (so that INLINE's import list is the same in every build)
+#end
 
 ; Pointer to the token memory, which is read and written only through token_byte(),
 ; set_token_byte() and memory streams.

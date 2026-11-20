@@ -210,6 +210,32 @@ class Placed(unittest.TestCase):
         self.assertLessEqual(at + room, 0x7C00)
         model = places.plan(p, 0x1900, 0x7C00, [])[0]
         self.assertEqual((model.where + p.regions[0].last, model.slot, model.room), (at, None, room))
+
+    def test_a_capacity_with_a_ceiling_takes_main_ram_first_and_no_more_than_it(self):
+        """`dynamic dynreg.room from 100 to 2000`: of main RAM's areas the one that gives the most,
+        and at most 2,000 bytes for the table; with `from 4000`, which no area of main RAM holds
+        here, the free sideways RAM's that gives the least: a whole slot, all 16,352 bytes but
+        what the table's place in it leaves; the model of the placer agrees."""
+        for words, page in (('from 100 to 2000', '1900'), ('from 100 to 2000', '1F00'), ('from 4000 to 30000', '1900')):
+            name = 'ceiling-%s-%s' % (words.split()[1], page)
+            lines = ROOM_LINES[:1] + [ROOM_LINES[1] + ' ' + words] + ROOM_LINES[2:]
+            image = self.build(name, 300, lines, code_hi=0x2C00, program=ROOM_PROGRAM)
+            work = os.path.join(self.dir, name)
+            p, names = places.of_tool(os.path.join(work, 'DYN'), os.path.join(work, 'dynreg-rom.env'),
+                                      os.path.join(work, 'work', 'dynreg.map'))
+            with self.subTest(words=words, page=page):
+                status, out, err, cycles = self.run_at(image, page)
+                self.assertEqual((status, err), (0, b''))
+                total, at, room = (int(x, 16) for x in out.split())
+                self.assertEqual(total, expected_sum(300))
+                model = places.plan(p, int(page, 16), 0x7C00, [0, 1, 12, 13])[0]
+                self.assertEqual((model.where + p.regions[0].last, model.room), (at, room))
+                if words.startswith('from 100'):
+                    self.assertLess(at, 0x7C00)
+                    self.assertEqual(room, 2000)
+                else:
+                    self.assertTrue(0x8000 <= at < 0x8100, hex(at))
+                    self.assertEqual(room, 0xBFE0 - at)
         print('\n  no sideways RAM: the table at &%04X, %d bytes' % (at, room))
 
     def test_page_above_the_fixed_part_is_refused(self):

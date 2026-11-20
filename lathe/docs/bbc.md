@@ -1748,7 +1748,7 @@ The first of the compiler's limits, the name heap, now takes the room its machin
   variable's address and where the region's last variable starts in its block
   ([`configurations.md`](configurations.md), "Regions placed at run time"). The placer writes
   there, before `$init` runs, the bytes it gave the block less that: the room the last variable
-  has. So the variable that grows must be the last of its block: the one the linker puts lowest
+  has. So the variable that grows must be the last of its block: the one the linker puts highest
   in the bank, which is the first its module defines (a bank is filled top-down). For `NAMES`,
   `kernel.names` is the only one.
 - **In the twin**, under `#if ROOMS` (`define ROOMS 1` with `ADAPT 1` in `lathec-bbc.env`, `0`
@@ -1802,10 +1802,92 @@ the compiler, the five of a generated program and that one, each at six sizes fr
 (`lathec_heap.py` runs the host compiler with the heap given). The least: from 974 (`sys`) to
 7,177 (`decl`) for the compiler's own modules, so the self-compile is far from the heap's end.
 
+### Two banks: floors, ceilings and packing (2026-11-20, later)
+
+- **Floors and ceilings.** `region TOKENS WIN 33 dynamic kernel.token_room from 768 to 2048`:
+  the room of the region's last variable at least 768 bytes (without `from`, its size as linked)
+  and at most 2,048 (without `to`, no limit); a ceiling below the floor, or anything else after
+  them, is a bad entry. The linker holds the two numbers in the environment's text after the
+  variable's name (no table of its own: Wendy 2's linker has no data to spare) and lists, after
+  where the last variable starts, the least and the most bytes of the block
+  ([`configurations.md`](configurations.md), "Regions placed at run time").
+- **The placer, by kind of region, in the environment's order**: one of fixed size goes in the
+  first area that holds it (main RAM's first); one with a capacity and no ceiling in the area
+  that gives the most, all of it, if that holds its floor; one with a ceiling in main RAM's
+  area that gives the most if one holds its floor, else in the free sideways RAM's area that
+  gives the least that holds it (so that it fills a gap and leaves the large areas whole), and
+  at most its ceiling of it. The module's code and tables are 1,785 bytes (1,630); the
+  placer's variables to `$0160` and the probe at `$0161-$01AB`.
+- **The compiler's entries** (`lathec-bbc.env`, `ADAPT`): the regions of fixed size by size,
+  the largest first (`SYMS` 10,544, `FUNCBUF` 4,864, `OUTTAB` 4,096, `STRING` 2,048, `WANTS`
+  1,600), so that they pack; then INLINE's saved tokens, `kernel.token_room from 768 to 2048`
+  (the corpus's peak is 520; INLINE tests `kernel.token_room` under `#if ROOMS` where it tested
+  `SAVED_SIZE`); then the name heap, `kernel.name_room from 4096`, which takes the largest area
+  left.
+
+**What the compiler gets** (the model of the placer over Image A's lists; the emulator ran the
+machines marked so):
+
+| Machine | Name heap | Saved tokens | The rest |
+|---|---|---|---|
+| B+128, DFS, `$1900` (run), and in a shadow mode (run) | 16,128 (slot 12) | **1,312, below `$1F00`** | full; slot 13 unused |
+| B+128, ADFS and DFS, `$1F00` (run) | 16,128 | 1,120, in the code range after the list | full |
+| Model B, sideways RAM 8 to 11 (run); three banks (run) | 16,128 | 1,312 | full |
+| Master 128 (model only) | 16,128 | 1,120 | full; `OUTTAB` in main RAM |
+| **Model B, two banks, DFS (run)** | **8,192** | 1,312 | full |
+| **Model B, two banks, ADFS (run)** | **8,192** | 1,120 | full |
+| one bank | refused | | |
+
+With two banks the compiler compiles its own modules (`decl`'s names need 7,177 bytes of the
+heap, the most of any), every file the host compiler's, under the DFS and under ADFS
+(`test_bbc_rooms.OnTheBBC.test_the_compiler_compiles_itself_with_two_banks`); the module of
+12,923 bytes of names gives there what the host compiler gives with a heap of 8,192, error 70.
+The linker's five regions (43,248 bytes) still need four banks: with fewer `*LLINK` is refused
+until its tables can shrink (the next group of work).
+
+**The memory below `$1F00`.** On a B+128 (four banks) every table has its full size and a slot
+is left over, so no table gains from the DFS's 1,312 bytes (1,536 less the 224 its place's low
+byte costs): they hold the saved tokens there, which frees nothing that is short. They count
+where the banks are few: with two banks the saved tokens' 1,312 come out of the second slot, the
+name heap's. A shadow mode's 1,024 bytes (`$7C00-$7FFF`) are an area the placer has, but no
+region with a floor of 1,024 or less fits a gap that the others do not fill first; they are
+unused.
+
+### One bank: what it needs (for the owner)
+
+With one bank the compiler's regions must share 16,352 bytes and main RAM's free areas (the DFS's
+1,312, about 1,100 of the code range after the list, a shadow screen's 1,024). At full size the
+regions of fixed size alone are 23,152 bytes (`SYMS` 10,544 of them), so every table must shrink
+and most of them are columns: the symbols (seven byte columns in one array, five word columns
+in another, `rows`, each `MAX_SYMS` long, and the members' two), `WANTS` (six), `OUTTAB`'s fix-ups
+(five), `FUNCBUF`'s labels (two). The design evaluated, the coordinator's: the placer already
+moves every high byte that names a region; if the linker listed a region's places by **plane**
+(each `MAX_ROWS` bytes of a variable that is planes of one byte a row: `sym_bytes` is 7, a word
+array with `rows` 2 for each column), each plane could move by its own whole pages, so a column
+table shrinks or grows in steps of 256 rows with no change to its accessors; the compiler's
+tests of the tables' ends read a capacity variable, and the few places that use `MAX_SYMS` as a
+value (`thaw_top`, which counts down from it, and the offsets of the columns in `byte_base` and
+`word_base`, made at `$init`) read it too. What it needs, estimated (not built):
+
+- The environment: the plane size of each variable of such a region (`rows 512` after the
+  capacity variable, say), and `MAX_SYMS` a whole number of pages in Image A: 512 (the corpus's
+  peak is 475; 560 in every other build), or 768 at 4,352 bytes more.
+- The list: a header for each variable (its first plane and its plane count), the places grouped
+  by plane: about 150 bytes in the compiler's list; the placer laying out the variables of the
+  block at the rows given and adding each plane's pages: about 300 bytes; the compiler's code:
+  about 150 bytes. About 600 of the image's 1,005 free bytes.
+- What one bank would give, by estimate: under the DFS 256 symbols and members (4,864 bytes),
+  `WANTS`, the fix-ups and the labels at 128 rows (2,816), and about 11 KB for the name heap
+  (about 5,500), the function buffer (2,048), the constant table, the string and the saved
+  tokens: each about 1.5 to 2 times the 32K Model B's (names 3,072, symbols 264, buffer 1,536);
+  under ADFS about 1,300 bytes less.
+- The decision: `MAX_SYMS` 512 in Image A (the self-compile needs 475) or 768 (4,352 bytes more
+  of every machine's sideways RAM), and whether the coarse steps (256 symbols) are acceptable.
+
 ### What is not done
 
-- Image A with fewer banks (one or two), the Master, and the capacities set at start-up of the
-  tables other than the name heap: stage 2's next parts.
+- Image A with one bank (above), the Master, and the linker's tables set at start-up (with fewer
+  than four banks `*LLINK` is refused): stage 2's next parts.
 - Image B, the bare 32K Model B: stage 3.
 - The module's own check: it copies the resident part to `$1F00` before the tool's `PAGE too high`;
   with PAGE above `$1F00` that copy writes below PAGE. The module should refuse PAGE above a

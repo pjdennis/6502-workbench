@@ -1579,3 +1579,22 @@ The least name heap each module of the compiler compiles with (the host compiler
 3,964, `reg` 5,041, `expr` 7,002, `gen` 7,007, `decl` 7,177; a generated program's modules
 (gen_program.py, 20 functions each) 1,035 to 1,418. At each of six sizes from the least up to
 30,000 every module gives the same files.
+
+## Image A with two banks, measured (2026-11-20)
+
+([`bbc.md`](bbc.md), "Two banks: floors, ceilings and packing".) `--bbc-strict` on filled memory,
+every file the host tools': the self-compile, 18 compiles, 877.4 million cycles on a Model B with
+two banks of sideways RAM under the DFS (PAGE `$1900`) and under ADFS (`$1F00`), as on the B+128
+with four (877.5 million at `$1900`, 877.4 at `$1F00`; 877.0 with the name heap alone); the
+linker's link of the compiler 3,024.2 million and the rebuild loop 4,048.7 million on the B+128
+(the linker still needs four banks). The start-up: `*LATHE` 940,836 cycles, `*LLINK` 690,694 at
+`$1900`. The module of long names: 24.2 million cycles where it compiles, 11.7 million to error 70
+with two banks (a heap of 8,192). At every heap size tried, and with 768, 1,120 and 1,312 bytes of
+saved tokens, every module gives the same files (`test_bbc_rooms.SameObjects`).
+
+The account, `BBCFS 3`, `ADFS 1`, as `bbcrom.image` lays it out: **1,005 bytes free** (1,174 with
+the name heap alone, 1,386 before capacities): the module's code and tables 1,785 bytes (1,630: the
+floor and the ceiling, and the choice of main RAM's largest or sideways RAM's closest area); the
+compiler's bank 4 12,190 as judged (12,186: INLINE's test); its other banks and the linker's three
+unchanged (13,759, 15,271, 14,007, 14,269; 16,245, 15,193, 15,884); the compiler's list 14 bytes
+longer (`TOKENS`' capacity, and the floor and ceiling words of both).

@@ -19,6 +19,8 @@ class Region:
     room: int = 0                                   # its capacity variable's address, or 0
     last: int = 0                                   # with one: where its last variable starts,
                                                     # from the block's first byte
+    least: int = 0                                  # and the least and most bytes of the block
+    most: int = 0                                   # (0: no limit)
     highs: list = field(default_factory=list)       # the places of high bytes
     banks: list = field(default_factory=list)       # the places of blocks' banks
 
@@ -60,7 +62,7 @@ def decode(image, code_lo, at):
         r = Region(byte(), word(), word())
         r.room = word()
         if r.room:
-            r.last = word()
+            r.last, r.least, r.most = word(), word(), word()
         r.highs = places()
         r.banks = places()
         p.regions.append(r)
@@ -130,31 +132,53 @@ def plan(places, page, himem, slots):
     areas += [[WINDOW[0], WINDOW[1], s] for s in sorted(slots)]
     areas = areas[:MAX_AREAS]
 
-    def fit(area, r):
+    def fit(area, size, r):
         goes = (area[0] & 0xFF00) | (r.first & 0xFF)
         if goes < area[0]:
             goes += 0x100
-        return goes if goes + r.size - 1 <= area[1] else None
+        return goes if goes + size - 1 <= area[1] else None
 
     done = {}
+
+    def given(a, goes):
+        return a[1] - goes + 1
+
+    def pick(r, size, which, fewest=False):
+        """The area of `which` that holds `size` bytes and gives the most (or the fewest)."""
+        best = None
+        for a in areas:
+            if not which(a):
+                continue
+            goes = fit(a, size, r)
+            if goes is None:
+                continue
+            if best is None or (given(a, goes) < given(best[1], best[0]) if fewest
+                                else given(a, goes) > given(best[1], best[0])):
+                best = (goes, a)
+        return best
+
     for i, r in enumerate(places.regions):
         if r.size == 0 or r.value >= 0x10:
             continue
-        if r.room:
-            best = None
-            for a in areas:
-                goes = fit(a, r)
-                if goes is not None and (best is None or a[1] - goes > best[1][1] - best[0]):
-                    best = (goes, a)
+        if r.room and not r.most:
+            best = pick(r, r.least, lambda a: True)
             if best is None:
                 return None
             goes, a = best
-            grant = a[1] - goes + 1
+            grant = given(a, goes)
             a[0] = a[1] + 1
+            done[i] = Placed(goes, a[2], grant, grant - r.last)
+        elif r.room:
+            best = pick(r, r.least, lambda a: a[2] is None) or pick(r, r.least, lambda a: a[2] is not None, True)
+            if best is None:
+                return None
+            goes, a = best
+            grant = min(given(a, goes), r.most)
+            a[0] = goes + grant
             done[i] = Placed(goes, a[2], grant, grant - r.last)
         else:
             for a in areas:
-                goes = fit(a, r)
+                goes = fit(a, r.size, r)
                 if goes is not None:
                     a[0] = goes + r.size
                     done[i] = Placed(goes, a[2])

@@ -130,9 +130,12 @@ p_new: = $0152                 ; and the one it gets
 p_room: = $0153                ; the address of its capacity variable, or 0
 p_offset: = $0155              ; with one: where its last variable starts in its block
 p_grant: = $0157               ; the bytes an area gives it, for p_take_most
-p_best: = $0159                ; the area that gives the most so far, and that many bytes
+p_best: = $0159                ; the area chosen so far (p_pick), and the bytes it gives
 p_most: = $015A
-p_probe_ram: = $015C           ; the probe of a slot, copied there from probe_code (below)
+p_least: = $015C               ; with a capacity: the least bytes of its block, and the most
+p_ceiling: = $015E             ; (0: no limit)
+p_kind: = $0160                ; which areas p_pick looks at, and how it chooses
+p_probe_ram: = $0161           ; the probe of a slot, copied there from probe_code (below)
 
 ; ---- every bank: the header and the service code ----
 * = $8000
@@ -593,6 +596,12 @@ place:
   JSR p_word
   STA p_offset
   STX p_offset+1
+  JSR p_word
+  STA p_least
+  STX p_least+1
+  JSR p_word
+  STA p_ceiling
+  STX p_ceiling+1
 .no_room:
   LDA w4                       ; the bytes it has where it is linked
   STA p_grant
@@ -609,7 +618,17 @@ place:
   LDA p_room
   ORA p_room+1
   BEQ .fixed_size
+  LDA p_least                  ; with a capacity: at least its least
+  STA w4
+  LDA p_least+1
+  STA w5
+  LDA p_ceiling
+  ORA p_ceiling+1
+  BNE .bounded
   JSR p_take_most
+  JMP .taken
+.bounded:
+  JSR p_take_bounded
   JMP .taken
 .fixed_size:
   JSR p_take
@@ -919,23 +938,96 @@ p_take:
 ; As p_take, but the area that holds w4/w5 bytes and gives the most, all of it: from p_goes to the
 ; area's last byte, that many bytes in p_grant (the first such area if two give as many).
 p_take_most:
+  LDA #$00                     ; of every area, the most
+  JSR p_pick
+  BCS .none
+  LDA p_last_lo,X              ; all of it taken
+  CLC
+  ADC #$01
+  STA p_first_lo,X
+  LDA p_last_hi,X
+  ADC #$00
+  STA p_first_hi,X
+  CLC
+.none:
+  RTS
+
+; As p_take, for a region with a ceiling: of main RAM's areas that hold w4/w5 bytes the one that
+; gives the most, or if none does, of sideways RAM's the one that gives the least; as many bytes
+; as it gives, at most p_ceiling, in p_grant.
+p_take_bounded:
+  LDA #$01                     ; main RAM's, the most
+  JSR p_pick
+  BCC .chosen
+  LDA #$02                     ; sideways RAM's, the least
+  JSR p_pick
+  BCS .none
+.chosen:
+  LDA p_ceiling                ; at most the ceiling
+  CMP p_grant
+  LDA p_ceiling+1
+  SBC p_grant+1
+  BCS .within
+  LDA p_ceiling
+  STA p_grant
+  LDA p_ceiling+1
+  STA p_grant+1
+.within:
+  LDA p_goes                   ; taken: the area starts after it
+  CLC
+  ADC p_grant
+  STA p_first_lo,X
+  LDA p_goes+1
+  ADC p_grant+1
+  STA p_first_hi,X
+  CLC
+.none:
+  RTS
+
+; The area that holds w4/w5 bytes at p_linked's low byte and, by A: 0, of every area, gives the
+; most; 1, of main RAM's, the most; 2, of sideways RAM's, the least (the first if two give as
+; many). The area in X, its place in p_goes, what it gives in p_grant and the carry clear; or
+; the carry set if no such area holds them.
+p_pick:
+  STA p_kind
   LDA #$FF
   STA p_best
-  LDA #$00
-  STA p_most
-  STA p_most+1
   LDX #$00
 .area:
   CPX p_areas
   BCS .chosen
+  LDA p_kind
+  BEQ .any
+  LSR                          ; 1: main RAM's alone; 2: sideways RAM's alone
+  BCC .sideways
+  LDA p_slot,X
+  BPL .next
+  BMI .any
+.sideways:
+  LDA p_slot,X
+  BMI .next
+.any:
   JSR p_fit
   BCC .next
   JSR p_given
-  LDA p_most                   ; more than the best so far: the best
+  LDA p_best
+  BMI .better                  ; the first that holds them
+  LDA p_kind
+  CMP #$02
+  BEQ .fewer
+  LDA p_most                   ; more than the best so far
   CMP p_grant
   LDA p_most+1
   SBC p_grant+1
   BCS .next
+  BCC .better
+.fewer:
+  LDA p_grant                  ; fewer than the best so far
+  CMP p_most
+  LDA p_grant+1
+  SBC p_most+1
+  BCS .next
+.better:
   STX p_best
   LDA p_grant
   STA p_most
@@ -947,15 +1039,8 @@ p_take_most:
 .chosen:
   LDX p_best
   BMI .none
-  JSR p_fit                    ; its place again, and all of it taken
+  JSR p_fit                    ; its place again, and what it gives
   JSR p_given
-  LDA p_last_lo,X
-  CLC
-  ADC #$01
-  STA p_first_lo,X
-  LDA p_last_hi,X
-  ADC #$00
-  STA p_first_hi,X
   CLC
   RTS
 .none:

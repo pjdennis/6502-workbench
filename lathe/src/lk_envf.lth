@@ -184,7 +184,8 @@ pub var region_bank: [MAX_REGIONS]byte  ; the bank + 1, or 0 for fixed memory
 pub var region_dynamic: word        ; bit i: region i is `dynamic`, placed again at the start (lk_dyn;
                                     ; read() sets it)
 pub var region_room: [MAX_REGIONS]word  ; a dynamic region's capacity variable's name + 1, or 0 (lk_dyn;
-                                        ; with LKDYN 0 nothing uses it, so it is not linked)
+                                        ; with LKDYN 0 nothing uses it, so it is not linked); in the
+                                        ; text after the name, two words: room_floor, room_ceiling
 pub var region_used: byte = 0       ; lk_scan: a bank + 1 that a variable or constant is in, or 0
 
 const MAX_DEFINES = 16
@@ -658,6 +659,78 @@ func place_entry()
   end_of_line()
 end
 
+#if LKDYN
+const FROM_WORD: [4]byte = "from"
+const TO_WORD: [2]byte = "to"
+
+; True if the word just read is the `size` bytes at w.
+func is_word(w: ^byte, size: byte): bool
+  var k: byte
+  if token_len != size then
+    return false
+  end
+  for k = 0 until size do
+    if token[k] != w[k] then
+      return false
+    end
+  end
+  return true
+end
+
+; Hold a word after what was held last (a name).
+func hold_word(value: word)
+  if text_top + 2 > TEXT_SIZE then
+    lk_err.fail(lk_err.E_ENV_FULL)
+  end
+  text[text_top] = lo(value)
+  text[text_top + 1] = hi(value)
+  text_top += 2
+end
+
+
+; The rest of a dynamic region's entry, its capacity variable just read: `from N` and `to N`,
+; each optional, in that order. They are held after the variable's name.
+func room_entry(i: byte)
+  var more: bool
+  var floor: word
+  var ceiling: word
+  region_room[i] = hold_token()
+  floor = 0
+  ceiling = 0
+  more = read_token()
+  if more and is_word(@FROM_WORD, len(FROM_WORD)) then
+    floor = number()
+    more = read_token()
+  end
+  if more and is_word(@TO_WORD, len(TO_WORD)) then
+    ceiling = number()
+    more = read_token()
+  end
+  if more or (ceiling != 0 and ceiling < floor) then
+    bad()
+  end
+  hold_word(floor)
+  hold_word(ceiling)
+end
+
+#end
+
+; (Outside `#if LKDYN`, as lk_dyn names them in every build; with LKDYN 0 nothing calls them, so
+; they are not linked.)
+func held_word(pos: word): word
+  return word(text[pos]) | (word(text[pos + 1]) << 8)
+end
+
+; Region r's `from`, the least room of its capacity variable, or 0 (as linked).
+pub func room_floor(r: byte): word
+  return held_word(region_room[r] + text[region_room[r] - 1])
+end
+
+; Region r's `to`, the most room of its capacity variable, or 0 (no limit).
+pub func room_ceiling(r: byte): word
+  return held_word(region_room[r] + text[region_room[r] - 1] + 2)
+end
+
 func region_entry()
   var i: byte
   var w: byte
@@ -701,7 +774,7 @@ func region_entry()
       end
       region_dynamic |= word(1) << i
       if read_word(false) then
-        region_room[i] = hold_token()
+        room_entry(i)
       end
     end
 #end

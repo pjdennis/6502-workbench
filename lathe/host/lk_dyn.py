@@ -30,9 +30,11 @@ to the placer module's `place` (the environment's `placer` entry) after FARCALL.
             is not dynamic has no block and no places):
             byte    the bank's value it is linked with
             word    its block's first byte, as linked, and word its size (0: nothing to move)
-            word    the address of its capacity variable (the `region` entry's last word), or 0;
-                    if not 0, then word: where its last variable starts, from the block's first
-                    byte (the placer writes the bytes it gives the block, less this, there)
+            word    the address of its capacity variable (the `region` entry's word after
+                    `dynamic`), or 0; if not 0, then three words: where its last variable
+                    starts, from the block's first byte (the placer writes the bytes it gives
+                    the block, less this, there); the least bytes of the block (with the
+                    entry's `from`, or as linked); the most (with its `to`, or 0: no limit)
             word    N, then N places: a high byte, to which the pages moved are added
             word    M, then M places: a block's `LDA #bank` byte, which is the bank's value
 
@@ -234,6 +236,14 @@ def put_region(r):
     lk_out.put_word(room)
     if room != 0:
         lk_out.put_word(last - first)
+        if lk_envf.room_floor(r) != 0:
+            lk_out.put_word((last - first + lk_envf.room_floor(r)) & 0xFFFF)
+        else:
+            lk_out.put_word(past - first)
+        if lk_envf.room_ceiling(r) != 0:
+            lk_out.put_word((last - first + lk_envf.room_ceiling(r)) & 0xFFFF)
+        else:
+            lk_out.put_word(0)
     put_sites(T_ADD, r)
     put_sites(T_BANK, r)
 

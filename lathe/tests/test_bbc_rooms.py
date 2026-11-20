@@ -1,19 +1,22 @@
-"""Capacities set as a tool starts (lathe/docs/bbc.md, "Capacities set at start-up"): in Image A
-(test_bbc_adapt.py) the placer gives the compiler's name heap, region NAMES, the largest area of
-free memory left when the other regions are placed, all of it, and writes in kernel.name_room
-how many bytes that is; the compiler tests that where the other builds test NAME_HEAP_SIZE.
+"""Capacities set as a tool starts (lathe/docs/bbc.md, "Capacities set at start-up", "Two banks"):
+in Image A (test_bbc_adapt.py) the placer gives the compiler's name heap, region NAMES, the largest
+area of free memory left when the other regions are placed, all of it, and INLINE's saved tokens,
+region TOKENS, from 768 to 2,048 bytes of main RAM's largest area or of the sideways RAM gap that
+fits them closest; it writes in kernel.name_room and kernel.token_room how many bytes that is,
+which the compiler tests where the other builds test NAME_HEAP_SIZE and SAVED_SIZE.
 
-SameObjects: the host compiler with name heaps of many sizes (lathec_heap.py), from the least a
-module compiles with up, gives the same files for every module: what the compiler writes does not
-depend on the heap's size. By default the quick modules of test_src_selfhost and a module of long
-names; LATHE_BBC_ROOMS_ALL=1 every module of the compiler and the modules of a generated program
-(gen_program.py) too.
+SameObjects: the host compiler with name heaps of many sizes, from the least a module compiles
+with up, and with room for 768 to 2,048 bytes of saved tokens (lathec_heap.py), gives the same
+files for every module: what the compiler writes does not depend on its capacities. By default the
+quick modules of test_src_selfhost and a module of long names; LATHE_BBC_ROOMS_ALL=1 every module
+of the compiler and the modules of a generated program (gen_program.py) too.
 
-OnTheBBC: a module whose names need more than the 9,216 bytes of the heap as linked, which the
-compiler with a fixed heap refuses (error 70), compiles with Image A on the B+128 (four banks) at
-PAGE $1900, at $1F00 and in a shadow mode, and on a Model B with sideways RAM in slots 8 to 11,
-and gives the host's files. LATHE_BBC_ROOMS_REPORT=1 prints the capacity the placer gives, as the
-model of the placer (places.plan) has it, for each machine.
+OnTheBBC: what the compiler gets on each machine, by the model of the placer (places.plan); a
+module whose names need more than the 9,216 bytes of the heap as linked gives, on each machine
+the emulator has (four banks, three, two; DFS, ADFS, a shadow mode), what the host compiler gives
+with that machine's capacities; with two banks the compiler compiles three of its own modules
+(all of them with LATHE_BBC_ROOMS_SELFHOST=1) under the DFS and ADFS, every file the host's.
+LATHE_BBC_ROOMS_REPORT=1 prints every machine's capacities and the cycles.
 """
 import os
 import shutil
@@ -28,6 +31,7 @@ import src_support as support  # noqa: E402
 
 ALL = os.environ.get('LATHE_BBC_ROOMS_ALL') == '1'
 REPORT = os.environ.get('LATHE_BBC_ROOMS_REPORT') == '1'
+SELFHOST = os.environ.get('LATHE_BBC_ROOMS_SELFHOST') == '1'
 HEAP_TOOL = os.path.join(HERE, 'lathec_heap.py')
 LINKED = 9216                   # kernel.NAME_HEAP_SIZE, the heap as linked
 BIG_NAMES = 330                 # bignames: 12,923 bytes of the heap at most
@@ -64,9 +68,10 @@ class Module:
             shutil.copy(li, self.dir)
         self.count = 0
 
-    def compile(self, heap, need=None):
-        """The host compiler with a heap of `heap` bytes: (status, error output, {file: bytes});
-        with `need`, the most the heap was asked for, too."""
+    def compile(self, heap, need=None, tokens=None):
+        """The host compiler with a heap of `heap` bytes and room for `tokens` bytes of saved
+        tokens (else inline.SAVED_SIZE): (status, error output, {file: bytes}); with `need`, the
+        most the heap was asked for, too."""
         self.count += 1
         d = os.path.join(self.dir, 'at-%d-%d' % (heap, self.count))
         shutil.copytree(self.dir, d, ignore=shutil.ignore_patterns('at-*'))
@@ -74,6 +79,8 @@ class Module:
         environ = dict(os.environ, LATHE_NAME_HEAP=str(heap))
         if need:
             environ['LATHE_NAME_HEAP_NEED'] = os.path.join(self.dir, 'need')
+        if tokens:
+            environ['LATHE_SAVED_TOKENS'] = str(tokens)
         done = subprocess.run([sys.executable, HEAP_TOOL] + list(self.options) + [self.name + '.lth', '.'],
                               cwd=d, capture_output=True, env=environ)
         files = {f: read(os.path.join(d, f)) for f in sorted(os.listdir(d)) if f not in before}
@@ -144,6 +151,13 @@ class SameObjects(unittest.TestCase):
                 self.assertEqual(sorted(files), sorted(expected))
                 for f in files:
                     self.assertTrue(files[f] == expected[f], f + ' differs')
+        for heap, tokens in ((least, 768), (30000, 1120), (16128, 1312)):
+            with self.subTest(module=module.name, heap=heap, tokens=tokens):
+                status, said, files = module.compile(heap, tokens=tokens)
+                self.assertEqual((status, said), (0, b''))
+                self.assertEqual(sorted(files), sorted(expected))
+                for f in files:
+                    self.assertTrue(files[f] == expected[f], f + ' differs')
         if least > 16:
             status, said, files = module.compile(least - 16)
             self.assertEqual(status, 1)
@@ -177,8 +191,10 @@ MACHINES = (
      ('1900', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10,11'))),
     ('Master 128 (model only)', 0x0E00, 0x8000, (4, 5, 6, 7), None),
     ('three banks', 0x1900, 0x7C00, (8, 9, 10), ('1900', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10'))),
-    ('two banks', 0x1900, 0x7C00, (8, 9), None),
-    ('one bank', 0x1900, 0x7C00, (8,), None),
+    ('two banks, DFS', 0x1900, 0x7C00, (8, 9), ('1900', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9'))),
+    ('two banks, ADFS', 0x1F00, 0x7C00, (8, 9), ('1F00', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9'))),
+    ('one bank, DFS', 0x1900, 0x7C00, (8,), None),
+    ('one bank, ADFS', 0x1F00, 0x7C00, (8,), None),
 )
 
 
@@ -214,40 +230,78 @@ class OnTheBBC(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
-    def test_the_name_heap_gets_a_whole_slot_where_one_is_left(self):
+    def test_what_the_compiler_gets_on_each_machine(self):
         """By the model of the placer: with three banks or more the name heap has a slot to itself
-        (16,128 bytes, its block at $80E0); with two it is refused."""
+        (16,128 bytes, its block at $80E0); with two, 8,192 bytes, what the other regions leave of
+        the second slot; the saved tokens 1,312 bytes below $1F00 when PAGE is $1900, else the
+        main RAM the link leaves (1,120), at least their floor, 768; with one bank it is refused."""
         lathe = self.tools[0]
         for m in MACHINES:
             with self.subTest(machine=m[0]):
                 got = capacities(lathe, m)
                 if len(m[3]) >= 3:
                     self.assertEqual(got['names'][2], 0xBFE0 - 0x80E0)
+                elif len(m[3]) == 2:
+                    self.assertEqual(got['names'][2], 8192)
                 else:
                     self.assertIsNone(got)
+                    continue
+                self.assertGreaterEqual(got['tokens'][2], 768)
+                if m[1] == 0x1900:
+                    self.assertEqual(got['tokens'][:3], (0x19E0, None, 0x1F00 - 0x19E0))
 
-    def test_a_module_of_more_names_than_the_heap_as_linked_compiles(self):
+    def test_a_module_of_more_names_than_the_heap_as_linked(self):
+        """The module of long names, refused by the compiler with a fixed heap (error 70): on
+        each machine the emulator has, the BBC's compiler gives what the host compiler gives with
+        that machine's capacities (by the model of the placer): its files with a slot for the name
+        heap, error 70 with two banks."""
         import test_bbc_adapt
         import test_bbc_selfhost as bbc_selfhost
         status, said, files = self.big.compile(LINKED)
         self.assertEqual(status, 1)
         self.assertIn(b'error 70: too many names', said)
-        status, said, expected = self.big.compile(16128)
-        self.assertEqual((status, said), (0, b''))
-        for name, page, himem, slots, run in MACHINES:
+        for m in MACHINES:
+            name, page, himem, slots, run = m
             if run is None:
                 continue
+            caps = capacities(self.tools[0], m)
+            status, said, expected = self.big.compile(caps['names'][2], tokens=caps['tokens'][2])
+            self.assertEqual(status != 0, len(slots) < 3)
             at, shadow, model = run
             with self.subTest(machine=name), test_bbc_adapt.machine(at, shadow, model):
                 disk = os.path.join(self.dir, 'disk-' + name.replace(' ', '-').replace(',', ''))
                 shutil.copytree(self.big.dir, disk, ignore=shutil.ignore_patterns('at-*', 'need'))
                 got = bbc_selfhost.report_run('rom', self.image, disk, ['bignames.lth', '.'])
-                self.assertEqual(got[:3], (0, b'', b''))
+                self.assertEqual(got[:3], (status, said, b''))
                 self.assertEqual(sorted(got[3]), sorted(expected))
                 for f in expected:
                     self.assertTrue(got[3][f] == expected[f], f + ' differs')
                 if REPORT:
                     print('\nbignames on %s: %d cycles' % (name, got[4]))
+
+    def test_the_compiler_compiles_itself_with_two_banks(self):
+        """With two banks of sideways RAM, under the DFS and ADFS: the compiler's own modules (all
+        of them with LATHE_BBC_ROOMS_SELFHOST=1; else three, decl among them, whose names need the
+        most of the heap), every file the host compiler's."""
+        import test_bbc_adapt
+        import test_bbc_rom128 as rom128
+        import test_src_selfhost
+        modules = rom128.selfhost_modules() if SELFHOST else ('err', 'sys', 'decl')
+        for name, page, himem, slots, run in MACHINES:
+            if run is None or len(slots) != 2:
+                continue
+            at, shadow, model = run
+            base = self.dir
+            self.dir = os.path.join(base, 'self-' + at)
+            os.makedirs(self.dir, exist_ok=True)
+            try:
+                with test_bbc_adapt.machine(at, shadow, model):
+                    cycles = rom128.compile_modules(self, self.image, ('rom',), modules)
+            finally:
+                self.dir = base
+            if REPORT or SELFHOST:
+                print('\nImage A on %s: %d compiles, %d cycles' % (name, len(cycles),
+                                                                   sum(c['rom'] for c in cycles.values())))
 
 
 if __name__ == '__main__':

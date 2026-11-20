@@ -26,7 +26,8 @@ module lk_dyn
 import lk_alloc (data_end, more_end)
 import lk_boot (places_addr)
 import lk_envf (bank_value, code_hi, code_lo, data_hi, data_lo, fail_text, has_more, more_hi,
-                more_lo, region_bank, region_count, region_dynamic, region_room)
+                more_lo, region_bank, region_count, region_dynamic, region_room, room_ceiling,
+                room_floor)
 import lk_err (begin, E_CODE_FULL, E_DYNAMIC, E_ENV_ENTRY, E_SITES, fail, finish, over)
 import lk_fix (cur_sym, FX_KIND, FX_SYM, held, is_word, K_BANK, K_HIGH, K_REACH_HIGH)
 import lk_name (fail, fail_in, room_def)
@@ -260,6 +261,16 @@ func put_region(r: byte)
   lk_out.put_word(room)
   if room != 0 then
     lk_out.put_word(last - first)
+    if lk_envf.room_floor(r) != 0 then
+      lk_out.put_word(last - first + lk_envf.room_floor(r))
+    else
+      lk_out.put_word(past - first)
+    end
+    if lk_envf.room_ceiling(r) != 0 then
+      lk_out.put_word(last - first + lk_envf.room_ceiling(r))
+    else
+      lk_out.put_word(0)
+    end
   end
   put_sites(T_ADD, r)
   put_sites(T_BANK, r)

@@ -239,6 +239,27 @@ class Dynamic(unittest.TestCase):
         self.assertEqual((p.regions[1].room, p.regions[1].size), (0, 0))
         plain = self.link([user(room=True), farcall_with(), placer()])
         self.assertEqual(places_of(plain)[0].regions[0].room, 0)
+        self.assertEqual((work.least, work.most), (v + 300 - w, 0))     # as linked, no limit
+
+    def test_a_capacity_may_have_a_floor_and_a_ceiling(self):
+        """`from N` and `to N`, each optional, in that order: the least and most bytes of the
+        block are where the last variable starts plus N; a ceiling below the floor, or any other
+        word after them, is a bad entry."""
+        cases = (('from 200', 200, None), ('to 1000', None, 1000), ('from 100 to 400', 100, 400))
+        for words, floor, ceiling in cases:
+            with self.subTest(words=words):
+                r = self.link([user(room=True), farcall_with(), placer()],
+                              ROOM.replace('t.room\n', 't.room ' + words + '\n'))
+                self.assertEqual((r.status, r.errors), (0, ''))
+                work = places_of(r)[0].regions[0]
+                self.assertEqual(work.least, work.last + floor if floor else work.size)
+                self.assertEqual(work.most, work.last + ceiling if ceiling else 0)
+        for words in ('to 100 from 50', 'from 400 to 100', 'from 100 more', 'from'):
+            with self.subTest(words=words):
+                r = self.link([user(room=True), farcall_with(), placer()],
+                              ROOM.replace('t.room\n', 't.room ' + words + '\n'))
+                self.assertEqual(r.status, 1)
+                self.assertIn('link error 3: environment file: bad entry', r.errors)
 
     def test_a_capacity_variable_must_be_a_linked_word_in_main_memory(self):
         """A bad entry (error 3, with the name) for a name nothing defines, a function, a variable
@@ -282,7 +303,12 @@ def cases():
              ROOM.replace('t.room', 't.nothing')),
             ('a function as capacity', [user(room=True), farcall_with(), placer()], ROOM.replace('t.room', 't.main')),
             ('a capacity in a region', [user(room=True), farcall_with(), placer()], ROOM.replace('t.room', 't.k')),
-            ('a capacity of one byte', [one_byte_room(), farcall_with(), placer()], ROOM)]
+            ('a capacity of one byte', [one_byte_room(), farcall_with(), placer()], ROOM),
+            ('a floor and a ceiling', [user(room=True), farcall_with(), placer()],
+             ROOM.replace('t.room\n', 't.room from 100 to 400\n')),
+            ('a ceiling', [user(room=True), farcall_with(), placer()], ROOM.replace('t.room\n', 't.room to 1000\n')),
+            ('a ceiling below the floor', [user(room=True), farcall_with(), placer()],
+             ROOM.replace('t.room\n', 't.room from 400 to 100\n'))]
 
 
 class Twin(unittest.TestCase):

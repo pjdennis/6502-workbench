@@ -152,10 +152,10 @@ def parse_env(text, path='<env>'):
             env.files.append(args[2])
         elif key == 'region' and len(args) == 3:
             env.regions.append(args[0].lower())
-        elif key == 'region' and len(args) in (4, 5) and args[3].lower() == 'dynamic':
+        elif key == 'region' and len(args) >= 4 and args[3].lower() == 'dynamic':
             env.regions.append(args[0].lower())
             env.dynamic_regions.append(args[0].lower())
-            if len(args) == 5:
+            if len(args) >= 5:
                 env.rooms[args[0].lower()] = args[4]
         elif key == 'region' and len(args) == 2 and args[1].lower() == 'fixed':
             env.fixed_regions.append(args[0].lower())

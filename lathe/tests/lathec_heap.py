@@ -1,8 +1,10 @@
 """The host compiler, lathe/host/lathec.py, with a name heap of LATHE_NAME_HEAP bytes instead of
-kernel.NAME_HEAP_SIZE: the capacity the image for every machine with sideways RAM sets as the
-compiler starts (lathe/docs/bbc.md, "Capacities set at start-up"), for test_bbc_rooms.py.
+kernel.NAME_HEAP_SIZE, and with LATHE_SAVED_TOKENS, room for that many bytes of INLINE's saved
+tokens instead of inline.SAVED_SIZE: the capacities the image for every machine with sideways
+RAM sets as the compiler starts (lathe/docs/bbc.md, "Capacities set at start-up"), for
+test_bbc_rooms.py.
 
-    LATHE_NAME_HEAP=16128 python3 lathe/tests/lathec_heap.py ARGS...
+    LATHE_NAME_HEAP=16128 [LATHE_SAVED_TOKENS=1312] python3 lathe/tests/lathec_heap.py ARGS...
 
 With LATHE_NAME_HEAP_NEED=FILE it also writes to FILE the most the heap was asked to hold at the
 start of a name (kernel.name_begin's test), so that a test can find the least heap a module
@@ -15,12 +17,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'host'))
 
 import env  # noqa: E402
+import inline  # noqa: E402
 import kernel  # noqa: E402
 import lathec  # noqa: E402
 
 size = int(os.environ['LATHE_NAME_HEAP'])
 kernel.NAME_HEAP_SIZE = size
 kernel.names = bytearray(size)
+if os.environ.get('LATHE_SAVED_TOKENS'):
+    inline.SAVED_SIZE = int(os.environ['LATHE_SAVED_TOKENS'])
+    assert inline.SAVED_SIZE <= kernel.TOKEN_SIZE
 need_file = os.environ.get('LATHE_NAME_HEAP_NEED')
 if need_file:
     need = [0]

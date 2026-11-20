@@ -907,14 +907,26 @@ byte; `test_lk_dynamic.py`):
 
 **Capacities** (2026-11-20, later): `region NAME WIN N dynamic MODULE.VARIABLE` names a word
 variable in main memory, in no region, that holds the capacity of the region's last variable (the
-lowest in the bank, the first its module defines); anything else is link error 3, a bad entry,
+highest in the bank, the first its module defines); anything else is link error 3, a bad entry,
 with the name. The linker finds it as it reads the objects (`lk_name.note_room_names`), and the
 region's entry in the list then has, after its block, the variable's address (0 for none) and,
 if there is one, where the last variable starts in the block. The placer gives such a region the
 area that gives it the most, and writes there, before `$init` runs, the bytes the block was given
 less that. Built for the compiler's name heap ([`bbc.md`](bbc.md), "Capacities set at start-up");
-host and twin byte for byte (`test_lk_dynamic.py`). The other tables are still linked and used at
-their full size.
+host and twin byte for byte (`test_lk_dynamic.py`).
+
+A **floor and a ceiling** may follow the variable: `region TOKENS WIN 33 dynamic kernel.token_room
+from 768 to 2048`, each optional, in that order: the least and the most room of the last
+variable, in bytes (without `from`, its size as linked; without `to`, no limit; a ceiling below
+the floor is a bad entry). The linker holds them in the environment's text after the variable's
+name (`lk_envf.room_floor`, `room_ceiling`) and the entry in the list has, after where the last
+variable starts, the least and the most bytes of the block (0: no limit). The placer: a region of
+fixed size in the first area that holds it, main RAM's first; one with a capacity and no ceiling
+in the area that gives the most, all of it; one with a ceiling in main RAM's area that gives the
+most, else in the free sideways RAM's that gives the least, and no more than its ceiling; each
+at least its floor, or refused ([`bbc.md`](bbc.md), "Two banks: floors, ceilings and packing").
+Built for the compiler's name heap and INLINE's saved tokens; the other tables are linked and
+used at their full size.
 
 ## Decisions for the owner
 

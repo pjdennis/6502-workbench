@@ -55,6 +55,8 @@
 ;   | copy_aliases() used before it is     | a forward declaration             | declare before  |
 ;   | defined                              |                                   | use             |
 ;   | SAVED_SIZE                           | under `#if SMALL` (384) as well   | the small build |
+;   |                                      | and kernel.token_room in Image A  | the placer sets |
+;   |                                      | (`#if ROOMS`)                     | it at start-up  |
 module inlines
 
 import err (E_BAD_INTERFACE, E_END_EXPECTED, E_INLINE_DEEP, E_INLINE_FULL, E_INLINE_NOT_HERE,
@@ -68,7 +70,8 @@ import kernel (byte_of, C_KIND, C_LINK, C_MEMBERS, C_NAME, C_RESULTS, C_TYPE, C_
                name_symbol, NO_OBJ, NO_SYM, params_of, put, put_name, put_word, SCOPE_LOCAL,
                SCOPE_MODULE, scope_of, SCOPE_PREDECLARED, set_byte, set_token_byte, set_word,
                SF_LIST, SF_NOZP, SF_PUB, SF_ZP, sym_add, sym_count, sym_find, sym_lookup,
-               sym_release, text_reserve, token_byte, token_start, type_of, value_of, word_of)
+               sym_release, text_reserve, token_byte, token_room, token_start, type_of, value_of,
+               word_of)
 import src (name, open_saved)                      ; before lex, whose interface imports it too
 import lex (col, line, MAX_COLUMN, next, SAVED_LINE, string_byte, string_length, T_ADDRESS, T_ARROW,
             T_ASM, T_ASSIGN, T_CASE, T_COMMA, T_CRITICAL, T_DOT, T_END, T_EOF, T_FOR, T_HASH_IF,
@@ -158,7 +161,11 @@ end
 
 ; Add a byte to the saved tokens.
 func put(value: byte)
+#if ROOMS
+  if saved_top == saved_start + kernel.token_room then    ; the room the placer gives TOKENS
+#else
   if saved_top == saved_start + SAVED_SIZE then
+#end
     err.fatal(err.E_INLINE_FULL)
   end
   kernel.set_token_byte(saved_top, value)

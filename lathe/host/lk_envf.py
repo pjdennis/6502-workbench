@@ -22,6 +22,9 @@
     region    NAMES WIN 4 dynamic kernel.name_room
                                     ; and the placer writes the room it gives the region's last
                                     ; variable in that word variable (its capacity, lk_dyn)
+    region    TOKENS WIN 4 dynamic kernel.token_room from 768 to 2048
+                                    ; that room at least 768 bytes (else as linked) and at most
+                                    ; 2048 (else as much as the placer finds)
     placer    rt_place              ; the module whose `place` the start-up calls for those
     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
@@ -157,7 +160,10 @@ region_count = 0
 region_name = [0] * MAX_REGIONS
 region_bank = bytearray(MAX_REGIONS)    # the bank + 1, or 0 for fixed memory
 region_dynamic = 0                  # bit i: region i is `dynamic`, placed again at the start (lk_dyn)
-region_room = [0] * MAX_REGIONS     # a dynamic region's capacity variable's name + 1, or 0 (lk_dyn)
+region_room = [0] * MAX_REGIONS     # a dynamic region's capacity variable's name + 1, or 0 (lk_dyn);
+                                    # in the text after the name, two words: room_floor, room_ceiling
+FROM_WORD = b"from"
+TO_WORD = b"to"
 region_used = 0                     # lk_scan: a bank + 1 that a variable or constant is in, or 0
 
 MAX_DEFINES = 16
@@ -583,8 +589,61 @@ def region_entry():
                 bad()
             region_dynamic |= 1 << i
             if read_word(False):
-                region_room[i] = hold_token()
+                room_entry(i)
     end_of_line()
+
+
+def is_word(w):
+    """True if the word just read is w."""
+    if token_len != len(w):
+        return False
+    for k in range(0, token_len):
+        if token[k] != w[k]:
+            return False
+    return True
+
+
+def hold_word(value):
+    """Hold a word after what was held last (a name)."""
+    global text_top
+    if text_top + 2 > TEXT_SIZE:
+        lk_err.fail(lk_err.E_ENV_FULL)
+    text[text_top] = value & 0xFF
+    text[text_top + 1] = value >> 8
+    text_top += 2
+
+
+def held_word(pos):
+    return text[pos] | (text[pos + 1] << 8)
+
+
+def room_entry(i):
+    """The rest of a dynamic region's entry, its capacity variable just read: `from N` and `to N`,
+    each optional, in that order. They are held after the variable's name."""
+    region_room[i] = hold_token()
+    floor = 0
+    ceiling = 0
+    more = read_token()
+    if more and is_word(FROM_WORD):
+        floor = number()
+        more = read_token()
+    if more and is_word(TO_WORD):
+        ceiling = number()
+        more = read_token()
+    if more or (ceiling != 0 and ceiling < floor):
+        bad()
+    hold_word(floor)
+    hold_word(ceiling)
+
+
+def room_floor(r):
+    """Region r's `from`, the least room of its capacity variable, or 0 (as linked)."""
+    return held_word(region_room[r] + text[region_room[r] - 1])
+
+
+def room_ceiling(r):
+    """Region r's `to`, the most room of its capacity variable, or 0 (no limit)."""
+    return held_word(region_room[r] + text[region_room[r] - 1] + 2)
 
 
 def more_entry():
