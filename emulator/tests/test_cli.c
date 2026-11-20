@@ -719,6 +719,10 @@ TEST cli_bbcbplus_options_parsed(void) {
     char *number[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-fs-number", "5", NULL};
     ASSERT_EQ_FMT(0, parse(number, &opts), "%d");
     ASSERT_EQ(5, opts.bbc_fs_number);
+    char *dump[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module-ram",
+                    "--bbc-module-dump", "out.bin", NULL};
+    ASSERT_EQ_FMT(0, parse(dump, &opts), "%d");
+    ASSERT_STR_EQ("out.bin", opts.bbc_module_dump);
     char *eight[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m.bin",
                      "--bbc-module-scheme", "direct8", "--bbc-module-bank", "7", NULL};
     ASSERT_EQ_FMT(0, parse(eight, &opts), "%d");

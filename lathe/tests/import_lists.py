@@ -129,6 +129,8 @@ def configs(path):
             return LINKER_ENVS
         if name == 'sys.lth':
             return COMPILER_ENVS + LINKER_ENVS
+        if name in ('modload.lth', 'txtpack.lth'):
+            return [os.path.join(SRC, name[:-4] + '-bbc.env')]
         return COMPILER_ENVS
     every = BOARD_ENVS + COMPILER_ENVS + LINKER_ENVS
     if name in RT_NEEDS:

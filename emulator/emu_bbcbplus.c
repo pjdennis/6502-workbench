@@ -126,6 +126,13 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
     }
 
     int status = bbc_machine_run(&m, opts->cycle_cap);
+    if (has_module && opts->bbc_module_dump) {
+        FILE *f = fopen(opts->bbc_module_dump, "wb");
+        size_t size = (size_t)bbc_module_banks(module.scheme) * BBC_MODULE_BANK_SIZE;
+        if (!f || fwrite(module.data, 1, size, f) != size) fprintf(stderr, "bbcbplus: could not write %s\n",
+                                                                    opts->bbc_module_dump);
+        if (f) fclose(f);
+    }
     if ((m.end == BBC_END_FAULT || m.end == BBC_END_STRICT) && !opts->exit_report)
         fprintf(stderr, "bbcbplus: %s\n", m.fault);
     if (m.end == BBC_END_CAP && !opts->exit_report)

@@ -52,6 +52,7 @@ void emu_opts_init(struct emu_opts *opts) {
     for (int k = 0; k < 16; k++) opts->bbc_roms[k] = NULL;
     opts->bbc_module_filename = NULL;
     opts->bbc_module_ram = 0;
+    opts->bbc_module_dump = NULL;
     opts->bbc_module_slot = 4;
     opts->bbc_module_bank = 0;
     opts->bbc_module_scheme = BBC_SCHEME_CC128;
@@ -164,6 +165,7 @@ void emu_opts_usage(FILE *fp) {
 "  --bbc-rom N=FILE       a 16 KB ROM image in slot N (repeatable)\n"
 "  --bbc-module FILE      the banked module's image, bank 0 first\n"
 "  --bbc-module-ram       the module holds RAM, written through the window\n"
+"  --bbc-module-dump FILE at the end of the run, the module's banks to FILE\n"
 "  --bbc-module-slot N    the module's slot (default 4)\n"
 "  --bbc-module-bank N    the module's bank at power on (default 0)\n"
 "  --bbc-module-scheme S  cc128 (the Computer Concepts 128K carrier, default),\n"
@@ -342,6 +344,8 @@ static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
             fprintf(stderr, "error: at most %d --bbc-command lines after the first\n", BBC_MORE_COMMANDS);
             return 1;
         }
+    } else if (strcmp(arg, "--bbc-module-dump") == 0) {
+        if (take_str_value(argc, argv, i, arg, &opts->bbc_module_dump)) return 1;
     } else if (strcmp(arg, "--bbc-module") == 0) {
         if (take_str_value(argc, argv, i, arg, &opts->bbc_module_filename)) return 1;
     } else if (strcmp(arg, "--bbc-sideways-ram") == 0) {

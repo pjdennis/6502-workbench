@@ -153,9 +153,9 @@ def read_env_banks(path):
     return first, last, banks
 
 
-def load_program(p, size=BANKS):
+def load_program(p, size=BANKS, whole=False):
     """Reads a program's environment, resident image and bank files, and checks them, for an
-    image of `size` banks."""
+    image of `size` banks (in the whole layout bank 0 may hold a program's code)."""
     env = mapenv.read_env(p.env)
     where = f'{p.command} ({os.path.basename(p.env)})'
     if not COMMAND_RE.match(p.command):
@@ -190,7 +190,7 @@ def load_program(p, size=BANKS):
             if b.value >= 0x80 + size:
                 raise ImageError(f'{where}: bank {b.number} has the value ${b.value:02X}: a bank of the '
                                  f'module is $80 to ${0x7F + size:02X}')
-            if b.value == 0x80 and size == BANKS:
+            if b.value == 0x80 and size == BANKS and not whole:
                 raise ImageError(f'{where}: bank {b.number} is bank 0 of the module ($80), which holds '
                                  f'the module\'s own code in the sixteen-bank image')
             if not b.rom:
@@ -353,9 +353,10 @@ class Layout:
     code: bytes = b''           # the module's code and tables
     placed: list = field(default_factory=list)
     areas: list = field(default_factory=list)   # what is left free, [[bank, first, last]]
+    descriptor: bytes = b''     # the whole layout's description at DESCRIPTOR_AT (whole_descriptor)
 
 
-def layout(programs, banks=BANKS, tails=None, parts=1):
+def layout(programs, banks=BANKS, tails=None, parts=1, whole=False):
     """Where everything goes (lathe/docs/bbc.md, "The 128 KB module"): each program's code in its
     banks from $8050; the module's code and tables in the home bank, after the code there (bank
     0, at $8050, in the sixteen-bank image, where no program may use bank 0; with tails the bank
@@ -373,7 +374,19 @@ def layout(programs, banks=BANKS, tails=None, parts=1):
     (at most MOST_PARTS), each whole in one bank, before the pieces: one part in the home bank if
     it has room, else wherever there is (module.asm, "An error's text"; texts.asm).
 
+    With whole (the developer's RAM form loaded by MODLOAD: lathe/docs/bbc.md, "The developer's
+    cycle"), the home bank is the first bank after every program's, its code and tables at $8050,
+    and each program's resident part is whole at $8050 of a bank of its own, the banks after the
+    home bank in the programs' order; each command's copy list is that one entry, of a whole
+    bank's bytes ($8050-$BFEF: what follows the resident part in its bank goes into main RAM after
+    it, where the program's variables are, which have no value before the program sets them), so
+    that the module's code and tables do not depend on the resident parts' lengths and a new link
+    of a tool needs only its files loaded. The texts of the errors are one part,
+    after the code and tables in the home bank. No program may have region constants then.
+
     Returns a Layout; ImageError (with .over, the bytes over) if they do not fit."""
+    if whole:
+        return whole_layout(programs, banks)
     if tails is None:
         tails = banks != BANKS
     owner, code_end = {}, {}
@@ -495,17 +508,100 @@ def settle(lay, programs, blobs, tails, ranges, areas_after, in_order):
     raise ImageError('the home bank did not settle')
 
 
-def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_himem=True, parts=1):
+WHOLE = TOP - FIRST + 1        # a whole bank's bytes, $8050-$BFEF: a resident part's copy in whole
+DESCRIPTOR_AT = 0xBFE0         # the whole layout's description, for MODLOAD, in the home bank
+MAX_WHOLE_TOOLS = 4            # the tools it describes
+
+
+def whole_descriptor(lay, programs, labels):
+    """The 16 bytes at DESCRIPTOR_AT of the whole layout's home bank, which MODLOAD reads to load
+    one tool into a module that is there (lathe/docs/bbc.md, "The developer's cycle"): "LW" and
+    version 1, the home bank, the number of tools, 1 if the commands' entries have a top (the
+    check of HIMEM), the address of the command table, and for each tool in the table's order
+    (up to four) its banks of the module, a bit each, as a word."""
+    d = bytearray(b'LW\x01') + bytes([lay.home, len(programs), 1 if any(p.top for p in programs) else 0])
+    d += labels['commands'].to_bytes(2, 'little')
+    for i in range(MAX_WHOLE_TOOLS):
+        mask = 0
+        if i < len(programs):
+            for b in programs[i].banks:
+                if b.value & 0x80:
+                    mask |= 1 << (b.value & 0x7F)
+        d += mask.to_bytes(2, 'little')
+    return bytes(d)
+
+
+def whole_layout(programs, banks):
+    """layout(..., whole=True): see there."""
+    owner, code_end = {}, {}
+    for p in programs:
+        for b in p.banks:
+            if b.value & 0x80:
+                n = b.value & 0x7F
+                if n in owner:
+                    raise ImageError(f'bank {n} of the module is {owner[n]}\'s and {p.command}\'s too: '
+                                     f'number their banks apart (bbcrom.rom_env)')
+                owner[n] = f'{p.command} (its bank {b.number}, {b.file})'
+                code_end[n] = FIRST + len(b.data)
+            elif b.file is not None:
+                raise ImageError(f'{p.command}: a program with region constants ({b.file}) cannot be laid out '
+                                 f'whole')
+    lay = Layout(banks, owner, code_end)
+    lay.home = max(owner) + 1 if owner else 0
+    lay.home_at = FIRST
+    if lay.home + len(programs) >= banks:
+        raise ImageError(f'no bank left for the module\'s own and {len(programs)} resident parts after bank '
+                         f'{lay.home - 1}')
+    if len(programs) > MAX_WHOLE_TOOLS:
+        raise ImageError(f'the whole layout describes {MAX_WHOLE_TOOLS} programs at most')
+    lists = []
+    for i, p in enumerate(programs):
+        bank = lay.home + 1 + i
+        if len(p.resident) > WHOLE:
+            over = len(p.resident) - WHOLE
+            raise over_error(f'{p.command}: its resident part is {over} bytes over a bank', over)
+        if p.load + WHOLE > HIMEM_LIMIT:
+            raise ImageError(f'{p.command}: a whole bank from ${p.load:04X} reaches past ${HIMEM_LIMIT - 1:04X}')
+        lay.placed.append((f'{p.command} resident', bank, FIRST, p.resident, MAIN_RAM, p.load))
+        lists.append([(FIRST, p.load, WHOLE, bank, MAIN_RAM)])
+    # The texts in one part, whole after the code and tables (whose length does not depend on
+    # where the part is): assembled once to find where that is, then again with it there.
+    (first, last), = msgpack.split(1)
+    parts = [(first, lay.home, lay.home_at)]
+    for _ in range(2):
+        lay.reserved, lay.code, labels = module_code(programs, lists, lay.home, lay.home_at, parts)
+        parts = [(first, lay.home, lay.home_at + len(lay.code))]
+    at = parts[0][2]
+    lay.parts = [(first, last, lay.home, at, text_part(first, last, at, labels['claim']))]
+    end = at + len(lay.parts[0][4])
+    if end > DESCRIPTOR_AT:
+        over = end - DESCRIPTOR_AT
+        raise over_error(f'the module\'s code, tables and texts are {over} bytes over a bank', over)
+    lay.descriptor = whole_descriptor(lay, programs, labels)
+    used = set(owner) | {lay.home} | {lay.home + 1 + i for i in range(len(programs))}
+    lay.areas = [[lay.home, end, DESCRIPTOR_AT - 1]] + \
+                [[lay.home + 1 + i, FIRST + len(p.resident), TOP] for i, p in enumerate(programs)] + \
+                [[n, FIRST, TOP] for n in range(banks) if n not in used]
+    return lay
+
+
+HIMEM_LIMIT = 0x7C00           # a whole bank copied into main RAM must stay below mode 7's screen
+
+
+def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_himem=True, parts=1,
+          whole=False, home=None):
     """Writes the module image `out` (banks of 16 KB: sixteen, 262,144 bytes, scheme direct16, or
     eight, 131,072 bytes, scheme direct8) for the programs specs, [(command, resident image,
     environment[, map])], and the listing (text) to `listing` if given; with `short`, also the
     image's banks from 0 to the last one in use (the home bank, a program's code or a piece), to
-    that file; tails and parts as layout() has them. With check_himem (the default) a command is refused with the MOS error
+    that file; tails, parts and whole as layout() has them; with home (whole only), the home
+    bank, from $8000 to the end of its description (DESCRIPTOR_AT + 16), to that file: MODLOAD's
+    HOME. With check_himem (the default) a command is refused with the MOS error
     `Mode 7 needed` when HIMEM is below the top of its program's memory (the end of the highest
     of its `code`, `data` and `more` ranges, + 1): module.asm, step 0. Returns the listing."""
     if banks not in SCHEMES:
         raise ImageError(f'an image has 16 or 8 banks, not {banks}')
-    programs = [load_program(Program(s[0].upper(), s[1], s[2], s[3] if len(s) > 3 else None), banks)
+    programs = [load_program(Program(s[0].upper(), s[1], s[2], s[3] if len(s) > 3 else None), banks, whole)
                 for s in specs]
     if not programs:
         raise ImageError('no program')
@@ -515,7 +611,7 @@ def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_h
     for p in programs:
         if [q.command for q in programs].count(p.command) > 1:
             raise ImageError(f'the command {p.command} is given twice')
-    lay = layout(programs, banks, tails, parts)
+    lay = layout(programs, banks, tails, parts, whole)
     data = [bytearray([FILL]) * BANK_SIZE for _ in range(banks)]
     for n in range(banks):
         data[n][:RESERVED] = lay.reserved
@@ -524,6 +620,8 @@ def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_h
     data[lay.home][at:at + len(lay.code)] = lay.code
     for first, last, bank, addr, part in lay.parts:
         data[bank][addr - WINDOW:addr - WINDOW + len(part)] = part
+    if lay.descriptor:
+        data[lay.home][DESCRIPTOR_AT - WINDOW:DESCRIPTOR_AT - WINDOW + len(lay.descriptor)] = lay.descriptor
     for p in programs:
         for b in p.banks:
             if b.value & 0x80:
@@ -532,6 +630,11 @@ def image(specs, out, listing=None, short=None, banks=BANKS, tails=None, check_h
         data[bank][addr - WINDOW:addr - WINDOW + len(piece)] = piece
     with open(out, 'wb') as fh:
         fh.write(b''.join(data))
+    if home:
+        if not whole:
+            raise ImageError('the home bank alone is for the whole layout (MODLOAD)')
+        with open(home, 'wb') as fh:
+            fh.write(bytes(data[lay.home][:DESCRIPTOR_AT + len(lay.descriptor) - WINDOW]))
     used = max([lay.home] + list(lay.owner) + [e[1] for e in lay.placed] + [e[2] for e in lay.parts])
     if short:
         with open(short, 'wb') as fh:
@@ -708,6 +811,10 @@ def main(argv):
                     'the ends of the code banks too (the eight-bank image does so anyway)')
     ap.add_argument('--no-check-himem', action='store_true', help='do not refuse a command when HIMEM is '
                     'below its program\'s memory (by default the MOS error Mode 7 needed)')
+    ap.add_argument('--whole', action='store_true', help='the developer\'s RAM form that MODLOAD loads: each '
+                    'resident part whole in a bank of its own after the home bank')
+    ap.add_argument('--home', metavar='FILE', help='with --whole, also write the home bank alone to FILE, '
+                    'MODLOAD\'s HOME')
     ap.add_argument('programs', nargs='+', metavar='COMMAND=PROGRAM,ENV[,MAP]')
     a = ap.parse_args(argv)
     specs = []
@@ -719,7 +826,8 @@ def main(argv):
             return 2
         specs.append([command] + parts)
     try:
-        text = image(specs, a.out, a.listing, a.short, a.banks, a.tails or None, not a.no_check_himem)
+        text = image(specs, a.out, a.listing, a.short, a.banks, a.tails or None, not a.no_check_himem,
+                     whole=a.whole, home=a.home)
         if a.loader:
             loader(a.loader)
     except (ImageError, mapenv.FormatError, OSError) as e:

@@ -156,16 +156,20 @@ def catalogue(disk):
     return drives
 
 
-def run_adfs(module, disk, lines, ram=False):
+def run_adfs(module, disk, lines, ram=False, extra=()):
     """Runs the * commands on the BBC under --bbc-fs adfs, PAGE $1F00, with the module image (None:
     the RAM form, empty at power on; else in
-    its RAM form with ram), in disk, on memory filled with bytes that are not 0: (status,
+    its RAM form with ram), in disk, on memory filled with bytes that are not 0, with the
+    emulator's options `extra` too: (status,
     output, what the MOS said, {file: bytes} written or changed, CPU cycles, the emulator's adfs
     report: (most open, most writing, most entries, {drive: (sectors in use, most in use, of)}))."""
     before = files_of(disk)
     command, _, tail = lines[-1].partition(' ')
     empty = module is None              # the RAM form, empty at power on
-    code, out, err, cycles = boards.run_module(board_ram() if ram and not empty else board(), module, disk,
+    import dataclasses
+    b = board_ram() if ram and not empty else board()
+    b = dataclasses.replace(b, options=b.options + tuple(extra))
+    code, out, err, cycles = boards.run_module(b, module, disk,
                                                command, tail=tail, before=lines[:-1], raw=True, cap=CAP,
                                                ram=empty)
     text = err.decode('latin-1')

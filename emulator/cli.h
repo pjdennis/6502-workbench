@@ -135,6 +135,7 @@ struct emu_opts {
     const char *bbc_roms[16];           /* --bbc-rom N=FILE: a 16 KB ROM image in slot N */
     const char *bbc_module_filename;    /* --bbc-module FILE: the module's image, bank 0 first */
     int bbc_module_ram;                 /* --bbc-module-ram: the module holds RAM */
+    const char *bbc_module_dump;        /* --bbc-module-dump FILE: the module's banks to FILE at the end */
     int bbc_module_slot;                /* --bbc-module-slot N; default 4 */
     int bbc_module_bank;                /* --bbc-module-bank N: the bank at power on; default 0 */
     int bbc_module_scheme;              /* --bbc-module-scheme: BBC_SCHEME_* */

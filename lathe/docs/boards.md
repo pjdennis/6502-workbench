@@ -368,6 +368,17 @@ What the discs hold at the end, measured by the emulator (where the test stands 
 
 For a program of your own, build it with `bbc.env` (or `bbc-bank.env`) with `define BBCFS 2` and `define ADFS 1`: it loads at `$1F00`, its sources go in `lth`, and the tools' command lines are as on the host.
 
+#### Loading new tools: MODLOAD
+
+On the developer's machine (the module's RAM form, sixteen banks), new tools linked in their ROM forms on the BBC become the live `*LATHE` and `*LLINK` without the host ([`bbc.md`](bbc.md), "The developer's cycle"):
+
+    *RUN MODLOAD HOME lathe.env lathe.map LATHE llink.env llink.map LLINK     the whole module
+    *RUN MODLOAD lathec-bbc.env 1/LATHEC.map 1/LATHEC                       one tool, the rest kept
+
+each tool's ROM environment, its map and its resident image, the bank files beside the image. `HOME` is the module's home bank, made once on the host: `bbcrom.py --banks 16 --whole --home HOME -o WHOLE ...` with the tools as in "The tool chain on the BBC". The first form fills an empty RAM form (from a disc the host makes once: MODLOAD, HOME and both tools' link outputs); the second writes one tool, just linked, into its own banks of the module there, and refuses a module it does not know or a tool whose start or memory moved (a new HOME is needed then).
+
+**A tool's pair of discs** ([`bbc.md`](bbc.md), "The discs: a pair for each tool", has the counts): drive 0, the tool's sources as `lth.NAME`, its ROM environment as `env.NAME` (`lathec-bbc.env` or `linker-bbc.env` through `bbcrom.rom_env`, with `BBCFS 2` and `ADFS 1`), the link's command file `LINKARG` (the environment, the main module, `1/IMAGE`, `1/IMAGE.map`, then each object as `1/NAME.lo`) and MODLOAD; drive 1 blank. A turn: `*LATHE OPTIONS 0/NAME.lth 1` for each module in build.py's order, `*LLINK @LINKARG`, `*RUN MODLOAD ENV 1/IMAGE.map 1/IMAGE`; the tool is live at once. `../tests/test_bbc_cycle.py` (`LATHE_BBC_CYCLE=1`) runs two turns of each pair on the emulator. Build MODLOAD with `lathe/src/modload-bbc.env` (with ADFS: `test_bbc_adfs.adfs_env` of it). It checks every file against the others before it writes, and says `modload: ...` and `Exit 2` if they do not belong together. `--bbc-module-dump FILE` writes the module's banks at the end of the run.
+
 ## The VIA timer
 
 Both boards have a 6522 VIA. Its base is `$6000` on Michael and `$F000` on Wendy 2.

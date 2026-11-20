@@ -255,6 +255,9 @@ def options_of(path, env_name=None):
             # The linker's twins, its main module and its test programs test LKSMALL, which
             # only the linker's environments define.
             env_name = os.path.join(LATHE, 'src', 'linker.env')
+        if d == 'src' and os.path.basename(path) in ('modload.lth', 'txtpack.lth'):
+            # The BBC's programs of the developer's cycle, with their own machines.
+            env_name = os.path.join(LATHE, 'src', os.path.basename(path)[:-4] + '-bbc.env')
     words = []
     with open(path, encoding='latin-1') as f:
         for line in f:

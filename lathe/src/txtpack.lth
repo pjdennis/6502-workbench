@@ -1,0 +1,599 @@
+; TXTPACK: the packer of the Lathe tools' error texts, in Lathe (lathe/docs/bbc.md, "The texts'
+; packer on the BBC"), the twin of lathe/host/driver/msgpack.py's tables() and split(). Run on
+; the BBC:
+;
+;     *RUN TXTPACK [-pK/N] ERR LKERR OUT
+;
+; reads the texts from the compiler's and the linker's error modules as Lathe source, ERR
+; (lathe/src/err.lth) and LKERR (lathe/src/lk_err.lth), and writes to OUT the packed tables of
+; part K of N (1/1, all the texts, if not given) as msgpack.py packs them, byte for byte:
+; text_first (160 bytes), text_second (160) and text_texts (each text's codes ended by a zero),
+; the bytes bbcrom.py puts after the code of lathe/rt/bbc/texts.asm for a part of the texts.
+;
+; Where the texts are read from. The texts' source on the BBC is the tools' own Lathe source,
+; which the developer there edits and compiles: in ERR, every string of the constants whose name
+; starts with MESSAGES (MESSAGES_1 to MESSAGES_3: a line `number text` each, ended by `\n`), and
+; in LKERR the same (MESSAGES and MESSAGES2: line n the text of the linker's error n). A
+; constant runs from its `const MESSAGES...` line through the lines after it that start with a
+; string, so a string continued on the next line, as the twins write them, is read whole. The
+; host's err.py and lk_err.py hold the same texts, which lathe/tests/test_msgpack.py checks.
+;
+; Which text: text n is the compiler's error n, text 255 - n the linker's error n; a number with
+; no text is an empty text. Refused, with `txtpack: WHAT` and Exit 2, as msgpack.texts() refuses
+; them: the compiler's numbers reaching the linker's (the compiler's largest at or above 255 less
+; the linker's largest), a number below 1, a byte of a text outside $20-$7E; and as pack()
+; refuses them, pairs that nest deeper than eight levels (the module's stack).
+;
+; How they are packed (msgpack.py): byte pair encoding. The commonest pair of codes in the
+; part's texts takes the next code ($80 to $FF, then $01 to $1F) until 159 are taken or no pair
+; is used three times; of pairs used as often, the one with the smaller first code, then the
+; smaller second code. A run of three equal codes counts its first pair once and goes on from
+; its third code (msgpack.pack's count). A pair's entry is at its code + $80 of text_first and
+; text_second; an entry no pair takes is two spaces.
+;
+; Memory: the texts in `store` (each ended by a zero, in the order read, packed in place), a
+; table of the pairs counted (open addressing, 1024 slots), and the three tables: about 14 KB,
+; above the code (txtpack-bbc.env).
+module txtpack
+
+import bbc (argc, argv, close, exit, open, open_out, put_byte, read, write)
+
+const TEXTS = 256
+const PAIRS = 160                   ; the tables' length: codes $80-$FF and $01-$1F at code + $80
+const DEPTH = 8
+const STORE_SIZE = 8704             ; the texts, each ended by a zero (the real ones 7,883 bytes)
+const SLOTS = 2048                  ; the table of pairs counted (the real texts reach 1,446 pairs)
+const NONE = $FFFF
+const FAILED: byte = 2
+const LF = 10
+const CR = 13
+
+; ---- Messages --------------------------------------------------------------------------------
+
+func text(t: ^byte)
+  var i: byte
+  i = 0
+  while t[i] != 0 do
+    bbc.put_byte(t[i])
+    i += 1
+  end
+end
+
+; "txtpack: WHAT NAME" and Exit 2.
+func fail(what: ^byte, name: ^byte)
+  text("txtpack: ")
+  text(what)
+  if name != nil then
+    text(name)
+  end
+  bbc.put_byte(LF)
+  bbc.exit(FAILED)
+end
+
+; ---- The texts -------------------------------------------------------------------------------
+
+var store: [STORE_SIZE]byte
+var store_top: word
+var text_at: [TEXTS]word            ; where text n is in store, NONE for an empty text
+
+; The text being read, as it is decoded: its number, whether it is the linker's, and whether
+; its number has been read yet (a compiler's line starts with it).
+var linker: bool
+var number: word
+var in_number: bool
+var line_start: word                ; where its characters start in store
+var linker_count: word              ; the linker's texts so far
+var compiler_most: word
+var compiler_least: word
+
+func new_line()
+  number = 0
+  in_number = not linker
+  line_start = store_top
+end
+
+; One character of the texts as decoded from the strings.
+func character(c: byte)
+  var n: byte
+  if c == LF then
+    if store_top == STORE_SIZE then
+      fail("the texts are too long", nil)
+    end
+    store[store_top] = 0
+    store_top += 1
+    if linker then
+      linker_count += 1
+      number = linker_count
+      if number >= TEXTS then
+        fail("too many texts of the linker", nil)
+      end
+      n = byte(TEXTS - 1 - number)
+    else
+      if in_number or number >= TEXTS then
+        fail("a text of the compiler without its number below 256", nil)
+      end
+      if number > compiler_most then
+        compiler_most = number
+      end
+      if number < compiler_least then
+        compiler_least = number
+      end
+      n = byte(number)
+    end
+    text_at[n] = line_start
+    if store[line_start] == 0 then
+      text_at[n] = NONE                 ; an empty line is an empty text
+    end
+    new_line()
+    return
+  end
+  if in_number then
+    if c == ' ' then
+      in_number = false
+      line_start = store_top
+      return
+    end
+    if c < '0' or c > '9' then
+      fail("a text of the compiler without its number", nil)
+    end
+    number = number * 10 + (c - '0')
+    if number > 999 then
+      fail("a text of the compiler without its number below 256", nil)
+    end
+    return
+  end
+  if c < $20 or c > $7E then
+    fail("a text has a byte outside $20-$7E", nil)
+  end
+  if store_top >= STORE_SIZE - 1 then
+    fail("the texts are too long", nil)
+  end
+  store[store_top] = c
+  store_top += 1
+end
+
+; ---- Reading the source ------------------------------------------------------------------
+
+const LINE_SIZE = 250
+var line: [LINE_SIZE]byte
+var line_length: byte
+var handle: byte
+var at_end: bool
+
+; The next line of the open file into line (cut at LINE_SIZE - 1); false at the end of the file.
+func next_line(): bool
+  var b: byte
+  line_length = 0
+  if at_end then
+    return false
+  end
+  loop
+    if bbc.read(handle) -> b then
+      at_end = true
+      bbc.close(handle)
+      break
+    end
+    if b == LF or b == CR then
+      break
+    end
+    if line_length < LINE_SIZE - 1 then
+      line[line_length] = b
+      line_length += 1
+    end
+  end
+  line[line_length] = 0
+  return line_length > 0 or not at_end
+end
+
+; The hexadecimal digit c's value, or 16.
+func hex_digit(c: byte): byte
+  if c >= '0' and c <= '9' then
+    return c - '0'
+  elif c >= 'a' and c <= 'f' then
+    return c - 'a' + 10
+  elif c >= 'A' and c <= 'F' then
+    return c - 'A' + 10
+  end
+  return 16
+end
+
+; The strings of the line from `i` on, decoded into the texts; what follows the last is passed
+; over (a comment).
+func strings_from(i: byte, name: ^byte)
+  var c: byte
+  var h: byte
+  var l: byte
+  loop
+    while i < line_length and line[i] != '"' do
+      if line[i] == ';' then
+        return
+      end
+      i += 1
+    end
+    if i >= line_length then
+      return
+    end
+    i += 1
+    loop
+      if i >= line_length then
+        fail("a string not closed in ", name)
+      end
+      c = line[i]
+      i += 1
+      if c == '"' then
+        break
+      end
+      if c == '\\' then
+        if i >= line_length then
+          fail("a string not closed in ", name)
+        end
+        c = line[i]
+        i += 1
+        if c == 'n' then
+          c = LF
+        elif c == 'r' then
+          c = CR
+        elif c == 't' then
+          c = 9
+        elif c == '0' then
+          c = 0
+        elif c == 'x' then
+          if i + 1 >= line_length then
+            fail("a bad escape in ", name)
+          end
+          h = hex_digit(line[i])
+          l = hex_digit(line[i + 1])
+          if h > 15 or l > 15 then
+            fail("a bad escape in ", name)
+          end
+          c = h * 16 + l
+          i += 2
+        elif c != '\\' and c != '"' and c != '\'' then
+          fail("a bad escape in ", name)
+        end
+      end
+      character(c)
+    end
+  end
+end
+
+; True if the line, after its blanks from `i`, has `word` there; i is then after it.
+var after: byte
+
+func has_word(i: byte, w: ^byte): bool
+  var k: byte
+  k = 0
+  while w[k] != 0 do
+    if i >= line_length or line[i] != w[k] then
+      return false
+    end
+    i += 1
+    k += 1
+  end
+  after = i
+  return true
+end
+
+; The texts of the source `name`: the strings of its constants named MESSAGES...
+func read_source(name: ^byte)
+  var i: byte
+  var collecting: bool
+  handle = bbc.open(name)
+  if handle == 0 then
+    fail("cannot open ", name)
+  end
+  at_end = false
+  collecting = false
+  new_line()
+  while next_line() do
+    i = 0
+    while i < line_length and (line[i] == ' ' or line[i] == 9) do
+      i += 1
+    end
+    if has_word(i, "const MESSAGES") then
+      collecting = true
+      strings_from(after, name)
+    elif collecting and i < line_length and line[i] == '"' then
+      strings_from(i, name)
+    else
+      collecting = false
+    end
+  end
+  if line_start != store_top or (not linker and not in_number) then
+    fail("a text not ended by \\n in ", name)
+  end
+end
+
+; ---- The pairs ---------------------------------------------------------------------------
+
+var first: [PAIRS]byte
+var second: [PAIRS]byte
+var depth_of: [PAIRS]byte           ; how deeply each pair nests: 1 for two characters
+var slot_key: [SLOTS]word rows      ; a pair counted, first * 256 + second; 0 a free slot
+var slot_count: [SLOTS]word rows
+var part_first: byte                ; the part's texts
+var part_last: byte
+
+; A pair's index in the tables: its code + $80.
+func index_of(code: byte): byte
+  return byte((word(code) + $80) & $FF)
+end
+
+func is_pair(code: byte): bool
+  return code != 0 and index_of(code) < PAIRS
+end
+
+; The code of pair k: $80 + k for the first 128, then $01 to $1F.
+func code_of(k: byte): byte
+  if k < 128 then
+    return $80 + k
+  end
+  return k - 127
+end
+
+; One more use of the pair a, b.
+func count(a: byte, b: byte)
+  var key: word
+  var s: word
+  var tries: word
+  key = word(a) * 256 + word(b)
+  s = ((word(a) << 5) - word(a) + (word(b) << 3) - word(b)) & (SLOTS - 1)     ; a * 31 + b * 7
+  tries = 0
+  loop
+    tries += 1
+    if tries > SLOTS then
+      fail("too many pairs", nil)
+    end
+    if slot_key[s] == key then
+      slot_count[s] += 1
+      return
+    end
+    if slot_key[s] == 0 then
+      slot_key[s] = key
+      slot_count[s] = 1
+      return
+    end
+    s = (s + 1) & (SLOTS - 1)
+  end
+end
+
+; Every pair of every text of the part counted, as msgpack.pack counts them.
+func count_all()
+  var s: word
+  var n: word
+  var p: word
+  for s = 0 until SLOTS do
+    slot_key[s] = 0
+  end
+  for n = word(part_first) until word(part_last) + 1 do
+    p = text_at[byte(n)]
+    if p != NONE then
+      while store[p] != 0 and store[p + 1] != 0 do
+        count(store[p], store[p + 1])
+        if store[p] == store[p + 1] and store[p + 2] == store[p] then
+          p += 2
+        else
+          p += 1
+        end
+      end
+    end
+  end
+end
+
+; Every a, b of the part's texts replaced by code, from the left, each text packed in place.
+func replace(a: byte, b: byte, code: byte)
+  var n: word
+  var p: word
+  var q: word
+  for n = word(part_first) until word(part_last) + 1 do
+    p = text_at[byte(n)]
+    if p != NONE then
+      q = p
+      while store[p] != 0 do
+        if store[p] == a and store[p + 1] == b then
+          store[q] = code
+          p += 2
+        else
+          store[q] = store[p]
+          p += 1
+        end
+        q += 1
+      end
+      store[q] = 0
+    end
+  end
+end
+
+; How deeply code nests: 0 for a character.
+func nesting(code: byte): byte
+  if is_pair(code) then
+    return depth_of[index_of(code)]
+  end
+  return 0
+end
+
+; The pairs of the part, as msgpack.pack chooses them.
+func pack()
+  var k: byte
+  var s: word
+  var best: word
+  var a: byte
+  var b: byte
+  var i: byte
+  var d: byte
+  for i = 0 until PAIRS do
+    first[i] = 0
+    second[i] = 0
+    depth_of[i] = 0
+  end
+  k = 0
+  while k < PAIRS - 1 do
+    count_all()
+    best = NONE
+    for s = 0 until SLOTS do
+      if slot_key[s] != 0 then
+        if best == NONE then
+          best = s
+        elif slot_count[s] > slot_count[best] then
+          best = s
+        elif slot_count[s] == slot_count[best] and slot_key[s] < slot_key[best] then
+          best = s
+        end
+      end
+    end
+    if best == NONE then
+      break
+    end
+    if slot_count[best] < 3 then
+      break
+    end
+    a = byte(slot_key[best] >> 8)
+    b = byte(slot_key[best] & $FF)
+    i = index_of(code_of(k))
+    first[i] = a
+    second[i] = b
+    d = nesting(a)
+    if nesting(b) > d then
+      d = nesting(b)
+    end
+    depth_of[i] = d + 1
+    if d + 1 > DEPTH then
+      fail("pairs nest too deeply for the module's stack", nil)
+    end
+    replace(a, b, code_of(k))
+    k += 1
+  end
+  for i = 0 until PAIRS do
+    if first[i] == 0 then
+      first[i] = ' '
+      second[i] = ' '
+    end
+  end
+end
+
+; ---- The part ------------------------------------------------------------------------------
+
+; The length of text n.
+func text_length(n: byte): word
+  var p: word
+  var l: word
+  l = 0
+  p = text_at[n]
+  if p == NONE then
+    return 0
+  end
+  while store[p + l] != 0 do
+    l += 1
+  end
+  return l
+end
+
+; Part k (from 1) of n as msgpack.split(n) cuts the texts: in runs of numbers of about the same
+; length, a text's length its characters and its zero; a part starts at the first text whose
+; start is at or past its share of the whole.
+func choose_part(k: byte, n: byte)
+  var t: word
+  var length: word
+  var total: word
+  var done: word
+  var cuts: byte
+  total = 0
+  for t = 0 until TEXTS do
+    total += text_length(byte(t)) + 1
+  end
+  part_first = 0
+  part_last = TEXTS - 1
+  cuts = 1
+  done = 0
+  for t = 0 until TEXTS do
+    length = text_length(byte(t)) + 1
+    ; done >= total * cuts / n, in whole numbers (the texts are under 9 KB, n at most 7)
+    if cuts < n and done * word(n) >= total * word(cuts) then
+      if cuts == k then
+        part_last = byte(t - 1)
+      end
+      cuts += 1
+      if cuts == k then
+        part_first = byte(t)
+      end
+    end
+    done += length
+  end
+end
+
+; ---- The output ----------------------------------------------------------------------------
+
+var out: byte
+
+func put(b: byte)
+  bbc.write(b, out)
+end
+
+func write_tables(name: ^byte)
+  var i: byte
+  var n: word
+  var p: word
+  out = bbc.open_out(name)
+  if out == 0 then
+    fail("cannot write ", name)
+  end
+  for i = 0 until PAIRS do
+    put(first[i])
+  end
+  for i = 0 until PAIRS do
+    put(second[i])
+  end
+  for n = word(part_first) until word(part_last) + 1 do
+    p = text_at[byte(n)]
+    if p != NONE then
+      while store[p] != 0 do
+        put(store[p])
+        p += 1
+      end
+    end
+    put(0)
+  end
+  bbc.close(out)
+end
+
+; ---- The run -------------------------------------------------------------------------------
+
+pub func main()
+  var arg: byte
+  var option: ^byte
+  var k: byte
+  var n: byte
+  var t: word
+  arg = 0
+  k = 1
+  n = 1
+  option = bbc.argv(0)
+  if bbc.argc() > 0 and option[0] == '-' and option[1] == 'p' then
+    k = option[2] - '0'
+    n = option[4] - '0'
+    if option[3] != '/' or option[5] != 0 or k < 1 or n > 7 or k > n then
+      fail("-pK/N: part K of N, 1 to 7", nil)
+    end
+    arg = 1
+  end
+  if bbc.argc() != arg + 3 then
+    fail("usage: TXTPACK [-pK/N] ERR LKERR OUT", nil)
+  end
+  for t = 0 until TEXTS do
+    text_at[byte(t)] = NONE
+  end
+  store_top = 0
+  compiler_most = 0
+  compiler_least = TEXTS
+  linker_count = 0
+  linker = false
+  read_source(bbc.argv(arg))
+  linker = true
+  read_source(bbc.argv(arg + 1))
+  if compiler_most == 0 or compiler_least < 1 or linker_count < 1 or compiler_most >= TEXTS - 1 - linker_count then
+    fail("the compiler's errors meet the linker's", nil)
+  end
+  choose_part(k, n)
+  pack()
+  write_tables(bbc.argv(arg + 2))
+end

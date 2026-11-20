@@ -201,6 +201,7 @@ do), and the checks with the first few offenders.
 | `--bbc-module-bank N` | the module's bank at power on (default 0; the real latch powers up undefined): 0-7, or 0-15 for `direct16` |
 | `--bbc-module-scheme S` | `cc128` (default), `direct16` or `direct8`, below |
 | `--bbc-module-ram` | the developer's form: the module holds RAM |
+| `--bbc-module-dump FILE` | at the end of the run, however it ends, the module's banks (all of them, bank 0 first) to FILE: what a test reads back of the RAM form |
 | `--bbc-shadow` | OSBYTE 132 (HIMEM) answers `$8000` instead of the screen's start (`$7C00` in mode 7), and the screen is not checked; the shadow screen RAM itself is not modelled |
 | `--bbc-page HEX` | OSBYTE 131 (OSHWM, PAGE) answers HEX instead of `$1900` |
 | `--bbc-strict` | a write to MOS memory or to the screen (HIMEM to `$7FFF`, without `--bbc-shadow`), or a ROMSEL unlike `$F4` at a MOS call, ends the run (status 1); without it each is counted in the exit report (`mos-memory-writes`, `screen-writes`, `romsel-mismatches`) |

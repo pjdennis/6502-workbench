@@ -1,0 +1,832 @@
+; MODLOAD: the developer's loader of the tools' module, in Lathe (lathe/docs/bbc.md, "The
+; developer's cycle"). Run from disc on a BBC whose module is the developer's form, sixteen banks
+; of RAM (scheme direct16):
+;
+;     *RUN MODLOAD [-sSLOT] HOME ENV MAP IMAGE [ENV MAP IMAGE]...
+;     *RUN MODLOAD [-sSLOT] ENV MAP IMAGE [ENV MAP IMAGE]...
+;
+; puts into the module in slot SLOT (MODULE_SLOT, 4, if not given) what the tools' own links
+; wrote, so that their `*` commands run what was just linked, as from the EPROM. With HOME, the
+; whole module, from nothing:
+;
+; - HOME, the module's own bank as bbcrom.py makes it for this form (`bbcrom.py --home`: the
+;   reserved bytes, the module's code and tables, the texts of the errors), into the home bank,
+;   and its first RESERVED bytes into every bank, each with its own number at $804F;
+; - for each tool, in the order of the module's commands (*LATHE, *LLINK): each bank file of
+;   its ROM form, as its environment ENV names it (`bank WIN N VALUE FILE`, VALUE $80 + the
+;   module's bank), from the directory of IMAGE, at $8050 of its bank; and IMAGE, the tool's
+;   resident part, whole at $8050 of a bank of its own: the first bank after the home bank for
+;   the first tool, the next for the second. The home bank is the first bank after every tool's
+;   banks, as bbcrom.py's `whole` layout has it, and HOME's own number must be that bank.
+;
+; Without HOME, only the tools given, into the module that is there, whose other tools and home
+; bank are left as they are: each tool's banks must be those of one tool of the module, its code
+; must start where the module's command copies it and its memory end where the command's check
+; of HIMEM has it, for the home bank's tables to hold for it. The module is known by its reserved
+; bytes, the same in every bank, and the description bbcrom.py puts at $BFE0 of its home bank
+; ("LW", version 1, the home bank, the number of tools, whether the commands have a top, the
+; command table's address and each tool's banks, a bit each); a slot that holds anything else is
+; refused. HOME's own description is checked against the tools given in the same way.
+;
+; Before it writes anything it reads every file once and checks it: each bank file is the size
+; the tool's map gives it (the `W` line of its name), the image is as long as the map's code
+; in fixed memory, everything fits a bank ($8050-$BFEF), no two pieces want one bank, and HOME
+; is a home bank of that number. A failure there writes nothing and ends with the MOS error
+; `Exit 2` after a line that says what was wrong. Then it marks the module's slot empty in the
+; MOS's ROM type table, so that the MOS offers it no service call while it is being written
+; (no `*` command of it runs), writes everything, and enters the module's type again at the end:
+; a load stopped half way leaves a slot the MOS passes over, and running MODLOAD again mends it.
+;
+; Everything is read through the MOS into a buffer in main RAM and only then copied into the
+; module with its slot selected: on a real machine the filing system is a sideways ROM, in the
+; window while it runs. $F4 and ROMSEL are put back before each MOS call. It does not use the
+; module, so it can replace the code of the tools it was built with.
+module modload
+
+import bbc (argc, argv, close, exit, open, put_byte, read)
+
+const DEFAULT_SLOT: byte = MODULE_SLOT     ; the module's slot unless -s gives another
+const BANKS = 16                    ; the developer's form: sixteen banks, scheme direct16
+const WINDOW = $8000
+const RESERVED = $50                ; the reserved bytes of every bank: $8000-$804F
+const NUMBER = $4F                  ; where a bank's own number is, from the window's start
+const ROM_TYPE = $06                ; where the ROM's type is
+const FIRST = $8050                 ; where a bank's code starts
+const ROOM = $3FA0                  ; $8050-$BFEF: what a bank holds
+const MAX_TOOLS = 4                 ; the tools a module's description has room for
+const DESCRIPTOR_AT = $BFE0            ; the home bank's description of the layout
+const DESCRIPTOR_SIZE = 16
+const DESCRIPTION_FROM = DESCRIPTOR_AT - WINDOW     ; where it is in HOME
+const TABLE_SIZE = 64               ; what is read of the command table: four entries
+const MAX_PIECES = 32               ; bank files of all the tools
+const NO_BANK = $FF
+const FAILED: byte = 2              ; the status of a check that fails
+const CR = 13
+const LF = 10
+
+var copy: byte at $F4               ; the MOS's copy of ROMSEL
+var rom_types: [16]byte at $02A1    ; the MOS's ROM type table (OSBYTE 170 gives $02A1)
+var entry_rom: byte                 ; what $F4 held when MODLOAD started
+var slot: byte                      ; the module's slot
+
+; ---- Messages --------------------------------------------------------------------------------
+
+func text(t: ^byte)
+  var i: byte
+  i = 0
+  while t[i] != 0 do
+    bbc.put_byte(t[i])
+    i += 1
+  end
+end
+
+; "modload: WHAT NAME" and the end, Exit 2. Nothing has been written to the module yet.
+func fail(what: ^byte, name: ^byte)
+  text("modload: ")
+  text(what)
+  if name != nil then
+    text(name)
+  end
+  bbc.put_byte(LF)
+  bbc.exit(FAILED)
+end
+
+; ---- Names ---------------------------------------------------------------------------------
+
+const NAME_SIZE = 128
+var path: [NAME_SIZE]byte           ; a file's name: the directory of an image and a bank file's
+
+; The zero-terminated text at `t` into path from `from`; where it ends.
+func put_path(from: byte, t: ^byte): byte
+  var i: byte
+  i = 0
+  while t[i] != 0 do
+    if from == NAME_SIZE - 1 then
+      fail("name too long: ", t)
+    end
+    path[from] = t[i]
+    from += 1
+    i += 1
+  end
+  path[from] = 0
+  return from
+end
+
+; path: the directory of `image` (to its last `/`, which is kept) and `file`.
+func in_directory_of(image: ^byte, file: ^byte)
+  var i: byte
+  var keep: byte
+  keep = 0
+  i = 0
+  while image[i] != 0 do
+    if image[i] == '/' then
+      keep = i + 1
+    end
+    i += 1
+  end
+  i = put_path(0, image)
+  path[keep] = 0
+  i = put_path(keep, file)
+end
+
+; The lower-case letter of `c`, any other byte as it is.
+func fold(c: byte): byte
+  if c >= 'A' and c <= 'Z' then
+    return c + 32
+  end
+  return c
+end
+
+; True if the zero-terminated texts are the same, in either case.
+func same(a: ^byte, b: ^byte): bool
+  var i: byte
+  i = 0
+  loop
+    if fold(a[i]) != fold(b[i]) then
+      return false
+    end
+    if a[i] == 0 then
+      return true
+    end
+    i += 1
+  end
+end
+
+; ---- Reading a file a line at a time, in words -------------------------------------------
+
+const LINE_SIZE = 160
+const MAX_WORDS = 16                ; words of a line: `when` and `unless` before an entry add two each
+var line: [LINE_SIZE]byte           ; a line of the file, each word ended by a zero
+var word_at: [MAX_WORDS]byte        ; where each word starts in line
+var words: byte
+var handle: byte
+var at_end: bool
+
+; Open the file at `name` for reading by next_line(); fails if it cannot be opened.
+func open_text(name: ^byte)
+  handle = bbc.open(name)
+  if handle == 0 then
+    fail("cannot open ", name)
+  end
+  at_end = false
+end
+
+; The next line of the open file as words (a `;` and what follows it left out); false at the
+; end of the file, which is closed then.
+func next_line(): bool
+  var b: byte
+  var n: byte
+  var in_word: bool
+  var comment: bool
+  if at_end then
+    return false
+  end
+  words = 0
+  n = 0
+  in_word = false
+  comment = false
+  loop
+    if bbc.read(handle) -> b then
+      at_end = true
+      bbc.close(handle)
+      break
+    end
+    if b == LF or b == CR then
+      break
+    end
+    if b == ';' then
+      comment = true
+    end
+    if comment or b == ' ' or b == 9 then
+      if in_word then
+        line[n] = 0
+        n += 1
+        in_word = false
+      end
+    elif n < LINE_SIZE - 2 then
+      if not in_word and words < MAX_WORDS then
+        word_at[words] = n
+        words += 1
+        in_word = true
+      end
+      if in_word then
+        line[n] = b
+        n += 1
+      end
+    end
+  end
+  if in_word then
+    line[n] = 0
+  end
+  return words > 0 or not at_end
+end
+
+; Word i of the line.
+func word_of(i: byte): ^byte
+  return @line[word_at[i]]
+end
+
+; The number word i writes, `$` and hexadecimal, or hexadecimal with `hex`, or decimal.
+func number_of(i: byte, hex: bool): word
+  var t: ^byte
+  var n: word
+  var c: byte
+  var base: byte
+  t = word_of(i)
+  base = 10
+  if hex then
+    base = 16
+  end
+  if t[0] == '$' then
+    base = 16
+    t += 1
+  end
+  n = 0
+  while t[0] != 0 do
+    c = fold(t[0])
+    if c >= '0' and c <= '9' then
+      c = c - '0'
+    elif base == 16 and c >= 'a' and c <= 'f' then
+      c = c - 'a' + 10
+    else
+      fail("not a number: ", word_of(i))
+    end
+    n = n * base + c
+    t += 1
+  end
+  return n
+end
+
+; ---- The tools' environments and maps ------------------------------------------------------
+
+; The defines an environment file has, for its `when` and `unless` entries (lathe/host/README.md,
+; "The environment file"): their names, folded, and whether each is set.
+const MAX_DEFINES = 24
+const DEFINE_TEXT_SIZE = 384
+var define_name: [MAX_DEFINES]word  ; where each name is in define_text
+var define_set: [MAX_DEFINES]bool
+var define_text: [DEFINE_TEXT_SIZE]byte
+var defines: byte
+var define_top: word
+
+func define(name: ^byte, set: bool)
+  var i: byte
+  for i = 0 until defines do
+    if same(@define_text[define_name[i]], name) then
+      define_set[i] = set
+      return
+    end
+  end
+  if defines == MAX_DEFINES or define_top > DEFINE_TEXT_SIZE - 34 then
+    fail("too many defines", nil)
+  end
+  define_name[defines] = define_top
+  define_set[defines] = set
+  defines += 1
+  i = 0
+  loop
+    define_text[define_top] = name[i]
+    define_top += 1
+    if name[i] == 0 or i == 31 then
+      break
+    end
+    i += 1
+  end
+  define_text[define_top - 1] = 0
+end
+
+; True if `name` is a define that is set (an unknown one is an error).
+func is_set(name: ^byte): bool
+  var i: byte
+  for i = 0 until defines do
+    if same(@define_text[define_name[i]], name) then
+      return define_set[i]
+    end
+  end
+  fail("not defined: ", name)
+  return false
+end
+
+; The pieces: each bank file of each tool, its bank of the module, its name and its size.
+var piece_tool: [MAX_PIECES]byte
+var piece_bank: [MAX_PIECES]byte
+var piece_size: [MAX_PIECES]word
+const PIECE_TEXT_SIZE = 512
+var piece_name: [MAX_PIECES]word    ; where its file's name is in piece_text
+var piece_text: [PIECE_TEXT_SIZE]byte
+var pieces: byte
+var text_top: word
+
+var tool_start: [MAX_TOOLS]word     ; where the tool's code starts: its `code` range's first byte
+var tool_end: [MAX_TOOLS]word       ; the address after its code in fixed memory, from its map
+var tool_top: [MAX_TOOLS]word       ; the address after its memory: its highest range's end, + 1
+var tool_mask: [MAX_TOOLS]word      ; its banks of the module, a bit each
+var tool_bank: [MAX_TOOLS]byte      ; the bank of its resident part
+var tools: byte
+
+; The top of tool t's memory for a range that ends at `last` (main RAM only).
+func range_ends(t: byte, last: word)
+  if last < WINDOW and last + 1 > tool_top[t] then
+    tool_top[t] = last + 1
+  end
+end
+
+; The bit of bank n in a mask of banks.
+func bit_of(n: byte): word
+  var w: word
+  var i: byte
+  w = 1
+  for i = 0 until n do
+    w = w + w
+  end
+  return w
+end
+
+; The entries of environment file `name` of tool t that MODLOAD needs: `code FIRST LAST`, the
+; ends of it and of `data FIRST LAST` and `more data FIRST LAST` (the top of the tool's memory,
+; as bbcrom.memory_top has it) and each `bank WIN N VALUE FILE` of the module (VALUE $80 and up),
+; with `define`, `when` and `unless` as the linker reads them.
+func read_env(t: byte, name: ^byte)
+  var first: byte
+  var set: bool
+  var value: word
+  var i: byte
+  var file: ^byte
+  defines = 0
+  define_top = 0
+  tool_start[t] = 0
+  tool_top[t] = 0
+  tool_mask[t] = 0
+  open_text(name)
+  while next_line() do
+    first = 0
+    loop
+      if first + 2 > words then
+        break
+      end
+      if same(word_of(first), "when") then
+        set = is_set(word_of(first + 1))
+      elif same(word_of(first), "unless") then
+        set = not is_set(word_of(first + 1))
+      else
+        break
+      end
+      if not set then
+        first = words              ; not an entry here
+        break
+      end
+      first += 2
+    end
+    if first >= words then
+      continue
+    end
+    if same(word_of(first), "define") and words - first >= 2 then
+      set = true
+      if words - first >= 3 then
+        set = number_of(first + 2, false) != 0
+      end
+      define(word_of(first + 1), set)
+    elif same(word_of(first), "code") and words - first == 3 then
+      tool_start[t] = number_of(first + 1, false)
+      range_ends(t, number_of(first + 2, false))
+    elif same(word_of(first), "data") and words - first == 3 then
+      range_ends(t, number_of(first + 2, false))
+    elif same(word_of(first), "more") and words - first == 4 and same(word_of(first + 1), "data") then
+      range_ends(t, number_of(first + 3, false))
+    elif same(word_of(first), "bank") and words - first == 5 then
+      value = number_of(first + 3, false)
+      if value >= $80 then
+        if value >= $80 + BANKS then
+          fail("a bank past the module's sixteen in ", name)
+        end
+        if pieces == MAX_PIECES then
+          fail("too many banks in ", name)
+        end
+        piece_tool[pieces] = t
+        piece_bank[pieces] = byte(value - $80)
+        tool_mask[t] = tool_mask[t] | bit_of(piece_bank[pieces])
+        piece_name[pieces] = text_top
+        piece_size[pieces] = $FFFF
+        file = word_of(first + 4)
+        for i = 0 until 255 do
+          if text_top == PIECE_TEXT_SIZE then
+            fail("names too long in ", name)
+          end
+          piece_text[text_top] = file[i]
+          text_top += 1
+          if file[i] == 0 then
+            break
+          end
+        end
+        pieces += 1
+      end
+    end
+  end
+  if tool_start[t] == 0 then
+    fail("no code range in ", name)
+  end
+end
+
+; From map `name` of tool t: the size of each of its bank files (its `W` line), and the end of
+; its code in fixed memory (the `F`, `D` and `T` lines with no `b=`).
+func read_map(t: byte, name: ^byte)
+  var p: byte
+  var in_bank: bool
+  var i: byte
+  var kind: ^byte
+  var w: ^byte
+  var finish: word
+  tool_end[t] = 0
+  open_text(name)
+  while next_line() do
+    kind = word_of(0)
+    if words < 4 or kind[1] != 0 then
+      continue
+    end
+    if kind[0] == 'W' and words >= 5 then
+      for p = 0 until pieces do
+        if piece_tool[p] == t and same(@piece_text[piece_name[p]], word_of(4)) then
+          piece_size[p] = number_of(2, true)
+        end
+      end
+    elif kind[0] == 'F' or kind[0] == 'D' or kind[0] == 'T' then
+      in_bank = false
+      for i = 4 until words do
+        w = word_of(i)
+        if w[0] == 'b' and w[1] == '=' then
+          in_bank = true
+        end
+      end
+      finish = number_of(1, true) + number_of(2, true)
+      if not in_bank and number_of(1, true) >= tool_start[t] and finish > tool_end[t] then
+        tool_end[t] = finish
+      end
+    end
+  end
+  for p = 0 until pieces do
+    if piece_tool[p] == t and piece_size[p] == $FFFF then
+      fail("its map does not name ", @piece_text[piece_name[p]])
+    end
+  end
+end
+
+; ---- Files, read once to check them and once to load them ---------------------------------
+
+const BUFFER_SIZE = 128
+var buffer: [BUFFER_SIZE]byte
+var home_type: byte                 ; the module's type, at $8006
+var reserved_bytes: [RESERVED]byte  ; and its reserved bytes, HOME's or the module's
+var descriptor: [DESCRIPTOR_SIZE]byte   ; the home bank's description of the layout
+var table: [TABLE_SIZE]byte         ; and the start of its command table
+var table_from: word                ; where in HOME the table is, from $8000 (0: not read yet)
+
+; The length of file `name`, which must be at most `most` bytes; with home, HOME's reserved
+; bytes, its description and (once table_from is known) its command table are noted as it is
+; read.
+func length_of(name: ^byte, most: word, home: bool): word
+  var i: byte
+  var h: byte
+  var b: byte
+  var n: word
+  h = bbc.open(name)
+  if h == 0 then
+    fail("cannot open ", name)
+  end
+  n = 0
+  loop
+    if bbc.read(h) -> b then
+      break
+    end
+    if home then
+      if n < RESERVED then
+        reserved_bytes[byte(n)] = b
+      elif n >= DESCRIPTION_FROM and n < DESCRIPTION_FROM + DESCRIPTOR_SIZE then
+        i = byte(n - DESCRIPTION_FROM)
+        descriptor[i] = b
+      end
+      if table_from != 0 and n >= table_from and n < table_from + TABLE_SIZE then
+        i = byte(n - table_from)
+        table[i] = b
+      end
+    end
+    if n == most then
+      bbc.close(h)
+      fail("too large for a bank: ", name)
+    end
+    n += 1
+  end
+  bbc.close(h)
+  return n
+end
+
+; Select the module's bank `bank` in the window; its RAM is then written through the window.
+asm func select(bank: byte in x)
+  LDA slot
+  STA $F4
+  STA $FE30
+  LDA $BFF0,X
+end
+
+; The window back to what the MOS had, before any call of it.
+asm func deselect()
+  LDA entry_rom
+  STA $F4
+  STA $FE30
+end
+
+; `count` bytes of buffer to `dest` in bank `bank` of the module.
+func put(bank: byte, dest: ^byte, count: byte)
+  var i: byte
+  select(bank)
+  for i = 0 until count do
+    dest[i] = buffer[i]
+  end
+  deselect()
+end
+
+; `count` bytes from `source` in bank `bank` of the module to buffer.
+func get(bank: byte, source: ^byte, count: byte)
+  var i: byte
+  select(bank)
+  for i = 0 until count do
+    buffer[i] = source[i]
+  end
+  deselect()
+end
+
+; File `name` into bank `bank` from address `start`, a buffer at a time.
+func load(name: ^byte, bank: byte, start: word)
+  var h: byte
+  var b: byte
+  var n: byte
+  var dest: ^byte
+  h = bbc.open(name)
+  if h == 0 then
+    fail("cannot open ", name)          ; it opened when checked: the module is not marked again
+  end
+  dest = ^byte(start)
+  n = 0
+  loop
+    if bbc.read(h) -> b then
+      break
+    end
+    buffer[n] = b
+    n += 1
+    if n == BUFFER_SIZE then
+      put(bank, dest, n)
+      dest += BUFFER_SIZE
+      n = 0
+    end
+  end
+  bbc.close(h)
+  if n != 0 then
+    put(bank, dest, n)
+  end
+end
+
+; ---- The module's description ---------------------------------------------------------
+
+; Where the home bank is, from the module's reserved bytes: the service code's `LDA number`,
+; `PHA`, `LDA latch+home` (module.asm); NO_BANK if they are not there.
+func home_of_reserved(): byte
+  var i: byte
+  for i = 0 until byte(RESERVED - 7) do
+    if reserved_bytes[i] == $AD and reserved_bytes[i + 1] == NUMBER and reserved_bytes[i + 2] == $80 then
+      if reserved_bytes[i + 3] == $48 and reserved_bytes[i + 4] == $AD and reserved_bytes[i + 6] == $BF then
+        if reserved_bytes[i + 5] >= $F0 then
+          return reserved_bytes[i + 5] - $F0
+        end
+      end
+    end
+  end
+  return NO_BANK
+end
+
+; True if the description is one MODLOAD reads, of a module whose home bank is `home`.
+func described(home: byte): bool
+  if descriptor[0] != 'L' or descriptor[1] != 'W' or descriptor[2] != 1 or descriptor[3] != home then
+    return false
+  end
+  return descriptor[4] >= 1 and descriptor[4] <= MAX_TOOLS
+end
+
+; The command table's address, from the description.
+func table_at(): word
+  return word(descriptor[6]) + 256 * word(descriptor[7])
+end
+
+; The banks of the module's tool k, from the description.
+func mask_of(k: byte): word
+  return word(descriptor[8 + 2 * k]) + 256 * word(descriptor[9 + 2 * k])
+end
+
+; The word at `here` in table.
+func table_word(here: byte): word
+  return word(table[here]) + 256 * word(table[here + 1])
+end
+
+; True if the command table's entry k (its name, its copy list, its program's start and, if the
+; description says the commands have one, its top) has tool t's start and top.
+func entry_fits(k: byte, t: byte): bool
+  var here: byte
+  var i: byte
+  here = 0
+  for i = 0 until k + 1 do
+    while here < TABLE_SIZE - 7 and table[here] != 0 do
+      here += 1
+    end
+    if here >= TABLE_SIZE - 7 then
+      return false
+    end
+    if i == k then
+      if table_word(here + 3) != tool_start[t] then
+        return false
+      end
+      return descriptor[5] == 0 or table_word(here + 5) == tool_top[t]
+    end
+    here += 5
+    if descriptor[5] != 0 then
+      here += 2
+    end
+  end
+  return false
+end
+
+; Tool t against the module's tools as the description has them: the one whose banks are its,
+; whose resident bank it takes and whose command's entry must have its start and top.
+func match_tool(t: byte, home: byte, what: ^byte)
+  var k: byte
+  for k = 0 until descriptor[4] do
+    if mask_of(k) == tool_mask[t] then
+      if not entry_fits(k, t) then
+        fail("its code or memory is not where the module's command has it (a new HOME is needed): ", what)
+      end
+      tool_bank[t] = home + 1 + k
+      return
+    end
+  end
+  fail("its banks are none of the module's tools': ", what)
+end
+
+; The module in the slot: the same reserved bytes in every bank, each with its own number, and
+; its home bank's description and command table read; its home bank.
+func module_there(): byte
+  var bank: byte
+  var i: byte
+  var home: byte
+  get(0, ^byte(WINDOW), byte(RESERVED))
+  for i = 0 until byte(RESERVED) do
+    reserved_bytes[i] = buffer[i]
+  end
+  for bank = 1 until BANKS do
+    get(bank, ^byte(WINDOW), byte(RESERVED))
+    for i = 0 until byte(NUMBER) do
+      if buffer[i] != reserved_bytes[i] then
+        fail("no module MODLOAD knows in the slot", nil)
+      end
+    end
+    if buffer[NUMBER] != bank then
+      fail("no module MODLOAD knows in the slot", nil)
+    end
+  end
+  home = home_of_reserved()
+  if reserved_bytes[NUMBER] != 0 or home >= BANKS then
+    fail("no module MODLOAD knows in the slot", nil)
+  end
+  get(home, ^byte(DESCRIPTOR_AT), byte(DESCRIPTOR_SIZE))
+  for i = 0 until byte(DESCRIPTOR_SIZE) do
+    descriptor[i] = buffer[i]
+  end
+  if not described(home) then
+    fail("no module MODLOAD knows in the slot", nil)
+  end
+  get(home, ^byte(table_at()), byte(TABLE_SIZE))
+  for i = 0 until byte(TABLE_SIZE) do
+    table[i] = buffer[i]
+  end
+  return home
+end
+
+; ---- The load --------------------------------------------------------------------------------
+
+pub func main()
+  var arg: byte
+  var t: byte
+  var p: byte
+  var q: byte
+  var home: byte
+  var bank: byte
+  var n: word
+  var option: ^byte
+  var whole: bool
+  entry_rom = copy
+  slot = DEFAULT_SLOT
+  arg = 0
+  option = bbc.argv(0)
+  if bbc.argc() > 0 and option[0] == '-' and option[1] == 's' then
+    slot = option[2] - '0'
+    if option[3] >= '0' and option[3] <= '9' then
+      slot = slot * 10 + option[3] - '0'
+    end
+    if slot > 15 then
+      fail("a slot is 0 to 15", nil)
+    end
+    arg = 1
+  end
+  ; With HOME the arguments are one more than three a tool.
+  whole = (bbc.argc() - arg) mod 3 == 1
+  if bbc.argc() < arg + 3 then
+    fail("usage: MODLOAD [-sSLOT] [HOME] ENV MAP IMAGE [ENV MAP IMAGE]...", nil)
+  end
+  if whole then
+    arg += 1
+  elif (bbc.argc() - arg) mod 3 != 0 then
+    fail("usage: MODLOAD [-sSLOT] [HOME] ENV MAP IMAGE [ENV MAP IMAGE]...", nil)
+  end
+  tools = byte((bbc.argc() - arg) / 3)
+  if tools > MAX_TOOLS then
+    fail("too many tools", nil)
+  end
+  ; Each tool's banks and their files' sizes, from its environment and its map.
+  pieces = 0
+  text_top = 0
+  for t = 0 until tools do
+    read_env(t, bbc.argv(arg + 3 * t))
+    read_map(t, bbc.argv(arg + 1 + 3 * t))
+  end
+  home = 0
+  for p = 0 until pieces do
+    if piece_bank[p] >= home then
+      home = piece_bank[p] + 1
+    end
+    for q = 0 until p do
+      if piece_bank[q] == piece_bank[p] then
+        fail("two pieces in one bank: ", @piece_text[piece_name[p]])
+      end
+    end
+  end
+  ; Every file once: its size against the map's, and against a bank's room.
+  for p = 0 until pieces do
+    t = piece_tool[p]
+    in_directory_of(bbc.argv(arg + 2 + 3 * t), @piece_text[piece_name[p]])
+    if length_of(@path, ROOM, false) != piece_size[p] then
+      fail("not the size its map gives: ", @path)
+    end
+  end
+  for t = 0 until tools do
+    if length_of(bbc.argv(arg + 2 + 3 * t), ROOM, false) != tool_end[t] - tool_start[t] then
+      fail("not the size its map gives: ", bbc.argv(arg + 2 + 3 * t))
+    end
+  end
+  ; The home bank: HOME's, of the layout of these tools, or the module's that is there.
+  if whole then
+    if home + tools >= BANKS then
+      fail("no bank left for the module's own and the resident parts", nil)
+    end
+    table_from = 0
+    n = length_of(bbc.argv(arg - 1), ROOM + RESERVED, true)
+    if n != DESCRIPTOR_AT + DESCRIPTOR_SIZE - WINDOW or reserved_bytes[NUMBER] != home then
+      fail("not the module's own bank for this layout: ", bbc.argv(arg - 1))
+    end
+    if not described(home) or descriptor[4] != tools then
+      fail("not the module's own bank for this layout: ", bbc.argv(arg - 1))
+    end
+    table_from = table_at() - WINDOW
+    n = length_of(bbc.argv(arg - 1), ROOM + RESERVED, true)
+  else
+    home = module_there()
+  end
+  for t = 0 until tools do
+    match_tool(t, home, bbc.argv(arg + 3 * t))
+    if whole and tool_bank[t] != home + 1 + t then
+      fail("not the module's own bank for this layout: ", bbc.argv(arg - 1))
+    end
+    for q = 0 until t do
+      if tool_bank[q] == tool_bank[t] then
+        fail("one tool twice: ", bbc.argv(arg + 3 * t))
+      end
+    end
+  end
+  home_type = reserved_bytes[ROM_TYPE]
+  ; The load: the slot marked empty; with HOME every bank's reserved bytes and the home bank;
+  ; the tools.
+  rom_types[slot] = 0
+  if whole then
+    for bank = 0 until BANKS do
+      for p = 0 until byte(RESERVED) do
+        buffer[p] = reserved_bytes[p]
+      end
+      buffer[NUMBER] = bank
+      put(bank, ^byte(WINDOW), byte(RESERVED))
+    end
+    load(bbc.argv(arg - 1), home, WINDOW)
+  end
+  for p = 0 until pieces do
+    in_directory_of(bbc.argv(arg + 2 + 3 * piece_tool[p]), @piece_text[piece_name[p]])
+    load(@path, piece_bank[p], FIRST)
+  end
+  for t = 0 until tools do
+    load(bbc.argv(arg + 2 + 3 * t), tool_bank[t], FIRST)
+  end
+  rom_types[slot] = home_type
+end
