@@ -36,13 +36,14 @@ cur_sym = 0                         # its symbol
 dfix_read = False                   # a DFIX record was just read: a DATA record must follow
 rgn_read = False                    # a RGN record was read: a VAR, or a DFIX and DATA, must follow
 rgn_bank = 0                        # the bank + 1 of its region, or 0 if the region is fixed
+rgn_region = 0                      # the region itself, its entry in lk_envf
 
 # The variables and constants in a region that is in a bank (lk_envf.region_bank), in the order
 # they are defined. Those of a region in fixed memory are ordinary ones and are not here.
 MAX_REGION_DEFS = 64
 rdef_count = 0
 rdef_def = [0] * MAX_REGION_DEFS
-rdef_bank = bytearray(MAX_REGION_DEFS)  # the bank + 1
+rdef_region = bytearray(MAX_REGION_DEFS)    # the region, its entry in lk_envf, whose bank it is in
 
 # The weights waiting, in lk_tab.work, which nothing else uses while the files are read: where
 # each column starts.
@@ -88,7 +89,7 @@ def skip_string():
 def rec_rgn():
     """A RGN record: the region of the VAR or DATA record that follows. A name the environment
     file has no `region` entry for is a region in fixed memory, as is one given as `fixed`."""
-    global rgn_read, rgn_bank
+    global rgn_read, rgn_bank, rgn_region
     size = lk_rec.get_byte()
     for i in range(0, size):
         c = lk_rec.get_byte()
@@ -104,6 +105,7 @@ def rec_rgn():
     r = lk_envf.find_region()
     if r != lk_envf.MAX_REGIONS:
         rgn_bank = lk_envf.region_bank[r]
+        rgn_region = r
 
 
 def in_region(d):
@@ -117,7 +119,7 @@ def in_region(d):
     if rdef_count == MAX_REGION_DEFS:
         lk_err.fail(lk_err.E_DEFS)
     rdef_def[rdef_count] = d
-    rdef_bank[rdef_count] = rgn_bank
+    rdef_region[rdef_count] = rgn_region
     rdef_count += 1
     lk_envf.region_used = rgn_bank
 
@@ -126,7 +128,7 @@ def region_of(d):
     """The bank + 1 of the region variable or constant d is in, or 0 for fixed memory."""
     for i in range(0, rdef_count):
         if rdef_def[i] == d:
-            return rdef_bank[i]
+            return lk_envf.region_bank[rdef_region[i]]
     return 0
 
 

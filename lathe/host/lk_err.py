@@ -71,6 +71,9 @@ E_REGION_NO_FILE = 59
 E_REGION_ROM = 60
 E_COMMAND_FILE = 61
 E_UNMAPPED = 62
+E_PLACER = 63
+E_DYNAMIC = 64
+E_SITES = 65
 
 # One message per line, in the order of the numbers above.
 MESSAGES = (
@@ -136,6 +139,9 @@ MESSAGES = (
     b"a variable in a region is in a read-only bank\n"
     b"command file: too many arguments, or too long\n"
     b"code uses a region in a bank where it maps none\n"
+    b"environment file: a dynamic region needs a placer\n"
+    b"a dynamic region is used where it cannot move\n"
+    b"too many places of dynamic regions\n"
 )
 
 PREFIX = b"link error "

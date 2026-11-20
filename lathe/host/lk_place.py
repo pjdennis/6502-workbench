@@ -56,7 +56,7 @@ def holds_region_data(obj, b):
 def region_bank(b):
     """True if some variable or constant of the program is in a region in bank b."""
     for i in range(0, lk_scan.rdef_count):
-        if lk_scan.rdef_bank[i] == b + 1:
+        if lk_envf.region_bank[lk_scan.rdef_region[i]] == b + 1:
             return True
     return False
 
@@ -168,6 +168,7 @@ def place():
     for obj in range(0, lk_name.object_count):
         place_object(obj)
     place_bank_vars()
+    lk_boot.places_addr = (lk_envf.code_lo + code_used) & 0xFFFF
     room = lk_envf.code_hi - lk_envf.code_lo + 1
     if code_wrapped or code_used > room:
         lk_err.begin(lk_err.E_CODE_FULL)

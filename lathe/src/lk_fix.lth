@@ -61,7 +61,7 @@ pub const K_ZP = 4
 pub const K_SHRINK = 5
 pub const K_BANK = 6                    ; one byte: the register value of a region's bank (lk_win)
 const K_REACH_LOW = 7                   ; K_LOW and K_HIGH of an address formed only to reach a part of
-const K_REACH_HIGH = 8                  ; what it names, in code (lk_graph.note_named)
+pub const K_REACH_HIGH = 8              ; what it names, in code (lk_graph.note_named)
 
 ; The entry read last.
 var e_at: word = 0

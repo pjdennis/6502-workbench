@@ -863,6 +863,53 @@ On Wendy 2 kernel is fixed code (`compiler-bank.env`), so only the blocks and ca
 
 The linker's large tables went the same way, so that it links the compiler and itself on both machines: its work area is two tables, `lk_tab.work` (region `LKWORK`) and `lk_tab.nodes` (`LKNODES`), beside the regions it already had (`LKLOCAL`, `LKCALLS`, `LKSLOTS`), and every module reads and writes the work area through `lk_tab.wk` and `set_wk`, which choose the table; the hottest column readers have blocks of their own and are kept fixed. On the BBC the regions fill sideways slots 0, 1 and 12; on Wendy 2 at full size (`linker-full.env`) data banks 4 and 5. The design, where each table lives and what it costs are in [`architecture.md`](architecture.md), "The large tables in regions".
 
+## Regions placed at run time (2026-11-20)
+
+A region may be placed again by the program as it starts: `region NAME WIN N dynamic` (the
+environment file; the compiler reads nothing of it, so no object file changes), with a `placer
+MODULE` entry naming the run-time module that does it (on the BBC `rt_place`, lathe/rt/rt_place.lth).
+Built for the 128 KB image that serves every BBC with sideways RAM ([`bbc.md`](bbc.md), "One image
+for every machine with sideways RAM"); the design is the study's ([`spikes.md`](spikes.md), "One ROM
+for every BBC: a study").
+
+**What the linker does** (lathe/host/lk_dyn.py and lathe/src/lk_dyn.lth, host and twin byte for
+byte; `test_lk_dynamic.py`):
+
+- A dynamic region is linked as any region in a bank: its variables at their full sizes in its
+  bank, so every check of the link holds and the code is what it would be.
+- While the image is written it holds every place of the fixed code (and of constant data in fixed
+  memory) that names a variable of a dynamic region, by kind (the word of an address, its low byte,
+  its high byte with the low byte the linker put there, for the carry), every `with` block's bank
+  (`LDA #bank`, kind 6), and every call of the far-call module's `map` and `unmap` (`JSR`, or the
+  `JMP` of a block that ends a function), grouped by function copy with the regions that copy's
+  blocks map. They are two words each in the work area after the slot names (`lk_dyn.W_SITES`),
+  which nothing uses while the image is written: 1,100 places at full capacities, 248 at the
+  small build's and 2 at the 32K build's, so a large program with dynamic regions needs the full build (link
+  error 65 otherwise).
+- After everything else in the code range it writes the list (`$places`): the code range's first
+  address, the end of the program's ranges, the free areas the link left (the code range from the
+  list on, `data` and `more` after their variables), each dynamic region's bank, each of its
+  variables (address, size, region), then the places, each a byte of distance from the last (or 0
+  and the address). The compiler's list is 1,183 bytes (224 addresses, 69 banks, 146 calls in 68
+  copies), the linker's 799.
+- `$start` calls `PLACER.place` with the list's address in A and X after `FARCALL.start` and
+  before `$init` (7 bytes), through its stub if the module is placed in a bank.
+- Refused: a dynamic region without a placer, or whose placer defines no `place` (link error 63);
+  a dynamic region's variable or bank named where it cannot be moved, in a bank's code or constant
+  data (a bank is ROM on the BBC), constant data in a dynamic region, and a two-byte variable in
+  one, which must not lie across a page on an NMOS 6502 wherever it goes (64); too many places for
+  the work area (65).
+- `define LKDYN 0` (`#if LKDYN` in the twins) leaves all of it out of a build of the linker: the
+  BBC's ROM forms are built so, for the room of the 128 KB image (about 2.7 KB of the linker's
+  banks); `dynamic` is then a bad entry (link error 3). The host linker, Wendy 2's builds and the
+  BBC's developer's form have it.
+
+**What the placer does**: [`bbc.md`](bbc.md), "One image for every machine with sideways RAM".
+
+**Capacities** are not dynamic yet: every table is linked and used at its full size, and a region
+that does not fit main RAM whole stays in its slot. Sizing tables at run time (the study's
+capacities as variables, the twins' `#if DYNAMIC`) is the next step, for machines with fewer banks.
+
 ## Decisions for the owner
 
 | Decision | Recommendation |

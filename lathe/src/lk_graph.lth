@@ -51,11 +51,11 @@
 module lk_graph
 
 import lk_boot (is_init)
-import lk_envf (placed)
+import lk_envf (placed, region_dynamic)
 import lk_err (arrow, begin, colon, comma, E_CLASS_CONTEXTS, E_CONTEXTS, E_COPIES, E_CYCLE, E_FIXES,
-               E_MEMBER, E_MEMBER_CYCLE, E_UNDEFINED, fail, finish, put)
-import lk_name (error_name, error_node, fail, fc_call, fc_start, global_sym, MAX_OBJECTS, obj_fn,
-                object_count)
+               E_MEMBER, E_MEMBER_CYCLE, E_PLACER, E_UNDEFINED, fail, finish, put)
+import lk_name (error_name, error_node, fail, fc_call, fc_place, fc_start, global_sym, MAX_OBJECTS,
+                obj_fn, object_count)
 import lk_rec (advance, close, get_byte, get_word, left, open_object, R_DATA, R_DFIX, R_END, R_ENDF,
                R_FIX, R_FUNC)
 import lk_scan (def_bank, fn_bank)
@@ -442,6 +442,15 @@ func find_contexts(main_sym: word)
     reach(lk_name.fc_start, 0)
     reach(lk_name.fc_call, 0)
   end
+#if LKDYN
+  if lk_envf.region_dynamic != 0 then
+    ; $start calls the placer's place (lk_dyn).
+    if lk_name.fc_place == lk_tab.NONE then
+      lk_err.fail(lk_err.E_PLACER)
+    end
+    reach(lk_name.fc_place, 0)
+  end
+#end
   lk_tab.ctx_count = 1
   for f = 0 until lk_tab.fn_count do
     if (lk_tab.fn_flags[f] & lk_tab.F_INTERRUPT) != 0 then

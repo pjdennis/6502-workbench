@@ -327,6 +327,11 @@ def find_contexts(main_sym):
         # $start calls the far-call module's start, and a stub its call (configurations.md).
         reach(lk_name.fc_start, 0)
         reach(lk_name.fc_call, 0)
+    if lk_envf.region_dynamic != 0:
+        # $start calls the placer's place (lk_dyn).
+        if lk_name.fc_place == lk_tab.NONE:
+            lk_err.fail(lk_err.E_PLACER)
+        reach(lk_name.fc_place, 0)
     lk_tab.ctx_count = 1
     for f in range(0, lk_tab.fn_count):
         if (lk_tab.fn_flags[f] & lk_tab.F_INTERRUPT) != 0:

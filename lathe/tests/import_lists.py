@@ -79,12 +79,13 @@ IMPORT = re.compile(r'^(\s*)import\s+([A-Za-z][A-Za-z0-9_]*)\s*(\(?)', re.I)
 
 # Run-time modules built in only some of the environments: the board modules need `define
 # BOARD` 1 or 2 (board.lth does not compile for any other value; 3, the BBC, has no LCD or VIA
-# of theirs), disk.lth's file ports `define DISK`, and rt_bbc.lth the module's slot `define
-# MODULE_SLOT` (lathe/env/bbc-bank.env).
+# of theirs), disk.lth's file ports `define DISK`, and rt_bbc.lth (with rt_place.lth, which imports it)
+# the module's slot `define MODULE_SLOT` (lathe/env/bbc-bank.env).
 BOARDS_WITH_LCD = (1, 2)
 RT_NEEDS = {'board.lth': ('BOARD', BOARDS_WITH_LCD), 'via.lth': ('BOARD', BOARDS_WITH_LCD),
             'lcd.lth': ('BOARD', BOARDS_WITH_LCD), 'timer.lth': ('BOARD', BOARDS_WITH_LCD),
-            'disk.lth': ('DISK', None), 'rt_bbc.lth': ('MODULE_SLOT', None)}
+            'disk.lth': ('DISK', None), 'rt_bbc.lth': ('MODULE_SLOT', None),
+            'rt_place.lth': ('MODULE_SLOT', None)}
 
 
 def built_in(name, env_path):

@@ -219,6 +219,21 @@ def compile_farcall(env, order, objects, outdir, options=(), main_dir='.'):
                               env.farcall)
 
 
+def compile_placer(env, objects, outdir, options=(), main_dir='.'):
+    """The placer module of an environment with a dynamic region (`placer rt_place`: lathe/host/
+    lk_dyn.py), which `$start` calls: compiled with its imports, as the far-call module is, if
+    the program does not already have it. Returns its objects, which go after the others."""
+    if not env.dynamic_regions or not env.placer:
+        return []
+    done = {os.path.splitext(os.path.basename(p))[0] for p in objects}
+    if env.placer in done:
+        return []
+    more = [(n, p) for n, p in module_order(find_module(env.placer, main_dir)) if n not in done]
+    made = compile_all(more, outdir, options)
+    return made + implicit_of(list(made), done | {n for n, _ in more}, outdir, options, main_dir,
+                              env.farcall)
+
+
 def window_files(env, from_dir, to_dir):
     """Copy the files of the banks and overlays (env.files) that the linker wrote in from_dir
     to to_dir."""
@@ -277,6 +292,7 @@ def build_with(source, out, env, use_asm, use_naive, keep, defines):
     objects = compile_all(order, work, options)
     objects += compile_implicit(order, work, options, main_dir, described.farcall)
     objects += compile_farcall(described, order, objects, work, options, main_dir)
+    objects += compile_placer(described, objects, work, options, main_dir)
     map_path = os.path.join(work, main + '.map')
     have_linker = os.path.isfile(LINKER) and not use_naive
     if have_linker:

@@ -612,6 +612,12 @@ def assign_zp():
             lk_tab.set_zbase(n, (ctx_bottom[lk_tab.ctx_of(n)] + base_of(n)) & 0xFF)
 
 
+# What main memory is used, for the placer's list (lk_dyn): bytes from the start of `data` and of
+# `more`.
+data_end = 0
+more_end = 0
+
+
 def in_bank(d):
     """True if variable d, not in zero page, goes in its module's bank (lk_win.bank_def).
     Until lk_place puts it there, its address is the window's first: not zero page, so what
@@ -667,6 +673,9 @@ def place_vars_more(pos):
         lk_err.begin(lk_err.E_DATA_FULL)
         lk_err.over(over, lk_tab.overflow)
         lk_err.finish()
+    global data_end, more_end
+    data_end = pos
+    more_end = mpos
 
 
 def assign_main():
@@ -686,6 +695,9 @@ def assign_main():
     for n in range(0, lk_tab.node_count):
         if lk_tab.is_node(n):
             lk_tab.set_wk(lk_tab.W_MBASE + n, (lk_envf.data_lo + base_of(n)) & 0xFFFF)
+    global data_end, more_end
+    data_end = pos
+    more_end = 0
     if lk_envf.has_more:
         place_vars_more(pos)
 

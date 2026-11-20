@@ -8,6 +8,8 @@ and the table of banks or overlays.
     CLD
     LDA #<$banks / LDX #>$banks / JSR FARCALL.start
                                 if code is placed in a window ($overlays for overlays)
+    LDA #<$places / LDX #>$places / JSR PLACER.place
+                                if a region is dynamic: the list lk_dyn writes after the code
     JSR $init                   if there is one
     JSR MAINMODULE.main
     LDA #$00 / JMP addr         for `exit call addr`; a JMP to itself for `exit loop`;
@@ -32,6 +34,7 @@ init_addr = 0
 init_len = 0                        # 0 if no module has initialisers
 table_addr = 0                      # $banks or $overlays
 table_len = 0                       # 0 if no code is placed in a window
+places_addr = 0                     # with a dynamic region, the list after the code (lk_place, lk_dyn)
 
 
 def is_init(f):
@@ -57,6 +60,8 @@ def plan():
     if lk_envf.placed():
         start_len += 7
         table_len = lk_win.table_size()
+    if lk_envf.region_dynamic != 0:
+        start_len += 7
     if init_len != 0:
         start_len += 3
     if lk_envf.exit_kind == lk_envf.EXIT_CALL:
@@ -143,6 +148,12 @@ def write(main_fn):
         lk_out.put(0xA2)            # LDX #>table
         lk_out.put(table_addr >> 8)
         jsr(lk_tab.wk(lk_tab.W_ADDR + lk_tab.first_node(lk_sym.row_of(lk_name.fc_start))))
+    if lk_envf.region_dynamic != 0:
+        lk_out.put(0xA9)            # LDA #<$places
+        lk_out.put(places_addr & 0xFF)
+        lk_out.put(0xA2)            # LDX #>$places
+        lk_out.put(places_addr >> 8)
+        jsr(entry(lk_sym.row_of(lk_name.fc_place), 0))
     if init_len != 0:
         jsr(init_addr)
     jsr(entry(main_fn, 0))

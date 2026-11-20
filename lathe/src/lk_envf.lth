@@ -20,6 +20,8 @@
 ;     overlay   WIN 1 L5OV1.BIN       ; (a window switched by `overlay`) overlay 1 and its file
 ;     place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
 ;     region    NAMES WIN 4           ; read and checked; not yet used (`region NAMES fixed` too)
+;     region    NAMES WIN 4 dynamic   ; linked there, and placed again by the program as it starts
+;     placer    rt_place              ; the module whose `place` the start-up calls for those
 ;     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
 ;     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
 ;
@@ -56,14 +58,22 @@ module lk_envf
 
 import lk_err (begin, colon, E_ENV_ENTRY, E_ENV_FULL, E_ENV_MISSING, E_ENV_RANGE, E_ENV_TWICE,
                E_ENV_UNKNOWN, E_FARCALL_MISSING, E_FARCALL_PLACED, E_NO_FILE, E_OVERLAY_NUMBERS,
-               E_REGION_WINDOW, E_STOP_6502, E_TWO_WINDOWS, fail, finish, put, put_number)
+               E_PLACER, E_REGION_WINDOW, E_STOP_6502, E_TWO_WINDOWS, fail, finish, put, put_number)
 import lk_file (ARG_ENV, fail, open_in)
 import lk_op (CPU_6502, CPU_65C02)
 import sys (close, read)
 
 ; The words the linker knows, each followed by a space; a word's number is its place, from 1.
+#if LKDYN
+const WORDS: [187]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
+  "window switch bank overlay place region more farcall fixed rom define when unless "
+  "dynamic placer "
+#else
+; Without dynamic regions (LKDYN 0) the last two words are not known: their entries are skipped,
+; as any entry this build does not know is, and `dynamic` after a region is a bad entry.
 const WORDS: [172]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
   "window switch bank overlay place region more farcall fixed rom define when unless "
+#end
 const W_CPU = 1
 const W_ZEROPAGE = 2
 const W_CODE = 3
@@ -93,6 +103,8 @@ const W_ROM = 26
 const W_DEFINE = 27
 const W_WHEN = 28
 const W_UNLESS = 29
+const W_DYNAMIC = 30
+const W_PLACER = 31
 
 const HAVE_ZEROPAGE = 1
 const HAVE_CODE = 2
@@ -103,6 +115,7 @@ const HAVE_STACK = 32
 const HAVE_OUTPUT = 64
 const HAVE_MORE = 128
 const HAVE_FARCALL = 256
+const HAVE_PLACER = 512
 const NEEDED = 15               ; the entries a file must have
 
 pub const EXIT_CALL = 1         ; LDA #0 and jump to exit_addr
@@ -134,6 +147,7 @@ pub const TEXT_SIZE = 384
 pub var text: [TEXT_SIZE]byte
 pub var text_top: word = 0
 pub var farcall: word = 0       ; the far-call module's name + 1, or 0
+pub var placer: word            ; the placer module's name + 1, or 0 (lk_dyn; read() sets it)
 
 pub const SWITCH_NONE = 0
 pub const SWITCH_BANK = 1
@@ -167,6 +181,8 @@ pub const MAX_REGIONS = 16
 pub var region_count: byte = 0
 pub var region_name: [MAX_REGIONS]word
 pub var region_bank: [MAX_REGIONS]byte  ; the bank + 1, or 0 for fixed memory
+pub var region_dynamic: word        ; bit i: region i is `dynamic`, placed again at the start (lk_dyn;
+                                    ; read() sets it)
 pub var region_used: byte = 0       ; lk_scan: a bank + 1 that a variable or constant is in, or 0
 
 const MAX_DEFINES = 16
@@ -673,6 +689,14 @@ func region_entry()
       lk_err.finish()
     end
     region_bank[i] = b + 1
+#if LKDYN
+    if read_token() then
+      if keyword() != W_DYNAMIC then
+        bad()
+      end
+      region_dynamic |= word(1) << i
+    end
+#end
   end
   end_of_line()
 end
@@ -695,6 +719,15 @@ func farcall_entry()
   farcall = hold_token()
   end_of_line()
 end
+
+#if LKDYN
+func placer_entry()
+  once(HAVE_PLACER)
+  name_token()
+  placer = hold_token()
+  end_of_line()
+end
+#end
 
 ; `define NAME [NUMBER]`.
 func define_entry()
@@ -831,6 +864,11 @@ func check_regions()
       end
     end
   end
+#if LKDYN
+  if region_dynamic != 0 and placer == 0 then
+    lk_err.fail(lk_err.E_PLACER)
+  end
+#end
 end
 
 ; The region named by the token, or MAX_REGIONS.
@@ -927,6 +965,10 @@ func entry()
     more_entry()
   of W_FARCALL
     farcall_entry()
+#if LKDYN
+  of W_PLACER
+    placer_entry()
+#end
   of W_ROM
     rom_entry()
   of W_DEFINE
@@ -972,6 +1014,10 @@ end
 
 ; Read the environment file named by the first argument.
 pub func read()
+#if LKDYN
+  placer = 0
+  region_dynamic = 0
+#end
   handle = lk_file.open_in(lk_file.ARG_ENV)
   next_char()
   while not at_end do

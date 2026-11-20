@@ -108,6 +108,8 @@ def mark_stubs(main_fn):
     stub_count = 0
     if lk_envf.placed():                # else no stubs, and every object's count is 0
         needs_stub(main_fn)
+        if lk_envf.region_dynamic != 0:
+            needs_stub(lk_sym.row_of(lk_name.fc_place))
         for f in range(0, lk_tab.fn_count):
             if (lk_tab.fn_flags[f] & (lk_tab.F_ADDR | lk_tab.F_INIT)) != 0:
                 needs_stub(f)

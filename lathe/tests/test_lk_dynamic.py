@@ -1,0 +1,271 @@
+"""Regions placed by the program as it starts: `region NAME WIN N dynamic` and `placer MODULE`
+(lathe/host/lk_dyn.py; configurations.md, "Regions placed at run time").
+
+The objects are made by hand (test_lk_support), with the environment of test_lk_windows's
+regions: `work` in bank 4, dynamic here, and `text` in bank 5, which is not. The list the linker
+writes after the code is read back by places.py, and its places are checked against the code
+the linker wrote: every byte it names is what it says, and moving a variable by the list gives
+the bytes a link with the variable there gives.
+"""
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_lk_support import Obj, link, string, NEVER, NOBODY  # noqa: E402
+from test_lk_windows import ENV, WINDOW, REGION_BANKS, farcall_with  # noqa: E402
+import places  # noqa: E402
+
+DYNAMIC = (ENV + WINDOW + REGION_BANKS + 'region work WIN 4 dynamic\nregion text WIN 5\nfarcall fc\n'
+           'placer p\n')
+STATIC = ENV + WINDOW + REGION_BANKS + 'region work WIN 4\nregion text WIN 5\nfarcall fc\n'
+CODE_LO = 0x0200
+
+
+def placer():
+    p = Obj('p')
+    p.func('place', b'\x60')
+    return p
+
+
+def user(other=True):
+    """Module t: v (300 bytes) and w (4) in region work, k (2) in text. main maps work's bank,
+    stores into v and w, forms v's address and an element's high byte, and puts the bank back;
+    other maps text's and work's banks, so its blocks map a bank of no dynamic region."""
+    t = Obj('t')
+    t.v('v')
+    t.v('w')
+    t.v('k')
+    t.raw(16, string('work'))
+    t.var('v', 300, NEVER)
+    t.raw(16, string('work'))
+    t.var('w', 4, NEVER)
+    t.raw(16, string('text'))
+    t.var('k', 2, NEVER)
+    c = t.code()
+    c.byte(0xA9, 6, t.v('v'))               # LDA #bank(work)
+    c.abs(0x20, t.f('rt_with.map'))
+    c.abs(0x8D, t.v('v'), add=5)            # STA v+5
+    c.abs(0x8D, t.v('w'))                   # STA w
+    c.byte(0xA9, 2, t.v('v'), add=0x1F0)    # LDA #<(v+$1F0)
+    c.byte(0xA9, 3, t.v('v'), add=0x1F0)    # LDA #>(v+$1F0)
+    c.abs(0x20, t.f('rt_with.unmap'))
+    c.raw(0x60)
+    calls = [(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)]
+    if other:
+        calls.append((t.f('other'), 0, NOBODY))
+    t.func('main', c, calls=calls)
+    if other:
+        c = t.code()
+        c.byte(0xA9, 6, t.v('k'))           # LDA #bank(text)
+        c.abs(0x20, t.f('rt_with.map'))
+        c.abs(0x8D, t.v('k'))
+        c.byte(0xA9, 6, t.v('w'))           # LDA #bank(work), inside
+        c.abs(0x20, t.f('rt_with.map'))
+        c.abs(0x8D, t.v('w'))
+        c.abs(0x20, t.f('rt_with.unmap'))
+        c.abs(0x4C, t.f('rt_with.unmap'))   # the block's end as a tail call
+        t.func('other', c, calls=[(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)] * 2)
+    return t
+
+
+def two_byte():
+    """Module u: a two-byte variable p in region work, used in a block."""
+    u = Obj('u')
+    u.v('p')
+    u.raw(16, string('work'))
+    u.var('p', 2, NEVER)
+    c = u.code()
+    c.byte(0xA9, 6, u.v('p'))
+    c.abs(0x20, u.f('rt_with.map'))
+    c.abs(0xAD, u.v('p'))
+    c.raw(0x60)
+    u.func('main', c, calls=[(u.f('rt_with.map'), 0, NOBODY)])
+    return u
+
+
+def places_of(r):
+    """The list, from the address $start gives the placer."""
+    image = r.image
+    # $start: CLD; LDA #<$banks / LDX #>$banks / JSR fc.start; LDA #<$places / LDX #>$places / JSR
+    self_at = 8
+    assert image[self_at] == 0xA9 and image[self_at + 2] == 0xA2 and image[self_at + 4] == 0x20, image[:16].hex()
+    at = image[self_at + 1] | image[self_at + 3] << 8
+    return places.decode(image, CODE_LO, at), at
+
+
+class Dynamic(unittest.TestCase):
+    def link(self, objects, env=DYNAMIC):
+        return link(objects, env)
+
+    def test_a_dynamic_region_needs_a_placer(self):
+        r = link([user(), farcall_with()], DYNAMIC.replace('placer p\n', ''))
+        self.assertEqual(r.status, 1)
+        self.assertIn('link error 63: environment file: a dynamic region needs a placer', r.errors)
+        r = link([user(), farcall_with()], DYNAMIC)
+        self.assertIn('link error 63', r.errors)        # the module that defines place is missing
+
+    def test_start_up_calls_the_placer_with_the_list_after_the_code(self):
+        r = self.link([user(), farcall_with(), placer()])
+        self.assertEqual((r.status, r.errors), (0, ''))
+        p, at = places_of(r)
+        self.assertEqual(r.image[13:15], r.addr('F', 'p.place').to_bytes(2, 'little'))
+        end = at + p.size - CODE_LO                                 # the last thing in the image
+        self.assertEqual(r.image[end:0xFFFC - CODE_LO], bytes(0xFFFC - CODE_LO - end))
+        self.assertEqual((p.code_lo, p.top), (CODE_LO, 0xF000))
+        self.assertEqual(p.areas, [(at, 0x7FFF), (0xC000, 0xEFFF)])
+        self.assertEqual(p.regions, [0x14])
+        v, w = r.addr('V', 't.v'), r.addr('V', 't.w')
+        self.assertEqual(p.variables, [(v, 300, 0), (w, 4, 0)])
+
+    def test_every_place_is_what_it_says(self):
+        r = self.link([user(), farcall_with(), placer()])
+        p, at = places_of(r)
+        v, w, main, other = r.addr('V', 't.v'), r.addr('V', 't.w'), r.addr('F', 't.main'), r.addr('F', 't.other')
+        image = r.image
+
+        def at_(a, n=1):
+            return int.from_bytes(image[a - CODE_LO:a - CODE_LO + n], 'little')
+
+        self.assertEqual(p.addresses, [(places.WORD, 0, main + 6, None), (places.WORD, 1, main + 9, None),
+                                       (places.LOW, 0, main + 12, None),
+                                       (places.HIGH, 0, main + 14, (v + 0x1F0) & 0xFF),
+                                       (places.WORD, 1, other + 14, None)])
+        self.assertEqual(at_(main + 6, 2), v + 5)
+        self.assertEqual(at_(main + 9, 2), w)
+        self.assertEqual(at_(main + 12), (v + 0x1F0) & 0xFF)
+        self.assertEqual(at_(main + 14), (v + 0x1F0) >> 8)
+        self.assertEqual(p.banks, [(0, main + 1), (0, other + 9)])
+        self.assertEqual(at_(main + 1), 0x14)
+        self.assertEqual(p.groups, [(1, [main + 3, main + 16]), (1 | places.KEEP, [other + 3, other + 11,
+                                                                                  other + 17, other + 20])])
+
+    def test_moving_the_variables_by_the_list_moves_every_address_of_them(self):
+        """With v moved by the list to $C123 and w to $C300 (the model of the placer,
+        places.apply), each address of them in main's code is moved by as much, the high byte with
+        the carry of the low; the bank's value is the module's slot and the calls of map and unmap
+        are nothing; no other byte changes. In its slot where it is linked nothing changes."""
+        r = self.link([user(other=False), farcall_with(), placer()])
+        p, at = places_of(r)
+        v, w, main = r.addr('V', 't.v'), r.addr('V', 't.w'), r.addr('F', 't.main')
+        moved = bytearray(places.apply(r.image, CODE_LO, p, {0: 0xC123, 1: 0xC300}, {}))
+        expected = bytearray(r.image)
+        m = main - CODE_LO
+        expected[m + 1] = 4                                             # the module's slot
+        expected[m + 2:m + 5] = b'\xEA\xEA\xEA'                         # JSR map: nothing
+        expected[m + 6:m + 8] = (0xC123 + 5).to_bytes(2, 'little')
+        expected[m + 9:m + 11] = (0xC300).to_bytes(2, 'little')
+        expected[m + 12] = (0xC123 + 0x1F0) & 0xFF
+        expected[m + 14] = ((0xC123 + 0x1F0) >> 8) & 0xFF
+        expected[m + 15:m + 18] = b'\xEA\xEA\xEA'                       # JSR unmap
+        self.assertEqual(moved, expected)
+        self.assertEqual(places.apply(r.image, CODE_LO, p, {}, {0: 0x14}), r.image)
+
+    def test_a_dynamic_region_named_from_a_bank_is_refused(self):
+        """Constant data of a module in a bank that holds a dynamic variable's address: the ROM's
+        bytes cannot be moved with it. (Code that names one is in fixed memory, since only code
+        with a block can, and the linker keeps that fixed.)"""
+        a = Obj('a')
+        a.d('tab')
+        a.data('tab', b'\x00\x00', fixes=[(0, 1, a.v('t.v'), 0xFF, 0)])
+        c = a.code()
+        c.abs(0xAD, a.d('tab'))
+        c.raw(0x60)
+        a.func('main', c)
+        r = link([a, user(other=False), farcall_with(), placer()], DYNAMIC + 'place a WIN 1\n')
+        self.assertEqual(r.status, 1, r.errors)
+        self.assertIn('link error 64: a dynamic region is used where it cannot move: t.v', r.errors)
+
+    def test_constant_data_in_a_dynamic_region_is_refused(self):
+        u = Obj('u')
+        u.d('c')
+        u.raw(16, string('work'))
+        u.data('c', b'\x01\x02')
+        c = u.code()
+        c.byte(0xA9, 6, u.d('c'))
+        c.abs(0x20, u.f('rt_with.map'))
+        c.abs(0xAD, u.d('c'))
+        c.raw(0x60)
+        u.func('main', c, calls=[(u.f('rt_with.map'), 0, NOBODY)])
+        r = link([u, farcall_with(), placer()], DYNAMIC.replace('bank WIN 4 $14\n', 'bank WIN 4 $14 D4.BIN\n'))
+        self.assertEqual(r.status, 1)
+        self.assertIn('link error 64: a dynamic region is used where it cannot move', r.errors)
+
+    def test_a_two_byte_variable_in_a_dynamic_region_is_refused(self):
+        """On an NMOS 6502 a two-byte variable must not lie across a page; the region's block may
+        go anywhere."""
+        r = link([two_byte(), farcall_with(), placer()], DYNAMIC)
+        self.assertEqual(r.status, 1)
+        self.assertIn('link error 64: a dynamic region is used where it cannot move: u.p', r.errors)
+
+    def test_nothing_changes_without_a_dynamic_region(self):
+        a = link([user(), farcall_with(), placer()], STATIC + 'placer p\n')
+        b = link([user(), farcall_with(), placer()], STATIC)
+        self.assertEqual((a.status, b.status), (0, 0))
+        self.assertEqual(a.image, b.image)
+        self.assertEqual(a.map_text, b.map_text)
+
+
+def cases():
+    """(name, objects, environment) of every link above, for the Lathe-written linker."""
+    a = Obj('a')
+    a.d('tab')
+    a.data('tab', b'\x00\x00', fixes=[(0, 1, a.v('t.v'), 0xFF, 0)])
+    c = a.code()
+    c.abs(0xAD, a.d('tab'))
+    c.raw(0x60)
+    a.func('main', c)
+    return [('placed', [user(), farcall_with(), placer()], DYNAMIC),
+            ('one function', [user(other=False), farcall_with(), placer()], DYNAMIC),
+            ('no placer entry', [user(), farcall_with()], DYNAMIC.replace('placer p\n', '')),
+            ('no place', [user(), farcall_with()], DYNAMIC),
+            ('from a bank', [a, user(other=False), farcall_with(), placer()], DYNAMIC + 'place a WIN 1\n'),
+            ('not dynamic', [user(), farcall_with(), placer()], STATIC + 'placer p\n'),
+            ('a two-byte variable', [two_byte(), farcall_with(), placer()], DYNAMIC)]
+
+
+class Twin(unittest.TestCase):
+    """The Lathe-written linker (lk_banked, Wendy 2) gives every link above as the host does: the
+    same status and errors, the same image and map."""
+
+    @classmethod
+    def setUpClass(cls):
+        import lk_banked
+        cls.dir = tempfile.mkdtemp(prefix='lathe-lk-dynamic-')
+        cls.image = lk_banked.build_linker(cls.dir)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_the_lathe_written_linker_links_as_the_host_does(self):
+        import lk_banked
+        for name, objects, env in cases():
+            with self.subTest(case=name):
+                files = {'env': env.encode()}
+                names = []
+                for i, o in enumerate(objects):
+                    files['o%d.lo' % i] = o.to_bytes()
+                    names.append('o%d.lo' % i)
+                main = objects[0].name
+                status, errors, written, cycles = lk_banked.run(self.image, files,
+                                                                ['env', main, 'o.bin', 'o.map'] + names)
+                d = tempfile.mkdtemp(dir=self.dir)
+                for n, data in files.items():
+                    with open(os.path.join(d, n), 'wb') as f:
+                        f.write(data)
+                r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__))), 'host', 'link.py'), 'env', main, 'o.bin', 'o.map'] + names,
+                    capture_output=True, cwd=d)
+                self.assertEqual((status, errors), (r.returncode, r.stderr))
+                for out in ('o.bin', 'o.map'):
+                    if r.returncode == 0:
+                        with open(os.path.join(d, out), 'rb') as f:
+                            self.assertTrue(written.get(out) == f.read(), out + ' differs')
+
+
+if __name__ == '__main__':
+    unittest.main()

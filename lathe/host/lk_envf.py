@@ -18,6 +18,8 @@
     overlay   WIN 1 L5OV1.BIN       ; (a window switched by `overlay`) overlay 1 and its file
     place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
     region    NAMES WIN 4           ; the source's `in NAMES` is bank 4 of WIN; or `fixed`
+    region    NAMES WIN 4 dynamic   ; linked there, and placed again by the program as it starts
+    placer    rt_place              ; the module whose `place` the start-up calls for those
     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
 
@@ -42,7 +44,8 @@ import lk_op
 
 # The words the linker knows, each followed by a space; a word's number is its place, from 1.
 WORDS = (b"cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
-         b"window switch bank overlay place region more farcall fixed rom define when unless ")
+         b"window switch bank overlay place region more farcall fixed rom define when unless "
+         b"dynamic placer ")
 W_CPU = 1
 W_ZEROPAGE = 2
 W_CODE = 3
@@ -72,6 +75,8 @@ W_ROM = 26
 W_DEFINE = 27
 W_WHEN = 28
 W_UNLESS = 29
+W_DYNAMIC = 30
+W_PLACER = 31
 
 HAVE_ZEROPAGE = 1
 HAVE_CODE = 2
@@ -82,6 +87,7 @@ HAVE_STACK = 32
 HAVE_OUTPUT = 64
 HAVE_MORE = 128
 HAVE_FARCALL = 256
+HAVE_PLACER = 512
 NEEDED = 15                         # the entries a file must have
 
 EXIT_CALL = 1                       # LDA #0 and jump to exit_addr
@@ -113,6 +119,7 @@ TEXT_SIZE = 384
 text = bytearray(TEXT_SIZE)
 text_top = 0
 farcall = 0                         # the far-call module's name + 1, or 0
+placer = 0                          # the placer module's name + 1, or 0 (lk_dyn)
 
 SWITCH_NONE = 0
 SWITCH_BANK = 1
@@ -146,6 +153,7 @@ MAX_REGIONS = 16
 region_count = 0
 region_name = [0] * MAX_REGIONS
 region_bank = bytearray(MAX_REGIONS)    # the bank + 1, or 0 for fixed memory
+region_dynamic = 0                  # bit i: region i is `dynamic`, placed again at the start (lk_dyn)
 region_used = 0                     # lk_scan: a bank + 1 that a variable or constant is in, or 0
 
 MAX_DEFINES = 16
@@ -540,7 +548,7 @@ def place_entry():
 
 
 def region_entry():
-    global region_count
+    global region_count, region_dynamic
     name_token()
     for i in range(0, region_count):
         if is_token(region_name[i]):
@@ -565,6 +573,10 @@ def region_entry():
             lk_err.put_number(n)
             lk_err.finish()
         region_bank[i] = b + 1
+        if read_token():
+            if keyword() != W_DYNAMIC:
+                bad()
+            region_dynamic |= 1 << i
     end_of_line()
 
 
@@ -585,6 +597,14 @@ def farcall_entry():
     once(HAVE_FARCALL)
     name_token()
     farcall = hold_token()
+    end_of_line()
+
+
+def placer_entry():
+    global placer
+    once(HAVE_PLACER)
+    name_token()
+    placer = hold_token()
     end_of_line()
 
 
@@ -681,6 +701,8 @@ def check_regions():
             w = v
             if farcall == 0:
                 lk_err.fail(lk_err.E_FARCALL_MISSING)
+    if region_dynamic != 0 and placer == 0:
+        lk_err.fail(lk_err.E_PLACER)
 
 
 def find_region():
@@ -770,6 +792,8 @@ def entry():
         more_entry()
     elif which == W_FARCALL:
         farcall_entry()
+    elif which == W_PLACER:
+        placer_entry()
     elif which == W_ROM:
         rom_entry()
     elif which == W_DEFINE:

@@ -29,16 +29,16 @@
 module lk_place
 
 import lk_alloc (straddles)
-import lk_boot (plan)
+import lk_boot (places_addr, plan)
 import lk_envf (bank_count, bank_file, bank_win, code_hi, code_lo, is_rom, MAX_BANKS, put_bank,
-                win_hi, win_lo)
+                region_bank, win_hi, win_lo)
 import lk_err (begin, colon, E_BANK_FULL, E_CODE_FULL, E_REGION_NO_FILE, E_REGION_ROM, E_WITH_IRQ,
                finish, over)
 import lk_fix (begin, count_shrinks, shrink_count)
 import lk_name (fail, fail_in, global_sym, obj_def, object_count)
 import lk_rec (advance, close, get_word, left, open_object, R_CODE, R_DATA, R_END, R_ENDF, R_FIX,
                R_FUNC)
-import lk_scan (bank_in, rdef_bank, rdef_count, region_of)
+import lk_scan (bank_in, rdef_count, rdef_region, region_of)
 import lk_sym (row_of)
 import lk_tab (add16, copy_node, ctx_count, D_CONST, D_ZP, def_a, def_b, def_count, def_f, def_ref,
                F_INTERRUPT, F_WITH, fn_count, fn_ctx, fn_flags, fn_ref, has_copy, is_kept_def,
@@ -90,7 +90,7 @@ end
 pub func region_bank(b: byte): bool
   var i: byte
   for i = 0 until lk_scan.rdef_count do
-    if lk_scan.rdef_bank[i] == b + 1 then
+    if lk_envf.region_bank[lk_scan.rdef_region[i]] == b + 1 then
       return true
     end
   end
@@ -241,6 +241,9 @@ pub func place()
     place_object(obj)
   end
   place_bank_vars()
+#if LKDYN
+  lk_boot.places_addr = lk_envf.code_lo + code_used
+#end
   room = lk_envf.code_hi - lk_envf.code_lo + 1
   if code_wrapped or code_used > room then
     lk_err.begin(lk_err.E_CODE_FULL)

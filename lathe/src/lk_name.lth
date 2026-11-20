@@ -47,7 +47,7 @@
 ;   | find_local's file, found_obj         | a byte                            |                 |
 module lk_name
 
-import lk_envf (farcall, text)
+import lk_envf (farcall, placer, region_dynamic, text)
 import lk_err (begin, colon, comma, E_DAMAGED, E_KIND, E_NAMES, fail, finish, put, put_number)
 import lk_file (arg_length, ARG_MAIN, ARG_OBJECT, fail, PATH)
 import lk_rec (advance, close, get_byte, get_word, open_object, open_quiet, R_DATA, R_END, R_FUNC,
@@ -116,11 +116,22 @@ var main_length: word = 0       ; MAINMODULE.main is at HEAP_START
 pub var main_sym: word = lk_tab.NONE    ; what it stands for, once something defines it
 pub var fc_call: word = lk_tab.NONE     ; what FARCALL.call and FARCALL.start stand for, once defined
 pub var fc_start: word = lk_tab.NONE
+; With a dynamic region (lk_dyn): what FARCALL.map, FARCALL.unmap and PLACER.place stand for, once
+; defined, and the symbols with those names, which bind() looks out for (begin() sets them).
+pub var fc_map: word
+pub var fc_unmap: word
+pub var fc_place: word
+var map_ref: word
+var unmap_ref: word
+var place_ref: word
 
 pub const MAIN_SUFFIX: [5]byte = ".main"
 const INIT_SUFFIX: [6]byte = ".$init"
 const CALL_SUFFIX: [5]byte = ".call"
 const START_SUFFIX: [6]byte = ".start"
+const MAP_SUFFIX: [4]byte = ".map"
+const UNMAP_SUFFIX: [6]byte = ".unmap"
+const PLACE_SUFFIX: [6]byte = ".place"
 ; The compiler names the far-call module's map and unmap `rt_with.map` and `rt_with.unmap`
 ; (`with` blocks, configurations.md). With a `farcall MODULE` entry, a name that starts so is
 ; read as MODULE's: `rt_bank.map`. With none, the module `rt_with` itself defines them.
@@ -314,6 +325,14 @@ pub func begin()
   main_sym = lk_tab.NONE
   fc_call = lk_tab.NONE
   fc_start = lk_tab.NONE
+#if LKDYN
+  fc_map = lk_tab.NONE
+  fc_unmap = lk_tab.NONE
+  fc_place = lk_tab.NONE
+  map_ref = lk_tab.NONE
+  unmap_ref = lk_tab.NONE
+  place_ref = lk_tab.NONE
+#end
 end
 
 ; ---- the name being read
@@ -386,13 +405,11 @@ func is_init(): bool
   return true
 end
 
-; True if the pending name is the far-call module's name followed by `suffix`, of `suffix_size`
-; bytes.
-func is_farcall(suffix: ^byte, suffix_size: byte): bool
-  var f: word
+; True if the pending name is the name held at `f` + 1 in lk_envf.text followed by `suffix`, of
+; `suffix_size` bytes; false if f is 0.
+func is_named(f: word, suffix: ^byte, suffix_size: byte): bool
   var size: byte
   var i: byte
-  f = lk_envf.farcall
   if f == 0 then
     return false
   end
@@ -411,6 +428,12 @@ func is_farcall(suffix: ^byte, suffix_size: byte): bool
     end
   end
   return true
+end
+
+; True if the pending name is the far-call module's name followed by `suffix`, of `suffix_size`
+; bytes.
+func is_farcall(suffix: ^byte, suffix_size: byte): bool
+  return is_named(lk_envf.farcall, suffix, suffix_size)
 end
 
 ; The chain of the pending name: an index into HEADS.
@@ -477,6 +500,22 @@ func rename_farcall()
   end
 end
 
+#if LKDYN
+; With a dynamic region: s is a new function symbol; note it if it is FARCALL.map, FARCALL.unmap
+; or PLACER.place (lk_dyn), for bind().
+func note_dynamic_names(s: word)
+  if is_farcall(@MAP_SUFFIX, len(MAP_SUFFIX)) then
+    map_ref = s
+  end
+  if is_farcall(@UNMAP_SUFFIX, len(UNMAP_SUFFIX)) then
+    unmap_ref = s
+  end
+  if is_named(lk_envf.placer, @PLACE_SUFFIX, len(PLACE_SUFFIX)) then
+    place_ref = s
+  end
+end
+#end
+
 pub func symbol(kind: byte): word
   var keep: bool
   var s: word
@@ -515,6 +554,11 @@ pub func symbol(kind: byte): word
   end
   lk_tab.set_wk(ref_at(s), s)
   lk_tab.set_wk(ref_at(s) - 1, flags)
+#if LKDYN
+  if kind == lk_sym.FUNCTION and lk_envf.region_dynamic != 0 then
+    note_dynamic_names(s)
+  end
+#end
   if keep then
     pos = heap_top
     h = chain()
@@ -554,6 +598,17 @@ pub func bind(s: word, r: word)
   if (lk_tab.wk(ref_at(s) - 1) & X_FSTART) != 0 then
     fc_start = r
   end
+#if LKDYN
+  if s == map_ref then
+    fc_map = r
+  end
+  if s == unmap_ref then
+    fc_unmap = r
+  end
+  if s == place_ref then
+    fc_place = r
+  end
+#end
 end
 
 ; The weight given to variable s so far.

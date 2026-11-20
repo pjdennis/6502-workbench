@@ -1530,3 +1530,18 @@ What it cannot protect: data in a bank that holds no header and no mark (a user'
 The owner's question, how large a program of several modules the 32K Model B's compiler and linker take ([`bbc.md`](bbc.md), "A program of real size on the 32K Model B", has the account). Programs made by `lathe/tests/gen_program.py` to the measured shape of the tools' code (about 130 bytes, 3.3 slots and 2.7 calls a function, modules of 20 to 30 functions with import lists), compiled and linked on the emulated Model B from the 32K image, every file the host's and the output right: 8 KB (3 modules), 16 KB for mode 4 (6 modules, 312 bytes left below `$5800`), 20 KB (7 modules), and 24.6 KB for mode 7 (8 modules of fewer, larger functions of about 190 bytes; 711 bytes left below `$7C00`), in 5.3 minutes at 2 MHz for the 25 KB one's 13 compiles and link before the disc's time. The first limit is the linker's: its calls table (576) is full at about 20 KB of the usual shape, then its slots (800) and functions (296); the compiler's tables stay at about half (its name heap 1,350 to 1,600 of 3,072 in modules of 300 lines). Then the disc: 31 files a side (at most 10 modules of the program's own with their objects and interfaces on one side), and 134 and 151 KB on the two drives for the 25 KB program, two 80-track sides. Ranked: give the linker's 1,113 free bytes of main RAM to calls, slots, functions and nodes (about 860 bytes: the usual shape to 25 KB); `rt_math` first in `LINKARG` (else 16 pending weights fill: link error 41); objects on two drives for more modules; the compiler's names out of its heap only after these.
 
 To get the 32K image into the 128 KB EPROM the texts of the errors are now in parts placed wherever there is room ([`bbc.md`](bbc.md), "The texts in the module", "In parts, in any bank"): 1,879 bytes free there; the B+128's image 1,957 (1,960).
+
+## Image A, stage 1, measured (2026-11-20)
+
+The study's stage 1 built ([`bbc.md`](bbc.md), "One image for every machine with sideways RAM"):
+from one 128 KB image, linked from `$1F00`, on the emulated B+128 with its four banks, every file
+the host tools', `--bbc-strict` on filled memory. The self-compile 876.3 million cycles at PAGE
+`$1900` and 876.4 million at `$1F00` (874.0 million from today's B+128 image); the linker's link
+of the compiler 3,024.5 million at both (3,023); the rebuild loop at `$1900` 4,045.7 million. The
+placer puts the compiler's `WANTS` (1,600 bytes, 15 calls of map and unmap made nothing) in main
+RAM at every PAGE of the B+ and the Master's `STRING` too and the linker's `LKNODES` (worked out
+from the lists by the placer's model, `lathe/tests/places.py`; the emulator has no Master). The
+start-up: `*LATHE` 1,045,256 cycles, `*LLINK` 754,204 (852,232 and 651,777 today): the lists, 1,183
+and 799 bytes, copied and read. The image has 414 bytes free with `BBCFS 0`; with `BBCFS 3` it is
+about 1,190 over. The study estimated 2.5 KB of ROM for lists and code: they took 4.0 KB (the
+lists 2.0 KB, close to its 1.5 KB; the placer 1.0 KB a tool, not 0.5 KB once).

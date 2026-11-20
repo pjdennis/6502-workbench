@@ -15,6 +15,7 @@ DFS cannot grow a file into the one after it); its slot lines take a reading of 
 (lk_map.slots), because slot names are only in the files.
 """
 import lk_boot
+import lk_dyn
 import lk_envf
 import lk_err
 import lk_fix
@@ -28,6 +29,19 @@ import lk_scan
 import lk_sym
 import lk_tab
 import lk_win
+
+
+writing = 0                         # the file being written: 0 the image, or a bank + 1
+
+
+def site(kind, sym, addr, address, op):
+    """With a dynamic region: the fix-up just applied, at address `addr`, of this kind and naming
+    sym, standing for `address`, in an instruction `op` (0 in constant data), as lk_dyn holds or
+    refuses it."""
+    if writing == 0:
+        lk_dyn.note(kind, sym, addr, address, op)
+    else:
+        lk_dyn.refuse(kind, sym, lk_fix.cur_sym)
 
 
 def value(n, op):
@@ -80,6 +94,9 @@ def instruction(obj, n, pos):
             lk_out.put(address & 0xFF)
         else:
             lk_out.put(op)
+            if lk_dyn.active():
+                site(lk_fix.held(lk_fix.FX_KIND), lk_fix.held(lk_fix.FX_SYM),
+                     (lk_out.base + lk_out.written) & 0xFFFF, address, op)
             lk_out.put_word(address)
         lk_fix.next_fix()
         return pos + size
@@ -94,8 +111,12 @@ def instruction(obj, n, pos):
                 b = lk_fix.bank_value(lk_fix.held(lk_fix.FX_SYM))
                 if b > 0xFF:
                     lk_fix.bad()
+                address = b
             else:
-                b = lk_fix.part(value(n, op), kind)
+                address = value(n, op)
+                b = lk_fix.part(address, kind)
+            if lk_dyn.active():
+                site(kind, lk_fix.held(lk_fix.FX_SYM), (lk_out.base + lk_out.written) & 0xFFFF, address, op)
             lk_fix.next_fix()
         elif k == size - 1 and lk_op.is_branch(op, lk_scan.cpu_of(obj)):
             b = branch(pos + size, b, ctx)
@@ -109,6 +130,8 @@ def emit_copy(obj, n):
     before = lk_out.written
     planned = lk_rec.left() - lk_fix.lost(lk_tab.ctx_of(n))
     lk_fix.rewind()
+    if lk_dyn.active():
+        lk_dyn.begin_copy()
     pos = 0
     while lk_rec.left() > 0:
         pos = instruction(obj, n, pos)
@@ -150,6 +173,9 @@ def emit_data(obj, dest):
             if lk_fix.held(lk_fix.FX_KIND) >= lk_fix.K_BANK:
                 lk_fix.bad()            # the bank of a region is for `with` blocks, and an
                                         # address only reached is formed by code
+            if lk_dyn.active():
+                site(lk_fix.held(lk_fix.FX_KIND), lk_fix.held(lk_fix.FX_SYM),
+                     (lk_out.base + lk_out.written) & 0xFFFF, address, 0)
             if lk_fix.held(lk_fix.FX_KIND) == lk_fix.K_WORD:
                 if lk_rec.left() == 0:
                     lk_fix.bad()
@@ -172,7 +198,9 @@ def emit_data(obj, dest):
 
 def emit_object(obj, dest):
     """Write what object file obj has kept in file dest: 0 the image, or a bank + 1."""
+    global writing
     here = False                    # the function being read is in this file
+    writing = dest
     lk_rec.open_object(obj)
     f = 0
     kept = False
@@ -204,9 +232,12 @@ def write(main_fn):
     open for writing at a time (on an Acorn DFS a file being written cannot grow past the next
     file on the disc). main_fn is the program's main function."""
     lk_out.open_image()
+    lk_dyn.begin()
     lk_boot.write(main_fn)
     for obj in range(0, lk_name.object_count):
         emit_object(obj, 0)
+    if lk_dyn.active():
+        lk_dyn.write_list()
     lk_out.close_image(lk_boot.start_addr)
     if lk_envf.placed():
         for b in range(0, lk_envf.bank_count):

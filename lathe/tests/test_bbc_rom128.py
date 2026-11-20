@@ -308,17 +308,18 @@ def read_judged(path):
     return banks, fixed
 
 
-def build_tools(out_dir, tools=None):
+def build_tools(out_dir, tools=None, settings=None):
     """Each tool linked for the eight-bank image (bbcrom.rom_env with eight banks, from its first
-    bank), by lk_judged.py: [(command, resident, its ROM environment, its map, the link's error or
-    None, the judged notes)]. A tool that does not link is still measured."""
+    bank, and the defines `settings` gives), by lk_judged.py: [(command, resident, its ROM
+    environment, its map, the link's error or None, the judged notes)]. A tool that does not link
+    is still measured."""
     import build
     out = []
     for command, source, env, first in tools or TOOLS:
         d = os.path.join(out_dir, command.lower())
         os.makedirs(d)
         rom = os.path.join(d, env)
-        bbcrom.rom_env(os.path.join(support.SRC, env), rom, first, BANKS)
+        bbcrom.rom_env(os.path.join(support.SRC, env), rom, first, BANKS, settings=settings)
         resident = os.path.join(d, command)
         notes = os.path.join(d, 'judged')
         saved, os.environ['LK_JUDGED_OUT'] = build.LINKER, notes

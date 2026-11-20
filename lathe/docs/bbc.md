@@ -1499,6 +1499,114 @@ Asked: `module.asm`, `texts.asm` (and `loadmod.asm`) as Lathe source, `asm` func
 
 The options put to the owner (2026-11-20): linker entries for a bank that is the module's own (addresses of its items as they are, kept whether named or not, a module placed at an address), or an assembler for asm17's subset that `module.asm`, `texts.asm` and `loadmod.asm` use, in Lathe, which assembles those files themselves on the BBC.
 
+## One image for every machine with sideways RAM (2026-11-20)
+
+The owner's decision, after the study ([`spikes.md`](spikes.md), "One ROM for every BBC: a study"):
+one 128 KB image for a machine with at least one bank of free sideways RAM, one for a machine
+with none, each working with the DFS or ADFS by PAGE and using the room the DFS leaves. This is
+the first of them, **Image A**, at its first stage: the mechanism, and the B+128 with its four
+banks at PAGE `$1900` and `$1F00` from one image. Built: `region NAME WIN N dynamic` and `placer
+MODULE` in the linker (host and twin; [`configurations.md`](configurations.md), "Regions placed at
+run time"), the placer `lathe/rt/rt_place.lth`, `define ADAPT` in `lathec-bbc.env` and
+`linker-bbc.env`, the tests `test_lk_dynamic.py`, `test_bbc_place.py` and `test_bbc_adapt.py`.
+
+### The image
+
+`bbcrom.rom_env(..., settings={'ADFS': 1, 'ADAPT': 1})` for both tools (`test_bbc_adapt.build_image`):
+the ROM forms linked from `$1F00`, the highest PAGE served, as the ADFS build was, with `BBCFS 0`
+(names as given; the run-time choice of names, `BBCFS 3`, is another branch's, below). Every region
+of both tools is `dynamic`, in the order its `when ADAPT` entries give: the compiler's `STRING`,
+`WANTS`, `OUTTAB`, `TOKENS`, `FUNCBUF`, `NAMES`, `SYMS` (and `MSGS`, empty in the ROM form); the
+linker's `LKNODES`, `LKSLOTS`, `LKLOCAL`, `LKCALLS`, `LKWORK`; small and often mapped first. Each is
+linked in its slot as before (12, 13, 0 and 1), at full capacity. `rt_place` is in the compiler's
+bank 4 and the linker's bank 2; `link` is in the linker's second bank (it was so already with
+`ADFS 1`). The splits: the compiler's code `$1F00-$523F` and data from `$5240`, the linker's
+`$1F00-$47DF` and `$47E0`, so that the list fits after the code.
+
+### At the start
+
+The module copies each tool's resident part, the list with it, to `$1F00` as before (nothing in
+`module.asm` or `bbcrom.py` changed). `$start` calls `rt_place.place` after `rt_bbc.start`:
+
+1. PAGE (OSBYTE 131) above `$1F00`: `PAGE too high`; HIMEM (OSBYTE 132) below the end of the
+   tool's ranges (`$7C00`): `Mode 7 needed`. Both MOS errors raised from `$0100`, as the module
+   raises its own.
+2. The free areas: PAGE to `$1EFF`; what the link left (the code range from the list on, since the
+   list is read once; `data` and `more` after their variables); `$7C00` to HIMEM in a shadow mode.
+3. Each region in order: in main RAM if every one of its variables fits there, each in the first
+   area that holds it; else where it is linked.
+4. The places: each address of a moved variable moved; each block's bank of a region in main RAM
+   the module's own slot (any slot would do: what runs in a block reads only main RAM); and the
+   calls of map and unmap of every function copy whose blocks all map regions in main RAM three
+   NOPs (a `JMP unmap` an RTS), so those blocks cost nothing (the study measured 67 cycles a block).
+
+With every region where it is linked nothing is written. It is assembly (1,031 bytes; the same in
+Lathe was 1,332) using the MOS's `$A8-$AF`, and its 127 bytes of variables are the tool's.
+
+What goes where, from the lists (`places.py`'s model of the placer, which `test_bbc_place.py`
+checks against the real one on the BBC):
+
+| Machine | PAGE, HIMEM | Free main RAM | The compiler's regions there | The linker's |
+|---|---|---|---|---|
+| B+128, DFS | `$1900`, `$7C00` | 3,645 | `WANTS` (1,600 bytes; 15 calls of map and unmap nothing) | none (1,679 free at most in one area) |
+| B+128, DFS, shadow mode | `$1900`, `$8000` | 4,669 | `WANTS` | none |
+| ADFS alone | `$1D00`, `$7C00` | 2,621 | `WANTS` | none |
+| B+128, ADFS and DFS | `$1F00`, `$7C00` | 2,109 | `WANTS` | none |
+| Master 128 (not run: the emulator has no Master) | `$0E00`, `$8000` | 7,485 / 7,055 | `STRING`, `WANTS` (3,648; 23 calls) | `LKNODES` (3,600; 8 calls) |
+
+The tables are whole variables at full size: `STRING`, `TOKENS` and OUTTAB's table are 2,048 bytes
+each, more than any one free area holds below a Master, so at PAGE `$1900` 2,045 of the 3,645 free
+bytes stay unused. Sizing the tables at start-up, the next stage, is what uses them.
+
+### Measured
+
+From Image A on the emulated B+128 (four banks), `--bbc-strict` on filled memory, every file the
+host tools' (`test_bbc_adapt.py`):
+
+| | PAGE `$1900` | PAGE `$1F00` | The B+128 image today |
+|---|---|---|---|
+| the self-compile, 18 compiles | **876.3 million** | **876.4 million** | 874.0 million |
+| the linker links the compiler | **3,024.5 million** | **3,024.5 million** | 3,023 million |
+| the rebuild loop | **4,045.7 million** | | 4,478.2 million (2026-11-18) |
+| `*LATHE`, `*LLINK` with no arguments | 1,045,256, 754,204 | 1,044,396, 753,410 | 852,232, 651,777 |
+
+The start-up is about 190,000 cycles longer for the compiler and 100,000 for the linker (the
+list copied a byte at a time with the rest, 1,183 and 799 bytes, then read), about a tenth of a
+second at 2 MHz a command; the 15 blocks of `WANTS` saved do not make it up in a compile.
+
+### The account
+
+The image: **414 bytes free** of the 131,072 (`BBCFS 0`), against 4,715 in the B+128 image of today
+built the same way. Where the 4,301 went: the lists, 1,982 (1,183 and 799, copied at each
+command); `rt_place` twice, 2,062; the linker's own code for the new entries, about 110 as judged
+(`lk_envf` 89, the rest `lk_name` and `lk_emit`), the rest of it being left out by `LKDYN 0`; the
+resident parts' `$start` and stubs, 13 and a few; the rest the pieces' entries. With `BBCFS 3`, whose `bbcfs` is
+909 bytes as judged in each tool, the image does not fit: about 1,190 bytes over (measured after
+the merge of `BBCFS 3`: 795 bytes free before the lists' 1,982, and both tools' code ranges 22 and
+47 bytes short), so Image A is built with `BBCFS 0` for now and its tests cannot yet run under
+`--bbc-fs dfs` or `--bbc-fs adfs`. What would bring it
+back, ranked: (1) the placer once, in the module's home bank, for both tools (about 1,000 bytes; a
+change to `module.asm`: a routine the tools call with the list's address); (2) the lists packed
+tighter (a byte a place in runs of one kind; about 500); (3) the lists in a bank, not copied, read
+by the placer through `rt_bbc` (no ROM saved, the start-up's copying saved).
+
+The linker of the ROM forms leaves dynamic regions out (`define LKDYN 0`, about 2.7 KB of its banks),
+so the 128 KB image's `*LLINK` cannot link a program with a dynamic region (`dynamic` is a bad entry,
+link error 3); the developer's form, Wendy 2's builds and the host's can.
+
+### What is not done
+
+- Image A with fewer banks (one or two), the Master, finding the sideways RAM (the probe), and the
+  capacities set at start-up: stage 2. The list already carries each region's linked bank, for the
+  slots found then.
+- Image B, the bare 32K Model B: stage 3.
+- The module's own check: it copies the resident part to `$1F00` before the tool's `PAGE too high`;
+  with PAGE above `$1F00` that copy writes below PAGE. The module should refuse PAGE above a
+  command's load address as it refuses HIMEM (the module's agent's; `test_bbc_adapt` runs the
+  refusal without `--bbc-strict` so that the tool's message is seen).
+- Nothing is redundant yet: the B+128 builds of today (`$1900` with `BBCFS` 0 and 1, the ADFS
+  build with `BBCFS 2`) stay until Image A carries the names chosen at run time and fits with them.
+
 ## Open, for the owner
 
 - ~~**File names.** The compiler joins a directory and a name with `/`, which the emulator now accepts only as a leading `./` (step 4); a real filing system needs its own scheme. DFS allows seven characters and uses `.` to separate the directory, so `asmblock.lth` cannot exist there. ADFS allows ten. The first version uses names as the emulator's directory takes them. A scheme is needed for real discs, for example `L.EXPR` for source, `O.EXPR` for the object file and `I.EXPR` for the interface, with module names kept to seven characters.~~ Closed (2026-11-16): the BBC's build maps the names, and module names are not limited ("File names on the BBC"). What a real disc still asks for is listed there: the linker's map against "Can't extend" (five files open and the image larger than a side were dealt with on 2026-11-16).

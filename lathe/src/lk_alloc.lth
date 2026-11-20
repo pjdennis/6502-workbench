@@ -856,6 +856,11 @@ func assign_zp()
   end
 end
 
+; What main memory is used, for the placer's list (lk_dyn): bytes from the start of `data` and of
+; `more`.
+pub var data_end: word
+pub var more_end: word
+
 ; True if variable d, not in zero page, goes in its module's bank (lk_win.bank_def). Until
 ; lk_place puts it there, its address is the window's first: not zero page, so what shrinks is
 ; known.
@@ -930,6 +935,10 @@ func place_vars_more(pos: word)
     lk_err.over(over, lk_tab.overflow)
     lk_err.finish()
   end
+#if LKDYN
+  data_end = pos
+  more_end = mpos
+#end
 end
 
 ; Lay out main memory: the variables, then each context. With a `more` range the frames come
@@ -958,6 +967,10 @@ func assign_main()
       lk_tab.set_wk(lk_tab.W_MBASE + n, lk_envf.data_lo + base_of(n))
     end
   end
+#if LKDYN
+  data_end = pos
+  more_end = 0
+#end
   if lk_envf.has_more then
     place_vars_more(pos)
   end

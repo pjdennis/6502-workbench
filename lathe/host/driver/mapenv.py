@@ -81,6 +81,8 @@ class Env:
     regions: list = field(default_factory=list)  # `region NAME WIN N`: the regions in a bank
     fixed_regions: list = field(default_factory=list)  # `region NAME fixed`: the regions said to be
                                                        # in fixed memory (build.compiler_options)
+    dynamic_regions: list = field(default_factory=list)  # `region NAME WIN N dynamic` (also in regions)
+    placer: Optional[str] = None                 # `placer MODULE` (lathe/host/lk_dyn.py)
 
     def banked(self):
         """True if some module's code is in a window, or a region is in a bank: the link uses
@@ -148,10 +150,15 @@ def parse_env(text, path='<env>'):
             env.files.append(args[2])
         elif key == 'region' and len(args) == 3:
             env.regions.append(args[0].lower())
+        elif key == 'region' and len(args) == 4 and args[3].lower() == 'dynamic':
+            env.regions.append(args[0].lower())
+            env.dynamic_regions.append(args[0].lower())
         elif key == 'region' and len(args) == 2 and args[1].lower() == 'fixed':
             env.fixed_regions.append(args[0].lower())
         elif key == 'farcall' and len(args) == 1:
             env.farcall = args[0].lower()
+        elif key == 'placer' and len(args) == 1:
+            env.placer = args[0].lower()
         elif key == 'start':
             raise FormatError(f'{where}: start is no longer an entry: the linker makes $start '
                               f'(lathe/docs/object-format.md, "Initial values and start-up")')

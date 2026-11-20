@@ -29,10 +29,14 @@
 ;   | kind given to part                   | a byte `kind`                     |                 |
 ;   | range(1, size)                       | for k = 1 until size              | the same        |
 ;   | lk_out.written                       | the same: made pub                | read here       |
+;   | lk_out.base + lk_out.written & 0xFFFF| the same, base made pub; a word   | the same        |
 module lk_emit
 
 import lk_boot (start_addr, write)
-import lk_envf (bank_count, bank_file, bank_win, placed, window)
+#if LKDYN
+import lk_dyn
+#end
+import lk_envf (bank_count, bank_file, bank_win, placed, region_dynamic, window)
 import lk_err (E_SIZE)
 import lk_fix (bad, bank_value, begin, begin_data, check_mapped, cur_sym, cursor, drop, FX_ADD,
                FX_AT, FX_KIND, FX_SLOT, FX_SYM, held, hold, is_word, K_BANK, K_SHRINK, K_WORD, lost,
@@ -48,6 +52,21 @@ import lk_scan (bank_in, cpu_of, obj_bank)
 import lk_sym (CONSTANT, row_of, VARIABLE)
 import lk_tab (copy_node, ctx_count, ctx_of, def_a, fn_ctx, has_copy, is_kept_def, W_ADDR, wk)
 import lk_win (def_dest)
+
+#if LKDYN
+var writing: byte = 0           ; the file being written: 0 the image, or a bank + 1
+
+; With a dynamic region: the fix-up just applied, at address `addr`, of this kind and naming sym,
+; standing for `address`, in an instruction `op` (0 in constant data), as lk_dyn holds or refuses
+; it.
+func site(kind: byte, sym: word, addr: word, address: word, op: byte)
+  if writing == 0 then
+    lk_dyn.note(kind, sym, addr, address, op)
+  else
+    lk_dyn.refuse(kind, sym, lk_fix.cur_sym)
+  end
+end
+#end
 
 ; The address the fix-up at lk_fix's cursor stands for in the copy that is node n, addend
 ; included. op is the opcode of the instruction it is in.
@@ -120,6 +139,12 @@ func instruction(obj: byte, n: word, pos: word): word
       lk_out.put(lo(address))
     else
       lk_out.put(op)
+#if LKDYN
+      if lk_envf.region_dynamic != 0 then
+        site(lo(lk_fix.held(lk_fix.FX_KIND)), lk_fix.held(lk_fix.FX_SYM), lk_out.base + lk_out.written,
+             address, op)
+      end
+#end
       lk_out.put_word(address)
     end
     lk_fix.next_fix()
@@ -140,8 +165,14 @@ func instruction(obj: byte, n: word, pos: word): word
         end
         b = lo(v)
       else
-        b = lk_fix.part(value(n, op), kind)
+        v = value(n, op)
+        b = lk_fix.part(v, kind)
       end
+#if LKDYN
+      if lk_envf.region_dynamic != 0 then
+        site(kind, lk_fix.held(lk_fix.FX_SYM), lk_out.base + lk_out.written, v, op)
+      end
+#end
       lk_fix.next_fix()
     elif k == size - 1 and lk_op.is_branch(op, lk_scan.cpu_of(obj)) then
       b = branch(pos + size, b, ctx)
@@ -160,6 +191,11 @@ func emit_copy(obj: byte, n: word)
   before = lk_out.written
   planned = lk_rec.left() - lk_fix.lost(lk_tab.ctx_of(n))
   lk_fix.rewind()
+#if LKDYN
+  if lk_envf.region_dynamic != 0 then
+    lk_dyn.begin_copy()
+  end
+#end
   pos = 0
   while lk_rec.left() > 0 do
     pos = instruction(obj, n, pos)
@@ -217,6 +253,12 @@ func emit_data(obj: byte, dest: byte)
         lk_fix.bad()                    ; the bank of a region is for `with` blocks, and an
                                         ; address only reached is formed by code
       end
+#if LKDYN
+      if lk_envf.region_dynamic != 0 then
+        site(lo(lk_fix.held(lk_fix.FX_KIND)), lk_fix.held(lk_fix.FX_SYM), lk_out.base + lk_out.written,
+             address, 0)
+      end
+#end
       if lk_fix.held(lk_fix.FX_KIND) == lk_fix.K_WORD then
         if lk_rec.left() == 0 then
           lk_fix.bad()
@@ -250,6 +292,9 @@ func emit_object(obj: byte, dest: byte)
   var kept: bool
   var kind: byte
   here = false                  ; the function being read is in this file
+#if LKDYN
+  writing = dest
+#end
   lk_rec.open_object(obj)
   f = 0
   kept = false
@@ -286,10 +331,18 @@ pub func write(main_fn: word)
   var obj: byte
   var b: byte
   lk_out.open_image()
+#if LKDYN
+  lk_dyn.begin()
+#end
   lk_boot.write(main_fn)
   for obj = 0 until lk_name.object_count do
     emit_object(obj, 0)
   end
+#if LKDYN
+  if lk_envf.region_dynamic != 0 then
+    lk_dyn.write_list()
+  end
+#end
   lk_out.close_image(lk_boot.start_addr)
   if lk_envf.placed() then
     for b = 0 until lk_envf.bank_count do

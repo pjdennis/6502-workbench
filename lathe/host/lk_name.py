@@ -71,11 +71,22 @@ main_length = 0                     # MAINMODULE.main is at HEAP_START
 main_sym = lk_tab.NONE              # what it stands for, once something defines it
 fc_call = lk_tab.NONE               # what FARCALL.call and FARCALL.start stand for, once defined
 fc_start = lk_tab.NONE
+# With a dynamic region (lk_dyn): what FARCALL.map, FARCALL.unmap and PLACER.place stand for, once
+# defined, and the symbols with those names, which bind() looks out for.
+fc_map = lk_tab.NONE
+fc_unmap = lk_tab.NONE
+fc_place = lk_tab.NONE
+map_ref = lk_tab.NONE
+unmap_ref = lk_tab.NONE
+place_ref = lk_tab.NONE
 
 MAIN_SUFFIX = b".main"
 INIT_SUFFIX = b".$init"
 CALL_SUFFIX = b".call"
 START_SUFFIX = b".start"
+MAP_SUFFIX = b".map"
+UNMAP_SUFFIX = b".unmap"
+PLACE_SUFFIX = b".place"
 # The compiler names the far-call module's map and unmap `rt_with.map` and `rt_with.unmap`
 # (`with` blocks, configurations.md). With a `farcall MODULE` entry, a name that starts so is
 # read as MODULE's: `rt_bank.map`. With none, the module `rt_with` itself defines them.
@@ -205,6 +216,7 @@ def mark_all():
 def begin():
     """Before the tables are read: no name kept yet, and MAINMODULE.main to look out for."""
     global heap_top, main_length, main_sym, fc_call, fc_start
+    global fc_map, fc_unmap, fc_place, map_ref, unmap_ref, place_ref
     for i in range(0, CHAINS):
         lk_tab.set_wk(HEADS + i, 0)
     main_length = lk_file.arg_length(lk_file.ARG_MAIN)
@@ -220,6 +232,12 @@ def begin():
     main_sym = lk_tab.NONE
     fc_call = lk_tab.NONE
     fc_start = lk_tab.NONE
+    fc_map = lk_tab.NONE
+    fc_unmap = lk_tab.NONE
+    fc_place = lk_tab.NONE
+    map_ref = lk_tab.NONE
+    unmap_ref = lk_tab.NONE
+    place_ref = lk_tab.NONE
 
 
 # ---- the name being read
@@ -282,7 +300,12 @@ def is_init():
 
 def is_farcall(suffix):
     """True if the pending name is the far-call module's name followed by `suffix`."""
-    f = lk_envf.farcall
+    return is_named(lk_envf.farcall, suffix)
+
+
+def is_named(f, suffix):
+    """True if the pending name is the name held at `f` + 1 in lk_envf.text followed by
+    `suffix`; False if f is 0."""
     if f == 0:
         return False
     size = lk_envf.text[f - 1]
@@ -369,6 +392,8 @@ def symbol(kind):
         lk_err.fail(lk_err.E_NAMES)
     lk_tab.set_wk(ref_at(s), s)
     lk_tab.set_wk(ref_at(s) - 1, flags)
+    if kind == lk_sym.FUNCTION and lk_envf.region_dynamic != 0:
+        note_dynamic_names(s)
     if keep:
         pos = heap_top
         h = chain()
@@ -395,9 +420,21 @@ def now(s):
     return lk_tab.wk(ref_at(s))
 
 
+def note_dynamic_names(s):
+    """With a dynamic region: s is a new function symbol; note it if it is FARCALL.map,
+    FARCALL.unmap or PLACER.place (lk_dyn), for bind()."""
+    global map_ref, unmap_ref, place_ref
+    if is_farcall(MAP_SUFFIX):
+        map_ref = s
+    if is_farcall(UNMAP_SUFFIX):
+        unmap_ref = s
+    if is_named(lk_envf.placer, PLACE_SUFFIX):
+        place_ref = s
+
+
 def bind(s, r):
     """Symbol s is defined: it stands for r."""
-    global main_sym, fc_call, fc_start
+    global main_sym, fc_call, fc_start, fc_map, fc_unmap, fc_place
     lk_tab.set_wk(ref_at(s), r)
     if (lk_tab.wk(ref_at(s) - 1) & X_MAIN) != 0:
         main_sym = r
@@ -405,6 +442,12 @@ def bind(s, r):
         fc_call = r
     if (lk_tab.wk(ref_at(s) - 1) & X_FSTART) != 0:
         fc_start = r
+    if s == map_ref:
+        fc_map = r
+    if s == unmap_ref:
+        fc_unmap = r
+    if s == place_ref:
+        fc_place = r
 
 
 def more(s):

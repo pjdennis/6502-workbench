@@ -9,6 +9,8 @@
 ;     CLD
 ;     LDA #<$banks / LDX #>$banks / JSR FARCALL.start
 ;                                 if code is placed in a window ($overlays for overlays)
+;     LDA #<$places / LDX #>$places / JSR PLACER.place
+;                                 if a region is dynamic: the list lk_dyn writes after the code
 ;     JSR $init                   if there is one
 ;     JSR MAINMODULE.main
 ;     LDA #$00 / JMP addr         for `exit call addr`; a JMP to itself for `exit loop`;
@@ -36,8 +38,9 @@
 module lk_boot
 
 import lk_envf (bank_file, bank_value, code_lo, exit_addr, EXIT_CALL, exit_keeps, exit_kind,
-                EXIT_LOOP, EXIT_STOP, has_stack, is_overlay, placed, stack, text, win_lo, window)
-import lk_name (fc_call, fc_start)
+                EXIT_LOOP, EXIT_STOP, has_stack, is_overlay, placed, region_dynamic, stack, text,
+                win_lo, window)
+import lk_name (fc_call, fc_place, fc_start)
 import lk_out (put, put_word, seek)
 import lk_scan (fn_bank)
 import lk_sym (row_of)
@@ -51,6 +54,7 @@ pub var init_addr: word = 0
 pub var init_len: word = 0      ; 0 if no module has initialisers
 pub var table_addr: word = 0    ; $banks or $overlays
 pub var table_len: word = 0     ; 0 if no code is placed in a window
+pub var places_addr: word       ; with a dynamic region, the list after the code (lk_place, lk_dyn)
 
 ; True if function f is some module's `$init`: its name ends in `.$init` (lk_name).
 pub func is_init(f: word): bool
@@ -81,6 +85,11 @@ pub func plan(): word
     start_len += 7
     table_len = lk_win.table_size()
   end
+#if LKDYN
+  if lk_envf.region_dynamic != 0 then
+    start_len += 7
+  end
+#end
   if init_len != 0 then
     start_len += 3
   end
@@ -197,6 +206,15 @@ pub func write(main_fn: word)
     lk_out.put(hi(table_addr))
     jsr(lk_tab.wk(lk_tab.W_ADDR + lk_tab.first_node(lk_sym.row_of(lk_name.fc_start))))
   end
+#if LKDYN
+  if lk_envf.region_dynamic != 0 then
+    lk_out.put($A9)             ; LDA #<$places
+    lk_out.put(lo(places_addr))
+    lk_out.put($A2)             ; LDX #>$places
+    lk_out.put(hi(places_addr))
+    jsr(entry(lk_sym.row_of(lk_name.fc_place), 0))
+  end
+#end
   if init_len != 0 then
     jsr(init_addr)
   end
