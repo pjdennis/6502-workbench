@@ -1550,3 +1550,32 @@ Later the same day (`bbc.md`, "The ROM plan"): a region moved as one block by wh
 list of the calls of map and unmap, the lists are 623 bytes and the placer 591; Image A then fits
 with `BBCFS 3` (1,072 bytes free, against 2,903 for the same image without `ADAPT`), but not with
 the linker's `lk_dyn` in it (`LKDYN 1`, about 2,612 bytes as judged: about 1,160 over).
+
+## Image A with the name heap set at start-up, measured (2026-11-20)
+
+([`bbc.md`](bbc.md), "Capacities set at start-up: the name heap".) On the emulated B+128 with
+its four banks, `--bbc-strict` on filled memory, every file the host tools' (`test_bbc_adapt.py`,
+`BBCFS 0`): the self-compile 877.0 million cycles at PAGE `$1900` and at `$1F00` (876.3 and 876.4
+before; 874.0 from the B+128 image of today); the linker's link of the compiler 3,024.2 million
+at both (3,024.5); the rebuild loop at `$1900` 4,048.0 million (4,045.7). The start-up: `*LATHE`
+with no arguments 938,993 cycles, `*LLINK` 691,779 at `$1900` (1,045,256 and 754,204 measured at
+stage 1, before the lists became a third of their size; 852,232 and 651,777 for today's image).
+The placer now moves every region (packed from the bottom of the free slots), which costs little.
+A module of 12,923 bytes of names (`test_bbc_rooms.big_names_source`) compiles in 24.2 million
+cycles on every machine it was run on.
+
+The account, `BBCFS 3`, `ADFS 1` (as `bbcrom.image` lays the image out, and the banks as the
+linker judges them): **1,174 bytes free** (1,386 before). The module's code and tables 1,630
+bytes (1,464: the placer packs, takes the largest area and writes a capacity); the compiler's bank
+4 12,186 judged (12,173: `kernel`'s two tests read a variable), its other banks unchanged
+(13,759, 15,271, 14,007, 14,269); the lists 18 and 10 bytes longer (a capacity word for each
+region, and for `NAMES` where its last variable starts). The linker's banks are unchanged: 16,245,
+15,193 and 15,884 (its new code is under `LKDYN`, off in the ROM forms; with `LKDYN 1` it adds to
+the 781 bytes already over, by an amount not measured).
+
+The least name heap each module of the compiler compiles with (the host compiler, `lathec_heap.py`):
+`sys` 974, `src` 1,259, `fold` 1,322, `typetab` 1,635, `lathec` 1,944, `cond` 2,175, `out` 2,684,
+`fbuf` 2,786, `err` 3,723, `parts` 3,794, `lex` 3,804, `asmblock` 3,855, `kernel` 3,963, `inlines`
+3,964, `reg` 5,041, `expr` 7,002, `gen` 7,007, `decl` 7,177; a generated program's modules
+(gen_program.py, 20 functions each) 1,035 to 1,418. At each of six sizes from the least up to
+30,000 every module gives the same files.

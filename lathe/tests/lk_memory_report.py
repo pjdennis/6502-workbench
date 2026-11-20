@@ -32,8 +32,10 @@ HOST = os.path.join(LATHE, 'host')
 sys.path.insert(0, HOST)
 
 BUDGET = 24 * 1024                  # the goal (architecture.md, "Memory in the linker")
-CEILING = 55392                    # what the linker takes now must not grow past this (16 more on
-                                   # 2026-11-18: what each copy loses before a run of fix-ups, lk_fix)
+CEILING = 55456                    # what the linker takes now must not grow past this (16 more on
+                                   # 2026-11-18: what each copy loses before a run of fix-ups, lk_fix;
+                                   # 64 more on 2026-11-20: each region's capacity variable, its name
+                                   # and what it stands for, lk_envf.region_room, lk_name.room_def)
 
 MODULES = ['lk_err', 'lk_file', 'lk_op', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
            'lk_out', 'lk_win', 'lk_boot', 'lk_graph', 'lk_alloc', 'lk_fix', 'lk_place', 'lk_map', 'lk_emit']

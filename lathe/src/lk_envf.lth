@@ -183,6 +183,8 @@ pub var region_name: [MAX_REGIONS]word
 pub var region_bank: [MAX_REGIONS]byte  ; the bank + 1, or 0 for fixed memory
 pub var region_dynamic: word        ; bit i: region i is `dynamic`, placed again at the start (lk_dyn;
                                     ; read() sets it)
+pub var region_room: [MAX_REGIONS]word  ; a dynamic region's capacity variable's name + 1, or 0 (lk_dyn;
+                                        ; with LKDYN 0 nothing uses it, so it is not linked)
 pub var region_used: byte = 0       ; lk_scan: a bank + 1 that a variable or constant is in, or 0
 
 const MAX_DEFINES = 16
@@ -673,6 +675,9 @@ func region_entry()
   i = region_count
   region_count += 1
   region_name[i] = hold_token()
+#if LKDYN
+  region_room[i] = 0
+#end
   name_token()
   if keyword() == W_FIXED then
     region_bank[i] = 0
@@ -695,6 +700,9 @@ func region_entry()
         bad()
       end
       region_dynamic |= word(1) << i
+      if read_word(false) then
+        region_room[i] = hold_token()
+      end
     end
 #end
   end

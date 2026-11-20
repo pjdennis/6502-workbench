@@ -30,6 +30,9 @@ to the placer module's `place` (the environment's `placer` entry) after FARCALL.
             is not dynamic has no block and no places):
             byte    the bank's value it is linked with
             word    its block's first byte, as linked, and word its size (0: nothing to move)
+            word    the address of its capacity variable (the `region` entry's last word), or 0;
+                    if not 0, then word: where its last variable starts, from the block's first
+                    byte (the placer writes the bytes it gives the block, less this, there)
             word    N, then N places: a high byte, to which the pages moved are added
             word    M, then M places: a block's `LDA #bank` byte, which is the bank's value
 
@@ -189,12 +192,28 @@ def put_sites(t, r):
             before = put_place(before, lk_tab.wk(W_SITES + 2 * i))
 
 
+def room_of(r):
+    """The address of region r's capacity variable, or 0 if it names none. It must be a variable
+    of two bytes or more, linked, in main memory and in no region."""
+    if lk_envf.region_room[r] == 0:
+        return 0
+    v = lk_name.room_def[r]
+    if v == lk_tab.NONE or lk_sym.kind_of(v) != lk_sym.VARIABLE:
+        lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
+    d = lk_sym.row_of(v)
+    if not lk_tab.is_kept_var(d) or lk_tab.def_b[d] < 2 or rdef_of(d) != lk_scan.MAX_REGION_DEFS:
+        lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
+    return lk_tab.def_a[d]
+
+
 def put_region(r):
-    """Region r (its entry in lk_envf): its bank's value, its block and its places; constant data
-    in a dynamic region is refused, as it would have to be copied where the block goes."""
+    """Region r (its entry in lk_envf): its bank's value, its block, its capacity variable and its
+    places; constant data in a dynamic region is refused, as it would have to be copied where the
+    block goes."""
     lk_out.put(lk_envf.bank_value[lk_envf.region_bank[r] - 1])
     first = 0xFFFF
     past = 0
+    last = 0                        # where its last variable starts
     for i in range(0, lk_scan.rdef_count):
         d = lk_scan.rdef_def[i]
         if lk_scan.rdef_region[i] == r and is_dynamic(r) and lk_tab.is_kept_def(d) \
@@ -205,10 +224,16 @@ def put_region(r):
                 first = lk_tab.def_a[d]
             if lk_tab.def_a[d] + lk_tab.def_b[d] > past:
                 past = lk_tab.def_a[d] + lk_tab.def_b[d]
+            if lk_tab.def_a[d] > last:
+                last = lk_tab.def_a[d]
     if past == 0:
         first = 0
     lk_out.put_word(first)
     lk_out.put_word(past - first)
+    room = room_of(r)
+    lk_out.put_word(room)
+    if room != 0:
+        lk_out.put_word(last - first)
     put_sites(T_ADD, r)
     put_sites(T_BANK, r)
 

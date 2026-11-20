@@ -115,20 +115,24 @@ p_before: = $0108
 p_linked: = $010A
 p_goes: = $010C
 p_end: = $010E
-p_areas: = $0110
-p_max_areas: = $06
-p_first_lo: = $0111
-p_first_hi: = $0117
-p_last_lo: = $011D
-p_last_hi: = $0123
-p_regions: = $0129
-p_pages: = $012A
-p_number: = $012B
-p_value: = $012D               ; the region's bank's value as linked, and where it goes
-p_new: = $012E
-p_maps: = $012F                ; for each slot a region is linked in, the slot it goes in, or $FF
-p_free: = $013F                ; for each slot, not 0 if it is free sideways RAM not yet given out
-p_probe_ram: = $014F           ; the probe of a slot, copied there from probe_code (below)
+p_areas: = $0110               ; the free areas: main RAM's, then the free sideways RAM's
+p_max_areas: = $0C
+p_first_lo: = $0111            ; each area's first byte not given out, and its last
+p_first_hi: = $011D
+p_last_lo: = $0129
+p_last_hi: = $0135
+p_slot: = $0141                ; its slot, or $FF in main RAM
+p_regions: = $014D
+p_pages: = $014E
+p_number: = $014F
+p_value: = $0151               ; the region's bank's value as linked
+p_new: = $0152                 ; and the one it gets
+p_room: = $0153                ; the address of its capacity variable, or 0
+p_offset: = $0155              ; with one: where its last variable starts in its block
+p_grant: = $0157               ; the bytes an area gives it, for p_take_most
+p_best: = $0159                ; the area that gives the most so far, and that many bytes
+p_most: = $015A
+p_probe_ram: = $015C           ; the probe of a slot, copied there from probe_code (below)
 
 ; ---- every bank: the header and the service code ----
 * = $8000
@@ -475,12 +479,22 @@ refuse:
 ; tool's `$start` calls rt_place.place, which puts the list's address at $A8/$A9 and asks with
 ; OSBYTE 143, X = text_call and Y = place_text (text 255, the linker's error 0, which is none),
 ; before anything else of the tool runs. It reads PAGE and HIMEM, refuses PAGE above the fixed
-; part and HIMEM below the tool's ranges (MOS errors from $0100), knows the free main RAM (from
-; PAGE to the fixed part, the free areas the list gives, from the end of the ranges to HIMEM),
-; puts each region in main RAM if its block fits a free area at an address with the low byte it
-; is linked at, and for each region it moved adds the pages moved to each high byte the list
-; names and makes each of its blocks' banks the module's own slot ($F4 now). Its variables are
-; at $0100-$012C, the bottom of the stack's page, which nothing uses while a tool starts (an
+; part and HIMEM below the tool's ranges (MOS errors from $0100), and knows the free areas: main
+; RAM's (from PAGE to the fixed part, the free areas the list gives, from the end of the ranges
+; to HIMEM), then each slot of free sideways RAM's, the window $8000-$BFDF (p_find). Then each
+; region in the list's order, at an address with the low byte it is linked at:
+;
+; - one with a capacity variable gets the area that gives it the most bytes, if that is at least
+;   its size as linked, and all of that area; the bytes less where its last variable starts are
+;   written in the variable, the room that variable has (so such a region is best last);
+; - any other goes in the first area that holds it: main RAM if it fits there, else sideways RAM;
+; - none in a bank of the module (a value of $10 or more) moves, and one with a capacity there
+;   has the size it is linked with.
+;
+; A region that no area holds is refused: `Too little sideways RAM`. For each region it adds the
+; pages moved to each high byte the list names and makes each of its blocks' banks the slot it is
+; in, or the module's own slot ($F4 now) in main RAM. Its variables are at $0100-$015B and the
+; probe after them, the bottom of the stack's page, which nothing uses while a tool starts (an
 ; error copied to $0100 ends it). It ends through `claim`.
 place:
   LDA #$83                     ; OSBYTE 131: PAGE, in X and Y
@@ -525,7 +539,7 @@ place:
   LDA p_code_lo+1
   SBC #$00
   STA w5
-  JSR p_add_area
+  JSR p_add_main
   JSR p_byte
   STA p_regions
 .areas:
@@ -538,7 +552,7 @@ place:
   JSR p_word
   STA w4
   STX w5
-  JSR p_add_area
+  JSR p_add_main
   JMP .areas
 .areas_read:
   LDA p_top
@@ -552,10 +566,10 @@ place:
   LDA p_himem+1
   SBC #$00
   STA w5
-  JSR p_add_area
-  JSR p_find                   ; the free sideways RAM
-  JSR p_byte                   ; each region: its bank's value, its block, its high bytes and its
-  STA p_regions                ; blocks' banks
+  JSR p_add_main
+  JSR p_find                   ; the free sideways RAM's
+  JSR p_byte                   ; each region: its bank's value, its block, its capacity variable,
+  STA p_regions                ; its high bytes and its blocks' banks
 .region:
   LDA p_regions
   BNE .more
@@ -571,33 +585,65 @@ place:
   JSR p_word
   STA w4
   STX w5
+  JSR p_word                   ; its capacity variable, and if it has one where its last starts
+  STA p_room
+  STX p_room+1
+  ORA p_room+1
+  BEQ .no_room
+  JSR p_word
+  STA p_offset
+  STX p_offset+1
+.no_room:
+  LDA w4                       ; the bytes it has where it is linked
+  STA p_grant
+  LDA w5
+  STA p_grant+1
   LDA #$00
   STA p_pages
   LDA w4
   ORA w5
-  BEQ .moved                   ; nothing to move
+  BEQ .placed                  ; nothing to move
+  LDA p_value
+  CMP #$10
+  BCS .placed                  ; a bank of the module: it stays
+  LDA p_room
+  ORA p_room+1
+  BEQ .fixed_size
+  JSR p_take_most
+  JMP .taken
+.fixed_size:
   JSR p_take
-  BCS .moved                   ; no room: it stays in its slot
+.taken:
+  BCC .room
+  LDX #too_few-errors          ; no area holds it
+  JMP refuse
+.room:
+  LDA p_slot,X                 ; the slot of the area, or main RAM: the module's own
+  BPL .slot
+  LDA romcopy
+.slot:
+  STA p_new
   LDA p_goes+1                 ; the pages it moves
   SEC
   SBC p_linked+1
   STA p_pages
-.moved:
-  LDA p_pages
-  BNE .placed                  ; in main RAM: no slot
-  LDA w4
-  ORA w5
-  BEQ .placed                  ; nothing in a slot
-  LDA p_value
-  CMP #$10
-  BCS .placed                  ; a bank of the module: not sideways RAM
-  JSR p_map                    ; its slot: the one it is linked in if that is free RAM, else another
-  BCC .mapped
-  LDX #too_few-errors
-  JMP refuse
-.mapped:
-  STA p_new
 .placed:
+  LDA p_room
+  STA w2
+  LDA p_room+1
+  STA w3
+  ORA w2
+  BEQ .places
+  LDY #$00                     ; its capacity variable: the bytes given (or linked, where it
+  LDA p_grant                  ; stays), less where its last variable starts
+  SEC
+  SBC p_offset
+  STA (w2),Y
+  INY
+  LDA p_grant+1
+  SBC p_offset+1
+  STA (w2),Y
+.places:
   JSR p_count
 .high:
   JSR p_count_down
@@ -614,25 +660,20 @@ place:
   JSR p_count
 .bank:
   JSR p_count_down
-  BEQ .region
+  BNE .bank_place
+  JMP .region
+.bank_place:
   JSR p_place
-  LDA p_pages
-  BNE .main_slot
-  LDA p_new                    ; in a slot: the one found, if it is not the one linked
-  CMP p_value
-  BEQ .bank
-  BNE .bank_value
-.main_slot:
-  LDA romcopy                  ; in main RAM: the module's own slot
-.bank_value:
+  LDA p_new
   LDY #$00
   STA (w2),Y
   JMP .bank
 
-; The free sideways RAM, in p_free: each slot that is not the module's, that the MOS's table of ROM
-; types (OSBYTE 170) does not mark, that holds no ROM header (one loaded since the last BREAK) and
-; that keeps what is written to it, two patterns (neither of which an empty socket's open bus
-; gives) and then its own byte again (p_probe_ram, from probe_code). And p_maps all $FF.
+; The free sideways RAM's areas, after main RAM's: each slot, from 0 up, that is not the module's,
+; that the MOS's table of ROM types (OSBYTE 170) does not mark, that holds no ROM header (one
+; loaded since the last BREAK) and that keeps what is written to it, two patterns (neither of
+; which an empty socket's open bus gives) and then its own byte again (p_probe_ram, from
+; probe_code), as far as there is room in the table of areas.
 p_find:
   LDX #probe_code_end-probe_code-$01
 .copy:
@@ -646,12 +687,8 @@ p_find:
   JSR osbyte
   STX w6
   STY w7
-  LDX #$0F
+  LDX #$00
 .slot:
-  LDA #$FF
-  STA p_maps,X
-  LDA #$00
-  STA p_free,X
   CPX romcopy
   BEQ .next                    ; the module's own
   TXA
@@ -660,10 +697,23 @@ p_find:
   BNE .next                    ; a ROM the MOS found
   JSR p_probe_ram              ; Y not 0: RAM
   TYA
-  STA p_free,X
+  BEQ .next
+  STX p_new
+  LDA #$00                     ; the window, $8000-$BFDF
+  STA w2
+  LDA #$80
+  STA w3
+  LDA #$DF
+  STA w4
+  LDA #$BF
+  STA w5
+  TXA
+  JSR p_add_area
+  LDX p_new
 .next:
-  DEX
-  BPL .slot
+  INX
+  CPX #$10
+  BCC .slot
   RTS
 
 ; Copied to p_probe_ram and run there, with interrupts off, since it selects slot X in the window:
@@ -710,39 +760,6 @@ probe_code:
   PLP
   RTS
 probe_code_end:
-
-; Region value A (a slot) goes in: the slot it is linked in if that is free RAM, else the first
-; free slot, the same for every region of that value; the slot in A and the carry clear, or the
-; carry set if there is none.
-p_map:
-  TAX
-  LDA p_maps,X
-  BPL .done                    ; given already
-  LDA p_free,X
-  BEQ .other
-  TXA                          ; its own
-  JMP .take
-.other:
-  LDY #$00
-.find:
-  LDA p_free,Y
-  BNE .found
-  INY
-  CPY #$10
-  BCC .find
-  SEC
-  RTS
-.found:
-  TYA
-.take:
-  STA p_maps,X
-  TAY
-  LDA #$00
-  STA p_free,Y
-  LDA p_maps,X
-.done:
-  CLC
-  RTS
 
 ; The next byte of the list, in A, the Z flag as it; Y is lost.
 p_byte:
@@ -809,11 +826,16 @@ p_count_down:
 .counted:
   RTS
 
-; A free area from w2/w3 to w4/w5, if there is room for it and it is not empty.
+; A free area of main RAM from w2/w3 to w4/w5 (p_add_area).
+p_add_main:
+  LDA #$FF
+; A free area from w2/w3 to w4/w5, in slot A ($FF: main RAM), if there is room for it in the table
+; and it is not empty.
 p_add_area:
   LDX p_areas
   CPX #p_max_areas
   BCS .end
+  STA p_slot,X
   LDA w4                       ; last < first: empty
   CMP w2
   LDA w5
@@ -831,13 +853,10 @@ p_add_area:
 .end:
   RTS
 
-; w4/w5 bytes at an address with p_linked's low byte, from the first free area that holds them:
-; the address in p_goes and the carry clear, or the carry set if none does.
-p_take:
-  LDX #$00
-.area:
-  CPX p_areas
-  BCS .none
+; Where in area X a block of w4/w5 bytes with p_linked's low byte goes: in p_goes, from the area's
+; first page at that low byte, or the next page if that is below its first byte, and its last
+; byte in p_end; the carry set if the area holds it, else clear. X is kept.
+p_fit:
   LDA p_linked                 ; the area's first page, at the low byte linked
   STA p_goes
   LDA p_first_hi,X
@@ -846,7 +865,7 @@ p_take:
   CMP p_first_lo,X
   BCS .end
   INC p_goes+1
-  BEQ .next                    ; past $FFFF
+  BEQ .none                    ; past $FFFF
 .end:
   LDA p_goes                   ; the last byte it takes: p_goes + size - 1
   CLC
@@ -855,7 +874,7 @@ p_take:
   LDA p_goes+1
   ADC w5
   STA p_end+1
-  BCS .next
+  BCS .none
   LDA p_end
   SEC
   SBC #$01
@@ -867,6 +886,19 @@ p_take:
   CMP p_end
   LDA p_last_hi,X
   SBC p_end+1
+  RTS                          ; the carry set if the end is not past the last
+.none:
+  CLC
+  RTS
+
+; w4/w5 bytes at an address with p_linked's low byte, from the first free area that holds them:
+; the address in p_goes, the area in X and the carry clear, or the carry set if none does.
+p_take:
+  LDX #$00
+.area:
+  CPX p_areas
+  BCS .none
+  JSR p_fit
   BCC .next
   LDA p_end                    ; taken: the area starts after it
   CLC
@@ -882,6 +914,67 @@ p_take:
   JMP .area
 .none:
   SEC
+  RTS
+
+; As p_take, but the area that holds w4/w5 bytes and gives the most, all of it: from p_goes to the
+; area's last byte, that many bytes in p_grant (the first such area if two give as many).
+p_take_most:
+  LDA #$FF
+  STA p_best
+  LDA #$00
+  STA p_most
+  STA p_most+1
+  LDX #$00
+.area:
+  CPX p_areas
+  BCS .chosen
+  JSR p_fit
+  BCC .next
+  JSR p_given
+  LDA p_most                   ; more than the best so far: the best
+  CMP p_grant
+  LDA p_most+1
+  SBC p_grant+1
+  BCS .next
+  STX p_best
+  LDA p_grant
+  STA p_most
+  LDA p_grant+1
+  STA p_most+1
+.next:
+  INX
+  JMP .area
+.chosen:
+  LDX p_best
+  BMI .none
+  JSR p_fit                    ; its place again, and all of it taken
+  JSR p_given
+  LDA p_last_lo,X
+  CLC
+  ADC #$01
+  STA p_first_lo,X
+  LDA p_last_hi,X
+  ADC #$00
+  STA p_first_hi,X
+  CLC
+  RTS
+.none:
+  SEC
+  RTS
+
+; The bytes area X gives from p_goes to its last, in p_grant. X is kept.
+p_given:
+  LDA p_last_lo,X
+  SEC
+  SBC p_goes
+  STA p_grant
+  LDA p_last_hi,X
+  SBC p_goes+1
+  STA p_grant+1
+  INC p_grant
+  BNE .end
+  INC p_grant+1
+.end:
   RTS
   .endif
 

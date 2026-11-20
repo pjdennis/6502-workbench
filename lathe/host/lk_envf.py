@@ -19,6 +19,9 @@
     place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
     region    NAMES WIN 4           ; the source's `in NAMES` is bank 4 of WIN; or `fixed`
     region    NAMES WIN 4 dynamic   ; linked there, and placed again by the program as it starts
+    region    NAMES WIN 4 dynamic kernel.name_room
+                                    ; and the placer writes the room it gives the region's last
+                                    ; variable in that word variable (its capacity, lk_dyn)
     placer    rt_place              ; the module whose `place` the start-up calls for those
     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
@@ -154,6 +157,7 @@ region_count = 0
 region_name = [0] * MAX_REGIONS
 region_bank = bytearray(MAX_REGIONS)    # the bank + 1, or 0 for fixed memory
 region_dynamic = 0                  # bit i: region i is `dynamic`, placed again at the start (lk_dyn)
+region_room = [0] * MAX_REGIONS     # a dynamic region's capacity variable's name + 1, or 0 (lk_dyn)
 region_used = 0                     # lk_scan: a bank + 1 that a variable or constant is in, or 0
 
 MAX_DEFINES = 16
@@ -558,6 +562,7 @@ def region_entry():
     i = region_count
     region_count += 1
     region_name[i] = hold_token()
+    region_room[i] = 0
     name_token()
     if keyword() == W_FIXED:
         region_bank[i] = 0
@@ -577,6 +582,8 @@ def region_entry():
             if keyword() != W_DYNAMIC:
                 bad()
             region_dynamic |= 1 << i
+            if read_word(False):
+                region_room[i] = hold_token()
     end_of_line()
 
 

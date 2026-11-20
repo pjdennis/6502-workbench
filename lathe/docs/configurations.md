@@ -905,9 +905,16 @@ byte; `test_lk_dynamic.py`):
 
 **What the placer does**: [`bbc.md`](bbc.md), "One image for every machine with sideways RAM".
 
-**Capacities** are not dynamic yet: every table is linked and used at its full size, and a region
-that does not fit main RAM whole stays in its slot. Sizing tables at run time (the study's
-capacities as variables, the twins' `#if DYNAMIC`) is the next step, for machines with fewer banks.
+**Capacities** (2026-11-20, later): `region NAME WIN N dynamic MODULE.VARIABLE` names a word
+variable in main memory, in no region, that holds the capacity of the region's last variable (the
+lowest in the bank, the first its module defines); anything else is link error 3, a bad entry,
+with the name. The linker finds it as it reads the objects (`lk_name.note_room_names`), and the
+region's entry in the list then has, after its block, the variable's address (0 for none) and,
+if there is one, where the last variable starts in the block. The placer gives such a region the
+area that gives it the most, and writes there, before `$init` runs, the bytes the block was given
+less that. Built for the compiler's name heap ([`bbc.md`](bbc.md), "Capacities set at start-up");
+host and twin byte for byte (`test_lk_dynamic.py`). The other tables are still linked and used at
+their full size.
 
 ## Decisions for the owner
 

@@ -75,6 +75,10 @@ fc_start = lk_tab.NONE
 # that name, which bind() looks out for.
 fc_place = lk_tab.NONE
 place_ref = lk_tab.NONE
+# With a dynamic region that names its capacity variable (lk_envf.region_room), for each region:
+# NONE, then the number of the symbol with that name while the files are read, then, once it is
+# defined, what it stands for (a reference: its kind's bits keep it apart from any number).
+room_def = [lk_tab.NONE] * lk_envf.MAX_REGIONS
 
 MAIN_SUFFIX = b".main"
 INIT_SUFFIX = b".$init"
@@ -228,6 +232,8 @@ def begin():
     fc_start = lk_tab.NONE
     fc_place = lk_tab.NONE
     place_ref = lk_tab.NONE
+    for i in range(0, lk_envf.MAX_REGIONS):
+        room_def[i] = lk_tab.NONE
 
 
 # ---- the name being read
@@ -384,6 +390,8 @@ def symbol(kind):
     lk_tab.set_wk(ref_at(s) - 1, flags)
     if kind == lk_sym.FUNCTION and lk_envf.region_dynamic != 0:
         note_dynamic_names(s)
+    if kind == lk_sym.VARIABLE and lk_envf.region_dynamic != 0:
+        note_room_names(s)
     if keep:
         pos = heap_top
         h = chain()
@@ -418,6 +426,21 @@ def note_dynamic_names(s):
         place_ref = s
 
 
+def note_room_names(s):
+    """With a dynamic region: s is a new variable symbol; note it if a region names it as its
+    capacity variable (lk_envf.region_room), for bind()."""
+    for i in range(0, lk_envf.region_count):
+        if is_named(lk_envf.region_room[i], b""):
+            room_def[i] = s
+
+
+def bind_room(s, r):
+    """Symbol s is defined as r: if it is a region's capacity variable (note_room_names), r is it."""
+    for i in range(0, lk_envf.region_count):
+        if s == room_def[i]:
+            room_def[i] = r
+
+
 def bind(s, r):
     """Symbol s is defined: it stands for r."""
     global main_sym, fc_call, fc_start, fc_place
@@ -430,6 +453,8 @@ def bind(s, r):
         fc_start = r
     if s == place_ref:
         fc_place = r
+    if lk_envf.region_dynamic != 0:
+        bind_room(s, r)
 
 
 def more(s):

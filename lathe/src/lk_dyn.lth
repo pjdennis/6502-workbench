@@ -25,15 +25,15 @@ module lk_dyn
 
 import lk_alloc (data_end, more_end)
 import lk_boot (places_addr)
-import lk_envf (bank_value, code_hi, code_lo, data_hi, data_lo, has_more, more_hi, more_lo,
-                region_bank, region_count, region_dynamic)
-import lk_err (begin, E_CODE_FULL, E_DYNAMIC, E_SITES, fail, finish, over)
+import lk_envf (bank_value, code_hi, code_lo, data_hi, data_lo, fail_text, has_more, more_hi,
+                more_lo, region_bank, region_count, region_dynamic, region_room)
+import lk_err (begin, E_CODE_FULL, E_DYNAMIC, E_ENV_ENTRY, E_SITES, fail, finish, over)
 import lk_fix (cur_sym, FX_KIND, FX_SYM, held, is_word, K_BANK, K_HIGH, K_REACH_HIGH)
-import lk_name (fail, fail_in)
+import lk_name (fail, fail_in, room_def)
 import lk_out (base, put, put_word, seek, written)
 import lk_scan (MAX_REGION_DEFS, rdef_count, rdef_def, rdef_region)
 import lk_sym (CONSTANT, is_defined, kind_of, row_of, VARIABLE)
-import lk_tab (D_CONST, def_a, def_b, def_f, def_ref, is_kept_def, is_kept_var, set_wk, W_OWN,
+import lk_tab (D_CONST, def_a, def_b, def_f, def_ref, is_kept_def, is_kept_var, NONE, set_wk, W_OWN,
                W_SNAME, wk)
 
 const W_SITES = lk_tab.W_SNAME + 128    ; after the slot names (lk_emit, lk_map): free while the
@@ -200,16 +200,39 @@ func put_sites(t: byte, r: byte)
   end
 end
 
-; Region r (its entry in lk_envf): its bank's value, its block and its places; constant data in a
-; dynamic region is refused, as it would have to be copied where the block goes.
+; The address of region r's capacity variable, or 0 if it names none. It must be a variable of two
+; bytes or more, linked, in main memory and in no region.
+func room_of(r: byte): word
+  var v: word
+  var d: word
+  if lk_envf.region_room[r] == 0 then
+    return 0
+  end
+  v = lk_name.room_def[r]
+  if v == lk_tab.NONE or lk_sym.kind_of(v) != lk_sym.VARIABLE then
+    lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
+  end
+  d = lk_sym.row_of(v)
+  if not lk_tab.is_kept_var(d) or lk_tab.def_b[d] < 2 or rdef_of(d) != lk_scan.MAX_REGION_DEFS then
+    lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
+  end
+  return lk_tab.def_a[d]
+end
+
+; Region r (its entry in lk_envf): its bank's value, its block, its capacity variable and its
+; places; constant data in a dynamic region is refused, as it would have to be copied where the
+; block goes.
 func put_region(r: byte)
   var i: byte
   var d: word
   var first: word
   var past: word
+  var last: word                ; where its last variable starts
+  var room: word
   lk_out.put(lk_envf.bank_value[lk_envf.region_bank[r] - 1])
   first = $FFFF
   past = 0
+  last = 0
   for i = 0 until lk_scan.rdef_count do
     d = lk_scan.rdef_def[i]
     if lk_scan.rdef_region[i] == r and is_dynamic(r) and lk_tab.is_kept_def(d) and
@@ -223,6 +246,9 @@ func put_region(r: byte)
       if lk_tab.def_a[d] + lk_tab.def_b[d] > past then
         past = lk_tab.def_a[d] + lk_tab.def_b[d]
       end
+      if lk_tab.def_a[d] > last then
+        last = lk_tab.def_a[d]
+      end
     end
   end
   if past == 0 then
@@ -230,6 +256,11 @@ func put_region(r: byte)
   end
   lk_out.put_word(first)
   lk_out.put_word(past - first)
+  room = room_of(r)
+  lk_out.put_word(room)
+  if room != 0 then
+    lk_out.put_word(last - first)
+  end
   put_sites(T_ADD, r)
   put_sites(T_BANK, r)
 end

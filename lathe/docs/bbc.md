@@ -1729,17 +1729,83 @@ to name the slots. The module's code and tables are now 1,464 bytes (804 of them
 the probe); the image has **1,386 bytes free** with `BBCFS 3` (the same image without `ADAPT`
 2,837).
 
-**Not built yet: the capacities set at start-up**, which a machine with one or two banks needs
+**Not built yet then** (since built for the name heap: "Capacities set at start-up", below): **the capacities set at start-up**, which a machine with one or two banks needs
 (and which is how the DFS's 1,536 bytes would be used: on a B+ no region fits main RAM whole). The
 design, from the study and this work: each table's limit a variable under `#if DYNAMIC` in the
 twins (the compiler's name heap first), the placer giving each region the bytes its slot or area
 has, and the tool reading its share at `$init`.
 
+### Capacities set at start-up: the name heap (2026-11-20, later)
+
+The first of the compiler's limits, the name heap, now takes the room its machine has. Built
+(host and twin together; `test_lk_dynamic.py`, `test_bbc_place.py`, `test_bbc_rooms.py`):
+
+- **The linker lists the capacity, the placer writes it.** `region NAMES WIN 32 dynamic
+  kernel.name_room`: the last word names a word variable in main memory and in no region (else
+  link error 3, a bad entry, with the name: no new message, so that no image's texts change).
+  The linker looks the name up as it reads the objects, as it does the placer's `place`
+  (`lk_name.note_room_names`, `bind_room`), and adds to the region's entry in the list the
+  variable's address and where the region's last variable starts in its block
+  ([`configurations.md`](configurations.md), "Regions placed at run time"). The placer writes
+  there, before `$init` runs, the bytes it gave the block less that: the room the last variable
+  has. So the variable that grows must be the last of its block: the one the linker puts lowest
+  in the bank, which is the first its module defines (a bank is filled top-down). For `NAMES`,
+  `kernel.names` is the only one.
+- **In the twin**, under `#if ROOMS` (`define ROOMS 1` with `ADAPT 1` in `lathec-bbc.env`, `0`
+  in every other compiler environment): `var name_room: word`, which the placer sets; else
+  `const name_room = NAME_HEAP_SIZE`. The two tests of the heap's end compare with `name_room`
+  in every build, so every build but Image A's compiles to the same bytes as before. The host
+  keeps its constant.
+- **The placer packs the regions.** It no longer keeps a region where it is linked in a slot
+  mapped onto one found: after main RAM's free areas, each slot of free sideways RAM the probe
+  finds is an area too, the window `$8000-$BFDF` (`$BFE0-$BFFF` are the module's latch and its
+  mirror), in the order of the slots. Each region, in the environment's order, goes in the first
+  area that holds its block at the low byte it is linked at (main RAM's first, as before); one
+  with a capacity variable gets instead the area that gives it the most bytes, if that is at
+  least its size as linked (its floor, for now), and all of it. A region no area holds is
+  refused, `Too little sideways RAM`. `NAMES` is the last entry of the compiler's, so it gets the
+  largest area that is left. Twelve areas at most (five of main RAM, the rest slots: a machine
+  with more free slots uses the first ones). The module's code and tables are 1,630 bytes (1,464;
+  the placer 921 of them, 755 before, with the probe's 75; the image 1,174 bytes free with `BBCFS 3`, 1,386 before), the placer's variables
+  `$0100-$015B` and the probe copied to `$015C-$01A6` (`$014F-$0199` before), deeper into the
+  stack's page by 13 bytes: by inspection only, as before, nothing the MOS does while a command
+  starts goes that deep.
+- `places.plan` (`lathe/tests/places.py`) is the model of the placer: where each region goes and
+  the capacity it gets on a machine; `test_bbc_place.py` checks it against the placer on the BBC.
+
+**What the name heap gets** (the model, over Image A's list):
+
+| Machine | PAGE, HIMEM, free sideways RAM | The name heap | The other regions |
+|---|---|---|---|
+| B+128, DFS | `$1900`, `$7C00`, 0 1 12 13 | **16,128** (slot 12, from `$80E0`) | slot 0 (`STRING` to `FUNCBUF`, 14,592 bytes), slot 1 (`SYMS`); slot 13 unused |
+| B+128, DFS, shadow mode | `$1900`, `$8000`, the same | 16,128 | the same |
+| B+128, ADFS and DFS | `$1F00`, `$7C00`, the same | 16,128 | the same |
+| Model B, sideways RAM 8 to 11 | `$1900`, `$7C00` | 16,128 (slot 10) | slots 8 and 9; slot 11 unused |
+| three banks | `$1900`, `$7C00`, 8 9 10 | 16,128 (slot 10) | slots 8 and 9 |
+| Master 128 (model only) | `$0E00`, `$8000`, 4 to 7 | 16,128 (slot 6) | `STRING` and `WANTS` in main RAM, the rest in slots 4 and 5 |
+| two banks, one bank | | refused | |
+
+9,216 bytes was the heap as linked: 75 % more. With three banks the compiler now runs (four were
+needed; the linker's five regions, 43,248 bytes at full size, do not pack into three slots in
+their order, so `*LLINK` still needs four); with two its fixed regions take both slots and the heap's floor is its linked size, so
+it is refused until the other tables can shrink (the next part). The memory below `$1F00` (1,536
+bytes on a DFS-only machine) and a shadow screen's 1,024 still hold nothing on a B+: no table but
+the name heap has a capacity yet, and none of the fixed-size ones fits them as a block.
+
+**What compiles now that did not**: a module whose names need 12,923 bytes of the heap
+(`test_bbc_rooms.big_names_source`, 330 variables with names of 31 characters) is refused by the
+compiler with a fixed heap (error 70, too many names) and compiles with Image A on the B+128 at
+PAGE `$1900`, `$1F00` and in a shadow mode, on a Model B with four banks and with three, every
+file the host compiler's with a heap of 16,128. The host compiler with the heap at any size from
+the least a module needs up gives the same files: `test_bbc_rooms.SameObjects`, every module of
+the compiler, the five of a generated program and that one, each at six sizes from its least
+(`lathec_heap.py` runs the host compiler with the heap given). The least: from 974 (`sys`) to
+7,177 (`decl`) for the compiler's own modules, so the self-compile is far from the heap's end.
+
 ### What is not done
 
-- Image A with fewer banks (one or two), the Master, finding the sideways RAM (the probe), and the
-  capacities set at start-up: stage 2. The list already carries each region's linked bank, for the
-  slots found then.
+- Image A with fewer banks (one or two), the Master, and the capacities set at start-up of the
+  tables other than the name heap: stage 2's next parts.
 - Image B, the bare 32K Model B: stage 3.
 - The module's own check: it copies the resident part to `$1F00` before the tool's `PAGE too high`;
   with PAGE above `$1F00` that copy writes below PAGE. The module should refuse PAGE above a

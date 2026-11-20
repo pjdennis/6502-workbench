@@ -66,6 +66,7 @@ define    ROMFORM 0
 define    ADFS 0
 define    ROM128 0
 define    RAM32 0
+define    ROOMS 0
 define    MODULE_SLOT 4
 '''
 

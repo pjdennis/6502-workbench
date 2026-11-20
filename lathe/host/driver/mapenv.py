@@ -83,6 +83,8 @@ class Env:
                                                        # in fixed memory (build.compiler_options)
     dynamic_regions: list = field(default_factory=list)  # `region NAME WIN N dynamic` (also in regions)
     placer: Optional[str] = None                 # `placer MODULE` (lathe/host/lk_dyn.py)
+    rooms: dict = field(default_factory=dict)    # `region NAME WIN N dynamic VARIABLE`: NAME's
+                                                 # capacity variable
 
     def banked(self):
         """True if some module's code is in a window, or a region is in a bank: the link uses
@@ -150,9 +152,11 @@ def parse_env(text, path='<env>'):
             env.files.append(args[2])
         elif key == 'region' and len(args) == 3:
             env.regions.append(args[0].lower())
-        elif key == 'region' and len(args) == 4 and args[3].lower() == 'dynamic':
+        elif key == 'region' and len(args) in (4, 5) and args[3].lower() == 'dynamic':
             env.regions.append(args[0].lower())
             env.dynamic_regions.append(args[0].lower())
+            if len(args) == 5:
+                env.rooms[args[0].lower()] = args[4]
         elif key == 'region' and len(args) == 2 and args[1].lower() == 'fixed':
             env.fixed_regions.append(args[0].lower())
         elif key == 'farcall' and len(args) == 1:

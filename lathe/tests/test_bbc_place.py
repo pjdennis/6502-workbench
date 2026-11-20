@@ -7,8 +7,9 @@ so that a write below PAGE or into the screen is a fault.
 The program fills a table of its region, sums it, and writes the sum and where the table is; the
 same program linked with the region in its sideways slot as before is what it is compared with:
 the same sum (its blocks still map a slot: the module's own; lk_dyn.py). A region too large for
-the main RAM there is stays in its slot. PAGE above $1F00 is refused by the module before it
-copies anything.
+the main RAM there is goes to the first free sideways RAM, from its first page, and with none is
+refused. A region with a capacity variable gets the area that gives it the most, and the
+variable says how much. PAGE above $1F00 is refused by the module before it copies anything.
 """
 import dataclasses
 import os
@@ -26,6 +27,7 @@ import bbcrom  # noqa: E402
 import test_bbc_rom128 as rom128  # noqa: E402
 import build  # noqa: E402
 import mapenv  # noqa: E402
+import places  # noqa: E402
 
 PROGRAM = '''module dynreg
 
@@ -81,7 +83,13 @@ pub func main()
 end
 '''
 
+# With a capacity variable, `room`, which the placer sets and the program writes after the rest.
+ROOM_PROGRAM = PROGRAM.replace('var other: [8]byte in work\n',
+                               'var other: [8]byte in work\npub var room: word\n').replace(
+    '  hex(where)\n', '  hex(where)\n  bbc.put_byte(\' \')\n  hex(room)\n')
+
 LINES = ['bank      WIN 32 $0C', 'region    work WIN 32 dynamic', 'placer    rt_place']
+ROOM_LINES = ['bank      WIN 32 $0C', 'region    work WIN 32 dynamic dynreg.room', 'placer    rt_place']
 STATIC = ['bank      WIN 32 $0C', 'region    work WIN 32']
 
 
@@ -95,14 +103,14 @@ class Placed(unittest.TestCase):
         self.dir = tempfile.mkdtemp(prefix='lathe-bbc-place-')
         self.addCleanup(shutil.rmtree, self.dir, True)
 
-    def build(self, name, size, lines, code_hi=None):
+    def build(self, name, size, lines, code_hi=None, program=PROGRAM):
         """The program's ROM form (bbcrom.rom_env), command DYN of an eight-bank module image of its
         own, whose module code holds the placer: the image's path."""
         work = os.path.join(self.dir, name)
         os.makedirs(work)
         source = os.path.join(work, 'dynreg.lth')
         with open(source, 'w') as f:
-            f.write(PROGRAM.replace('SIZE', str(size)))
+            f.write(program.replace('SIZE', str(size)))
         env = bank.bank_env(os.path.join(work, 'dynreg.env'), lines)
         with open(env) as f:
             text = f.read()
@@ -119,10 +127,10 @@ class Placed(unittest.TestCase):
         bbcrom.image([('DYN', resident, rom, os.path.join(work, 'work', 'dynreg.map'))], image, banks=8)
         return image
 
-    def run_at(self, image, page):
+    def run_at(self, image, page, model=()):
         """*DYN at PAGE `page`: (status, output, what the MOS said, CPU cycles)."""
         base = boards.BOARDS['bbc']
-        board = dataclasses.replace(base, options=base.options + ('--bbc-page', page))
+        board = dataclasses.replace(base, options=base.options + ('--bbc-page', page) + tuple(model))
         with rom128.scheme(), tempfile.TemporaryDirectory(dir=self.dir) as disk:
             code, out, err, cycles = boards.run_module(board, image, disk, 'DYN', raw=True)
         status, said, cycles = boards.bbc_status(code, err.decode('latin-1'))
@@ -157,15 +165,52 @@ class Placed(unittest.TestCase):
         self.assertEqual(int(total, 16), expected_sum(1400))
         self.assertTrue(0x1900 <= int(at, 16) < 0x1F00, at)
 
-    def test_a_region_too_large_for_main_ram_stays_in_its_slot(self):
+    def test_a_region_too_large_for_main_ram_goes_to_the_first_sideways_ram(self):
+        """In the lowest free slot (the B+128's slot 0; slot 8 of a Model B with RAM in 8 to 11),
+        from its first page at the low byte it is linked at; with no sideways RAM it is refused."""
         image = self.build('large', 9000, LINES, code_hi=0x2C00)
-        for page in ('1900', '1F00'):
-            with self.subTest(page=page):
-                status, out, err, cycles = self.run_at(image, page)
+        for page, model in (('1900', ()), ('1F00', ()),
+                            ('1900', ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10,11'))):
+            with self.subTest(page=page, model=model):
+                status, out, err, cycles = self.run_at(image, page, model)
                 self.assertEqual((status, err), (0, b''))
                 total, at = out.split()
                 self.assertEqual(int(total, 16), expected_sum(9000))
-                self.assertGreaterEqual(int(at, 16), 0x8000)
+                self.assertTrue(0x8000 <= int(at, 16) < 0x8100, at)
+        status, out, said, cycles = self.run_at(image, '1900', ('--bbc-model', 'b', '--bbc-sideways-ram', 'none'))
+        self.assertNotEqual(status, 0)
+        self.assertIn(b'Too little sideways RAM', out + said)
+
+    def test_a_region_with_a_capacity_takes_the_area_that_gives_the_most(self):
+        """`region work WIN 32 dynamic dynreg.room`: a whole slot of sideways RAM where there is
+        one, all of main RAM's largest area where there is none, and `room` the bytes from where
+        the table is (its last variable) to the area's end; the table filled to its size as
+        linked gives the same sum."""
+        image = self.build('room', 300, ROOM_LINES, code_hi=0x2C00, program=ROOM_PROGRAM)
+        work = os.path.join(self.dir, 'room')
+        p, names = places.of_tool(os.path.join(work, 'DYN'), os.path.join(work, 'dynreg-rom.env'),
+                                  os.path.join(work, 'work', 'dynreg.map'))
+        for page, model in (('1900', ()), ('1F00', ()),
+                            ('1900', ('--bbc-model', 'b', '--bbc-sideways-ram', '9'))):
+            with self.subTest(page=page, model=model):
+                status, out, err, cycles = self.run_at(image, page, model)
+                self.assertEqual((status, err), (0, b''))
+                total, at, room = (int(x, 16) for x in out.split())
+                self.assertEqual(total, expected_sum(300))
+                self.assertTrue(0x8000 <= at < 0x8100, hex(at))
+                self.assertEqual(room, 0xBFE0 - at)
+                model = places.plan(p, int(page, 16), 0x7C00, [9] if model else [0, 1, 12, 13])[0]
+                self.assertEqual((model.where + p.regions[0].last, model.room), (at, room))   # the model of it
+        status, out, err, cycles = self.run_at(image, '1900', ('--bbc-model', 'b', '--bbc-sideways-ram', 'none'))
+        self.assertEqual((status, err), (0, b''))
+        total, at, room = (int(x, 16) for x in out.split())
+        self.assertEqual(total, expected_sum(300))
+        self.assertLess(at, 0x7C00)
+        self.assertGreater(room, 300)
+        self.assertLessEqual(at + room, 0x7C00)
+        model = places.plan(p, 0x1900, 0x7C00, [])[0]
+        self.assertEqual((model.where + p.regions[0].last, model.slot, model.room), (at, None, room))
+        print('\n  no sideways RAM: the table at &%04X, %d bytes' % (at, room))
 
     def test_page_above_the_fixed_part_is_refused(self):
         image = self.build('high', 300, LINES)

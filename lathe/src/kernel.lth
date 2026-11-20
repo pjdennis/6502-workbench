@@ -322,6 +322,15 @@ const NAME_HEAP_SIZE = 1536      ; (SMALL: the test programs' small build)
 #else
 const NAME_HEAP_SIZE = 9216
 #end
+#if ROOMS
+; The heap's room: in the image for every machine with sideways RAM, the bytes the placer gives
+; region NAMES as the tool starts, NAME_HEAP_SIZE or more (`region NAMES WIN 32 dynamic
+; kernel.name_room`: lathe/docs/bbc.md, "Capacities set at start-up"); in every other build the
+; size it is linked with.
+var name_room: word
+#else
+const name_room = NAME_HEAP_SIZE
+#end
 const NAME_BUCKETS = 64         ; a power of two
 pub const MAX_NAME = 31         ; significant characters
 
@@ -371,7 +380,7 @@ end
 
 ; Start building a name.
 pub func name_begin()
-  if name_top + N_TEXT + MAX_NAME > NAME_HEAP_SIZE then
+  if name_top + N_TEXT + MAX_NAME > name_room then
     err.fatal(err.E_NAMES_FULL)
   end
   new_length = 0
@@ -992,7 +1001,7 @@ pub func freeze(scope: byte, kind: byte, flags: byte, t: byte, value: word, para
   if kind == K_FUNC then
     size = F_MEMBERS + 2 * (word(params) + results)
   end
-  if name_top + N_TEXT + new_length + size > NAME_HEAP_SIZE then
+  if name_top + N_TEXT + new_length + size > name_room then
     err.fatal(err.E_NAMES_FULL)
   end
   if built_symbol(scope) != NO_SYM or built_frozen(scope) != 0 then

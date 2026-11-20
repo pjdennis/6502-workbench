@@ -47,12 +47,12 @@
 ;   | find_local's file, found_obj         | a byte                            |                 |
 module lk_name
 
-import lk_envf (farcall, placer, region_dynamic, text)
+import lk_envf (farcall, MAX_REGIONS, placer, region_count, region_dynamic, region_room, text)
 import lk_err (begin, colon, comma, E_DAMAGED, E_KIND, E_NAMES, fail, finish, put, put_number)
 import lk_file (arg_length, ARG_MAIN, ARG_OBJECT, fail, PATH)
 import lk_rec (advance, close, get_byte, get_word, open_object, open_quiet, R_DATA, R_END, R_FUNC,
                R_MOD, R_SYM, R_VAR, VERSION)
-import lk_sym (CLASS, count, edge_bits, FUNCTION, kind_of, new_number, ref, row_of, UNDEF)
+import lk_sym (CLASS, count, edge_bits, FUNCTION, kind_of, new_number, ref, row_of, UNDEF, VARIABLE)
 import lk_tab (ctx_of, edge_at, edge_count, edge_sym, is_extra_copy, MAX_EDGES, memb_class,
                memb_count, memb_func, node_sym, NONE, set_edge_at, set_wk, SYM_BITS, waiting, wk,
                WORK_SIZE)
@@ -120,6 +120,11 @@ pub var fc_start: word = lk_tab.NONE
 ; that name, which bind() looks out for (begin() sets them).
 pub var fc_place: word
 var place_ref: word
+; With a dynamic region that names its capacity variable (lk_envf.region_room), for each region:
+; NONE (begin() sets it), then the number of the symbol with that name while the files are read,
+; then, once it is defined, what it stands for (a reference: its kind's bits keep it apart from
+; any number).
+pub var room_def: [lk_envf.MAX_REGIONS]word
 
 pub const MAIN_SUFFIX: [5]byte = ".main"
 const INIT_SUFFIX: [6]byte = ".$init"
@@ -322,6 +327,9 @@ pub func begin()
 #if LKDYN
   fc_place = lk_tab.NONE
   place_ref = lk_tab.NONE
+  for i = 0 until lk_envf.MAX_REGIONS do
+    room_def[byte(i)] = lk_tab.NONE
+  end
 #end
 end
 
@@ -498,6 +506,17 @@ func note_dynamic_names(s: word)
     place_ref = s
   end
 end
+
+; With a dynamic region: s is a new variable symbol; note it if a region names it as its capacity
+; variable (lk_envf.region_room), for bind().
+func note_room_names(s: word)
+  var i: byte
+  for i = 0 until lk_envf.region_count do
+    if is_named(lk_envf.region_room[i], @PLACE_SUFFIX, 0) then
+      room_def[i] = s
+    end
+  end
+end
 #end
 
 pub func symbol(kind: byte): word
@@ -542,6 +561,9 @@ pub func symbol(kind: byte): word
   if kind == lk_sym.FUNCTION and lk_envf.region_dynamic != 0 then
     note_dynamic_names(s)
   end
+  if kind == lk_sym.VARIABLE and lk_envf.region_dynamic != 0 then
+    note_room_names(s)
+  end
 #end
   if keep then
     pos = heap_top
@@ -570,6 +592,18 @@ pub func now(s: word): word
   return lk_tab.wk(ref_at(s))
 end
 
+#if LKDYN
+; Symbol s is defined as r: if it is a region's capacity variable (note_room_names), r is it.
+func bind_room(s: word, r: word)
+  var i: byte
+  for i = 0 until lk_envf.region_count do
+    if s == room_def[i] then
+      room_def[i] = r
+    end
+  end
+end
+#end
+
 ; Symbol s is defined: it stands for r.
 pub func bind(s: word, r: word)
   lk_tab.set_wk(ref_at(s), r)
@@ -585,6 +619,9 @@ pub func bind(s: word, r: word)
 #if LKDYN
   if s == place_ref then
     fc_place = r
+  end
+  if lk_envf.region_dynamic != 0 then
+    bind_room(s, r)
   end
 #end
 end

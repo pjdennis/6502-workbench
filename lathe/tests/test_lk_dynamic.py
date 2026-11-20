@@ -22,6 +22,7 @@ import places  # noqa: E402
 DYNAMIC = (ENV + WINDOW + REGION_BANKS + 'region work WIN 4 dynamic\nregion text WIN 5\nfarcall fc\n'
            'placer p\n')
 STATIC = ENV + WINDOW + REGION_BANKS + 'region work WIN 4\nregion text WIN 5\nfarcall fc\n'
+ROOM = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic t.room\n')
 CODE_LO = 0x0200
 
 
@@ -31,14 +32,18 @@ def placer():
     return p
 
 
-def user(other=True):
+def user(other=True, room=False):
     """Module t: v (300 bytes) and w (4) in region work, k (2) in text. main maps work's bank,
     stores into v and w, forms v's address and an element's high byte, and puts the bank back;
-    other maps text's and work's banks, so its blocks map a bank of no dynamic region."""
+    other maps text's and work's banks, so its blocks map a bank of no dynamic region. With
+    `room`, a word room in fixed memory too, which main reads first."""
     t = Obj('t')
     t.v('v')
     t.v('w')
     t.v('k')
+    if room:
+        t.v('room')
+        t.var('room', 2, NEVER)
     t.raw(16, string('work'))
     t.var('v', 300, NEVER)
     t.raw(16, string('work'))
@@ -46,6 +51,8 @@ def user(other=True):
     t.raw(16, string('text'))
     t.var('k', 2, NEVER)
     c = t.code()
+    if room:
+        c.abs(0xAD, t.v('room'))            # LDA room
     c.byte(0xA9, 6, t.v('v'))               # LDA #bank(work)
     c.abs(0x20, t.f('rt_with.map'))
     c.abs(0x8D, t.v('v'), add=5)            # STA v+5
@@ -85,6 +92,25 @@ def two_byte():
     c.raw(0x60)
     u.func('main', c, calls=[(u.f('rt_with.map'), 0, NOBODY)])
     return u
+
+
+def one_byte_room():
+    """Module t, as user(other=False) with a capacity variable `room` of one byte."""
+    t = Obj('t')
+    t.v('v')
+    t.v('room')
+    t.raw(16, string('work'))
+    t.var('v', 300, NEVER)
+    t.var('room', 1, NEVER)
+    c = t.code()
+    c.abs(0xAD, t.v('room'))
+    c.byte(0xA9, 6, t.v('v'))
+    c.abs(0x20, t.f('rt_with.map'))
+    c.abs(0x8D, t.v('v'))
+    c.abs(0x20, t.f('rt_with.unmap'))
+    c.raw(0x60)
+    t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)])
+    return t
 
 
 def places_of(r):
@@ -199,6 +225,34 @@ class Dynamic(unittest.TestCase):
         r = link([two_byte(), farcall_with(), placer()], DYNAMIC)
         self.assertEqual((r.status, r.errors), (0, ''))
 
+    def test_a_region_names_its_capacity_variable(self):
+        """`region work WIN 4 dynamic t.room`: the list gives room's address and where work's last
+        variable, v, starts in its block, so that the placer can write there the room it gives
+        v; a region that names none has 0."""
+        r = self.link([user(room=True), farcall_with(), placer()], ROOM)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        p, at = places_of(r)
+        v, w, room = r.addr('V', 't.v'), r.addr('V', 't.w'), r.addr('V', 't.room')
+        self.assertFalse(0x8000 <= room <= 0xBFFF)                     # not in the window
+        work = p.regions[0]
+        self.assertEqual((work.first, work.size, work.room, work.last), (w, v + 300 - w, room, v - w))
+        self.assertEqual((p.regions[1].room, p.regions[1].size), (0, 0))
+        plain = self.link([user(room=True), farcall_with(), placer()])
+        self.assertEqual(places_of(plain)[0].regions[0].room, 0)
+
+    def test_a_capacity_variable_must_be_a_linked_word_in_main_memory(self):
+        """A bad entry (error 3, with the name) for a name nothing defines, a function, a variable
+        of one byte and one in a region."""
+        cases = [ROOM.replace('t.room', 't.nothing'), ROOM.replace('t.room', 't.main'),
+                 ROOM.replace('t.room', 't.k')]
+        for env in cases:
+            with self.subTest(env=env.splitlines()[-4]):
+                r = self.link([user(room=True), farcall_with(), placer()], env)
+                self.assertEqual(r.status, 1)
+                self.assertIn('link error 3: environment file: bad entry: t.', r.errors)
+        r = self.link([one_byte_room(), farcall_with(), placer()], ROOM)
+        self.assertIn('link error 3: environment file: bad entry: t.room', r.errors)
+
     def test_nothing_changes_without_a_dynamic_region(self):
         a = link([user(), farcall_with(), placer()], STATIC + 'placer p\n')
         b = link([user(), farcall_with(), placer()], STATIC)
@@ -222,7 +276,13 @@ def cases():
             ('no place', [user(), farcall_with()], DYNAMIC),
             ('from a bank', [a, user(other=False), farcall_with(), placer()], DYNAMIC + 'place a WIN 1\n'),
             ('not dynamic', [user(), farcall_with(), placer()], STATIC + 'placer p\n'),
-            ('a two-byte variable', [two_byte(), farcall_with(), placer()], DYNAMIC)]
+            ('a two-byte variable', [two_byte(), farcall_with(), placer()], DYNAMIC),
+            ('a capacity variable', [user(room=True), farcall_with(), placer()], ROOM),
+            ('no such capacity variable', [user(room=True), farcall_with(), placer()],
+             ROOM.replace('t.room', 't.nothing')),
+            ('a function as capacity', [user(room=True), farcall_with(), placer()], ROOM.replace('t.room', 't.main')),
+            ('a capacity in a region', [user(room=True), farcall_with(), placer()], ROOM.replace('t.room', 't.k')),
+            ('a capacity of one byte', [one_byte_room(), farcall_with(), placer()], ROOM)]
 
 
 class Twin(unittest.TestCase):
