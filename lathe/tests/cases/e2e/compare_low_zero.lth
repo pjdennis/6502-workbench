@@ -1,0 +1,1474 @@
+; Words and ints compared with a constant whose low byte is 0 compare their high bytes alone
+; (lathe/docs/codegen.md, "Comparisons and conditions"): every ordering, the constant on either
+; side, in a branch, as a value and as a result in the carry flag, with the constants $0000,
+; $0100, $8000, $FF00 and those that become one (> $00FF is >= $0100), for operands either side
+; of each boundary. This file and the expected output are made by
+; lathe/tests/test_compare_low_zero.py, which works the answers out in Python: a line for each
+; operand, and for each constant a word (branches, then values) and a byte (results in the
+; carry) of answers, unsigned then signed.
+module compare_low_zero
+
+import libout
+
+var words: [15]word = [$0000, $0001, $00FF, $0100, $0101, $01FF, $7FFF, $8000, $8001, $80FF, $8100, $FEFF, $FF00, $FF01, $FFFF]
+var ints: [15]int = [0, 1, 255, 256, 257, 511, 32767, -32768, -32767, -32513, -32512, -257, -256, -255, -1]
+var flag: bool
+
+func w_0000_c0(x: word): bool
+  return x < $0000
+end
+
+func w_0000_c1(x: word): bool
+  return x <= $0000
+end
+
+func w_0000_c2(x: word): bool
+  return x > $0000
+end
+
+func w_0000_c3(x: word): bool
+  return x >= $0000
+end
+
+func w_0000_c4(x: word): bool
+  return $0000 < x
+end
+
+func w_0000_c5(x: word): bool
+  return $0000 <= x
+end
+
+func w_0000_c6(x: word): bool
+  return $0000 > x
+end
+
+func w_0000_c7(x: word): bool
+  return $0000 >= x
+end
+
+func w_0000(x: word)
+  var r: word = 0
+  var c: byte = 0
+  if x < $0000 then
+    r |= $0001
+  end
+  if x <= $0000 then
+    r |= $0002
+  end
+  if x > $0000 then
+    r |= $0004
+  end
+  if x >= $0000 then
+    r |= $0008
+  end
+  if $0000 < x then
+    r |= $0010
+  end
+  if $0000 <= x then
+    r |= $0020
+  end
+  if $0000 > x then
+    r |= $0040
+  end
+  if $0000 >= x then
+    r |= $0080
+  end
+  flag = x < $0000
+  if flag then
+    r |= $0100
+  end
+  flag = x <= $0000
+  if flag then
+    r |= $0200
+  end
+  flag = x > $0000
+  if flag then
+    r |= $0400
+  end
+  flag = x >= $0000
+  if flag then
+    r |= $0800
+  end
+  flag = $0000 < x
+  if flag then
+    r |= $1000
+  end
+  flag = $0000 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = $0000 > x
+  if flag then
+    r |= $4000
+  end
+  flag = $0000 >= x
+  if flag then
+    r |= $8000
+  end
+  if w_0000_c0(x) then
+    c |= $01
+  end
+  if w_0000_c1(x) then
+    c |= $02
+  end
+  if w_0000_c2(x) then
+    c |= $04
+  end
+  if w_0000_c3(x) then
+    c |= $08
+  end
+  if w_0000_c4(x) then
+    c |= $10
+  end
+  if w_0000_c5(x) then
+    c |= $20
+  end
+  if w_0000_c6(x) then
+    c |= $40
+  end
+  if w_0000_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func w_0100_c0(x: word): bool
+  return x < $0100
+end
+
+func w_0100_c1(x: word): bool
+  return x <= $0100
+end
+
+func w_0100_c2(x: word): bool
+  return x > $0100
+end
+
+func w_0100_c3(x: word): bool
+  return x >= $0100
+end
+
+func w_0100_c4(x: word): bool
+  return $0100 < x
+end
+
+func w_0100_c5(x: word): bool
+  return $0100 <= x
+end
+
+func w_0100_c6(x: word): bool
+  return $0100 > x
+end
+
+func w_0100_c7(x: word): bool
+  return $0100 >= x
+end
+
+func w_0100(x: word)
+  var r: word = 0
+  var c: byte = 0
+  if x < $0100 then
+    r |= $0001
+  end
+  if x <= $0100 then
+    r |= $0002
+  end
+  if x > $0100 then
+    r |= $0004
+  end
+  if x >= $0100 then
+    r |= $0008
+  end
+  if $0100 < x then
+    r |= $0010
+  end
+  if $0100 <= x then
+    r |= $0020
+  end
+  if $0100 > x then
+    r |= $0040
+  end
+  if $0100 >= x then
+    r |= $0080
+  end
+  flag = x < $0100
+  if flag then
+    r |= $0100
+  end
+  flag = x <= $0100
+  if flag then
+    r |= $0200
+  end
+  flag = x > $0100
+  if flag then
+    r |= $0400
+  end
+  flag = x >= $0100
+  if flag then
+    r |= $0800
+  end
+  flag = $0100 < x
+  if flag then
+    r |= $1000
+  end
+  flag = $0100 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = $0100 > x
+  if flag then
+    r |= $4000
+  end
+  flag = $0100 >= x
+  if flag then
+    r |= $8000
+  end
+  if w_0100_c0(x) then
+    c |= $01
+  end
+  if w_0100_c1(x) then
+    c |= $02
+  end
+  if w_0100_c2(x) then
+    c |= $04
+  end
+  if w_0100_c3(x) then
+    c |= $08
+  end
+  if w_0100_c4(x) then
+    c |= $10
+  end
+  if w_0100_c5(x) then
+    c |= $20
+  end
+  if w_0100_c6(x) then
+    c |= $40
+  end
+  if w_0100_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func w_8000_c0(x: word): bool
+  return x < $8000
+end
+
+func w_8000_c1(x: word): bool
+  return x <= $8000
+end
+
+func w_8000_c2(x: word): bool
+  return x > $8000
+end
+
+func w_8000_c3(x: word): bool
+  return x >= $8000
+end
+
+func w_8000_c4(x: word): bool
+  return $8000 < x
+end
+
+func w_8000_c5(x: word): bool
+  return $8000 <= x
+end
+
+func w_8000_c6(x: word): bool
+  return $8000 > x
+end
+
+func w_8000_c7(x: word): bool
+  return $8000 >= x
+end
+
+func w_8000(x: word)
+  var r: word = 0
+  var c: byte = 0
+  if x < $8000 then
+    r |= $0001
+  end
+  if x <= $8000 then
+    r |= $0002
+  end
+  if x > $8000 then
+    r |= $0004
+  end
+  if x >= $8000 then
+    r |= $0008
+  end
+  if $8000 < x then
+    r |= $0010
+  end
+  if $8000 <= x then
+    r |= $0020
+  end
+  if $8000 > x then
+    r |= $0040
+  end
+  if $8000 >= x then
+    r |= $0080
+  end
+  flag = x < $8000
+  if flag then
+    r |= $0100
+  end
+  flag = x <= $8000
+  if flag then
+    r |= $0200
+  end
+  flag = x > $8000
+  if flag then
+    r |= $0400
+  end
+  flag = x >= $8000
+  if flag then
+    r |= $0800
+  end
+  flag = $8000 < x
+  if flag then
+    r |= $1000
+  end
+  flag = $8000 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = $8000 > x
+  if flag then
+    r |= $4000
+  end
+  flag = $8000 >= x
+  if flag then
+    r |= $8000
+  end
+  if w_8000_c0(x) then
+    c |= $01
+  end
+  if w_8000_c1(x) then
+    c |= $02
+  end
+  if w_8000_c2(x) then
+    c |= $04
+  end
+  if w_8000_c3(x) then
+    c |= $08
+  end
+  if w_8000_c4(x) then
+    c |= $10
+  end
+  if w_8000_c5(x) then
+    c |= $20
+  end
+  if w_8000_c6(x) then
+    c |= $40
+  end
+  if w_8000_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func w_FF00_c0(x: word): bool
+  return x < $FF00
+end
+
+func w_FF00_c1(x: word): bool
+  return x <= $FF00
+end
+
+func w_FF00_c2(x: word): bool
+  return x > $FF00
+end
+
+func w_FF00_c3(x: word): bool
+  return x >= $FF00
+end
+
+func w_FF00_c4(x: word): bool
+  return $FF00 < x
+end
+
+func w_FF00_c5(x: word): bool
+  return $FF00 <= x
+end
+
+func w_FF00_c6(x: word): bool
+  return $FF00 > x
+end
+
+func w_FF00_c7(x: word): bool
+  return $FF00 >= x
+end
+
+func w_FF00(x: word)
+  var r: word = 0
+  var c: byte = 0
+  if x < $FF00 then
+    r |= $0001
+  end
+  if x <= $FF00 then
+    r |= $0002
+  end
+  if x > $FF00 then
+    r |= $0004
+  end
+  if x >= $FF00 then
+    r |= $0008
+  end
+  if $FF00 < x then
+    r |= $0010
+  end
+  if $FF00 <= x then
+    r |= $0020
+  end
+  if $FF00 > x then
+    r |= $0040
+  end
+  if $FF00 >= x then
+    r |= $0080
+  end
+  flag = x < $FF00
+  if flag then
+    r |= $0100
+  end
+  flag = x <= $FF00
+  if flag then
+    r |= $0200
+  end
+  flag = x > $FF00
+  if flag then
+    r |= $0400
+  end
+  flag = x >= $FF00
+  if flag then
+    r |= $0800
+  end
+  flag = $FF00 < x
+  if flag then
+    r |= $1000
+  end
+  flag = $FF00 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = $FF00 > x
+  if flag then
+    r |= $4000
+  end
+  flag = $FF00 >= x
+  if flag then
+    r |= $8000
+  end
+  if w_FF00_c0(x) then
+    c |= $01
+  end
+  if w_FF00_c1(x) then
+    c |= $02
+  end
+  if w_FF00_c2(x) then
+    c |= $04
+  end
+  if w_FF00_c3(x) then
+    c |= $08
+  end
+  if w_FF00_c4(x) then
+    c |= $10
+  end
+  if w_FF00_c5(x) then
+    c |= $20
+  end
+  if w_FF00_c6(x) then
+    c |= $40
+  end
+  if w_FF00_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func w_00FF_c0(x: word): bool
+  return x < $00FF
+end
+
+func w_00FF_c1(x: word): bool
+  return x <= $00FF
+end
+
+func w_00FF_c2(x: word): bool
+  return x > $00FF
+end
+
+func w_00FF_c3(x: word): bool
+  return x >= $00FF
+end
+
+func w_00FF_c4(x: word): bool
+  return $00FF < x
+end
+
+func w_00FF_c5(x: word): bool
+  return $00FF <= x
+end
+
+func w_00FF_c6(x: word): bool
+  return $00FF > x
+end
+
+func w_00FF_c7(x: word): bool
+  return $00FF >= x
+end
+
+func w_00FF(x: word)
+  var r: word = 0
+  var c: byte = 0
+  if x < $00FF then
+    r |= $0001
+  end
+  if x <= $00FF then
+    r |= $0002
+  end
+  if x > $00FF then
+    r |= $0004
+  end
+  if x >= $00FF then
+    r |= $0008
+  end
+  if $00FF < x then
+    r |= $0010
+  end
+  if $00FF <= x then
+    r |= $0020
+  end
+  if $00FF > x then
+    r |= $0040
+  end
+  if $00FF >= x then
+    r |= $0080
+  end
+  flag = x < $00FF
+  if flag then
+    r |= $0100
+  end
+  flag = x <= $00FF
+  if flag then
+    r |= $0200
+  end
+  flag = x > $00FF
+  if flag then
+    r |= $0400
+  end
+  flag = x >= $00FF
+  if flag then
+    r |= $0800
+  end
+  flag = $00FF < x
+  if flag then
+    r |= $1000
+  end
+  flag = $00FF <= x
+  if flag then
+    r |= $2000
+  end
+  flag = $00FF > x
+  if flag then
+    r |= $4000
+  end
+  flag = $00FF >= x
+  if flag then
+    r |= $8000
+  end
+  if w_00FF_c0(x) then
+    c |= $01
+  end
+  if w_00FF_c1(x) then
+    c |= $02
+  end
+  if w_00FF_c2(x) then
+    c |= $04
+  end
+  if w_00FF_c3(x) then
+    c |= $08
+  end
+  if w_00FF_c4(x) then
+    c |= $10
+  end
+  if w_00FF_c5(x) then
+    c |= $20
+  end
+  if w_00FF_c6(x) then
+    c |= $40
+  end
+  if w_00FF_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func w_80FF_c0(x: word): bool
+  return x < $80FF
+end
+
+func w_80FF_c1(x: word): bool
+  return x <= $80FF
+end
+
+func w_80FF_c2(x: word): bool
+  return x > $80FF
+end
+
+func w_80FF_c3(x: word): bool
+  return x >= $80FF
+end
+
+func w_80FF_c4(x: word): bool
+  return $80FF < x
+end
+
+func w_80FF_c5(x: word): bool
+  return $80FF <= x
+end
+
+func w_80FF_c6(x: word): bool
+  return $80FF > x
+end
+
+func w_80FF_c7(x: word): bool
+  return $80FF >= x
+end
+
+func w_80FF(x: word)
+  var r: word = 0
+  var c: byte = 0
+  if x < $80FF then
+    r |= $0001
+  end
+  if x <= $80FF then
+    r |= $0002
+  end
+  if x > $80FF then
+    r |= $0004
+  end
+  if x >= $80FF then
+    r |= $0008
+  end
+  if $80FF < x then
+    r |= $0010
+  end
+  if $80FF <= x then
+    r |= $0020
+  end
+  if $80FF > x then
+    r |= $0040
+  end
+  if $80FF >= x then
+    r |= $0080
+  end
+  flag = x < $80FF
+  if flag then
+    r |= $0100
+  end
+  flag = x <= $80FF
+  if flag then
+    r |= $0200
+  end
+  flag = x > $80FF
+  if flag then
+    r |= $0400
+  end
+  flag = x >= $80FF
+  if flag then
+    r |= $0800
+  end
+  flag = $80FF < x
+  if flag then
+    r |= $1000
+  end
+  flag = $80FF <= x
+  if flag then
+    r |= $2000
+  end
+  flag = $80FF > x
+  if flag then
+    r |= $4000
+  end
+  flag = $80FF >= x
+  if flag then
+    r |= $8000
+  end
+  if w_80FF_c0(x) then
+    c |= $01
+  end
+  if w_80FF_c1(x) then
+    c |= $02
+  end
+  if w_80FF_c2(x) then
+    c |= $04
+  end
+  if w_80FF_c3(x) then
+    c |= $08
+  end
+  if w_80FF_c4(x) then
+    c |= $10
+  end
+  if w_80FF_c5(x) then
+    c |= $20
+  end
+  if w_80FF_c6(x) then
+    c |= $40
+  end
+  if w_80FF_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func i_0_c0(x: int): bool
+  return x < 0
+end
+
+func i_0_c1(x: int): bool
+  return x <= 0
+end
+
+func i_0_c2(x: int): bool
+  return x > 0
+end
+
+func i_0_c3(x: int): bool
+  return x >= 0
+end
+
+func i_0_c4(x: int): bool
+  return 0 < x
+end
+
+func i_0_c5(x: int): bool
+  return 0 <= x
+end
+
+func i_0_c6(x: int): bool
+  return 0 > x
+end
+
+func i_0_c7(x: int): bool
+  return 0 >= x
+end
+
+func i_0(x: int)
+  var r: word = 0
+  var c: byte = 0
+  if x < 0 then
+    r |= $0001
+  end
+  if x <= 0 then
+    r |= $0002
+  end
+  if x > 0 then
+    r |= $0004
+  end
+  if x >= 0 then
+    r |= $0008
+  end
+  if 0 < x then
+    r |= $0010
+  end
+  if 0 <= x then
+    r |= $0020
+  end
+  if 0 > x then
+    r |= $0040
+  end
+  if 0 >= x then
+    r |= $0080
+  end
+  flag = x < 0
+  if flag then
+    r |= $0100
+  end
+  flag = x <= 0
+  if flag then
+    r |= $0200
+  end
+  flag = x > 0
+  if flag then
+    r |= $0400
+  end
+  flag = x >= 0
+  if flag then
+    r |= $0800
+  end
+  flag = 0 < x
+  if flag then
+    r |= $1000
+  end
+  flag = 0 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = 0 > x
+  if flag then
+    r |= $4000
+  end
+  flag = 0 >= x
+  if flag then
+    r |= $8000
+  end
+  if i_0_c0(x) then
+    c |= $01
+  end
+  if i_0_c1(x) then
+    c |= $02
+  end
+  if i_0_c2(x) then
+    c |= $04
+  end
+  if i_0_c3(x) then
+    c |= $08
+  end
+  if i_0_c4(x) then
+    c |= $10
+  end
+  if i_0_c5(x) then
+    c |= $20
+  end
+  if i_0_c6(x) then
+    c |= $40
+  end
+  if i_0_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func i_256_c0(x: int): bool
+  return x < 256
+end
+
+func i_256_c1(x: int): bool
+  return x <= 256
+end
+
+func i_256_c2(x: int): bool
+  return x > 256
+end
+
+func i_256_c3(x: int): bool
+  return x >= 256
+end
+
+func i_256_c4(x: int): bool
+  return 256 < x
+end
+
+func i_256_c5(x: int): bool
+  return 256 <= x
+end
+
+func i_256_c6(x: int): bool
+  return 256 > x
+end
+
+func i_256_c7(x: int): bool
+  return 256 >= x
+end
+
+func i_256(x: int)
+  var r: word = 0
+  var c: byte = 0
+  if x < 256 then
+    r |= $0001
+  end
+  if x <= 256 then
+    r |= $0002
+  end
+  if x > 256 then
+    r |= $0004
+  end
+  if x >= 256 then
+    r |= $0008
+  end
+  if 256 < x then
+    r |= $0010
+  end
+  if 256 <= x then
+    r |= $0020
+  end
+  if 256 > x then
+    r |= $0040
+  end
+  if 256 >= x then
+    r |= $0080
+  end
+  flag = x < 256
+  if flag then
+    r |= $0100
+  end
+  flag = x <= 256
+  if flag then
+    r |= $0200
+  end
+  flag = x > 256
+  if flag then
+    r |= $0400
+  end
+  flag = x >= 256
+  if flag then
+    r |= $0800
+  end
+  flag = 256 < x
+  if flag then
+    r |= $1000
+  end
+  flag = 256 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = 256 > x
+  if flag then
+    r |= $4000
+  end
+  flag = 256 >= x
+  if flag then
+    r |= $8000
+  end
+  if i_256_c0(x) then
+    c |= $01
+  end
+  if i_256_c1(x) then
+    c |= $02
+  end
+  if i_256_c2(x) then
+    c |= $04
+  end
+  if i_256_c3(x) then
+    c |= $08
+  end
+  if i_256_c4(x) then
+    c |= $10
+  end
+  if i_256_c5(x) then
+    c |= $20
+  end
+  if i_256_c6(x) then
+    c |= $40
+  end
+  if i_256_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func i_n32768_c0(x: int): bool
+  return x < -32768
+end
+
+func i_n32768_c1(x: int): bool
+  return x <= -32768
+end
+
+func i_n32768_c2(x: int): bool
+  return x > -32768
+end
+
+func i_n32768_c3(x: int): bool
+  return x >= -32768
+end
+
+func i_n32768_c4(x: int): bool
+  return -32768 < x
+end
+
+func i_n32768_c5(x: int): bool
+  return -32768 <= x
+end
+
+func i_n32768_c6(x: int): bool
+  return -32768 > x
+end
+
+func i_n32768_c7(x: int): bool
+  return -32768 >= x
+end
+
+func i_n32768(x: int)
+  var r: word = 0
+  var c: byte = 0
+  if x < -32768 then
+    r |= $0001
+  end
+  if x <= -32768 then
+    r |= $0002
+  end
+  if x > -32768 then
+    r |= $0004
+  end
+  if x >= -32768 then
+    r |= $0008
+  end
+  if -32768 < x then
+    r |= $0010
+  end
+  if -32768 <= x then
+    r |= $0020
+  end
+  if -32768 > x then
+    r |= $0040
+  end
+  if -32768 >= x then
+    r |= $0080
+  end
+  flag = x < -32768
+  if flag then
+    r |= $0100
+  end
+  flag = x <= -32768
+  if flag then
+    r |= $0200
+  end
+  flag = x > -32768
+  if flag then
+    r |= $0400
+  end
+  flag = x >= -32768
+  if flag then
+    r |= $0800
+  end
+  flag = -32768 < x
+  if flag then
+    r |= $1000
+  end
+  flag = -32768 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = -32768 > x
+  if flag then
+    r |= $4000
+  end
+  flag = -32768 >= x
+  if flag then
+    r |= $8000
+  end
+  if i_n32768_c0(x) then
+    c |= $01
+  end
+  if i_n32768_c1(x) then
+    c |= $02
+  end
+  if i_n32768_c2(x) then
+    c |= $04
+  end
+  if i_n32768_c3(x) then
+    c |= $08
+  end
+  if i_n32768_c4(x) then
+    c |= $10
+  end
+  if i_n32768_c5(x) then
+    c |= $20
+  end
+  if i_n32768_c6(x) then
+    c |= $40
+  end
+  if i_n32768_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func i_n256_c0(x: int): bool
+  return x < -256
+end
+
+func i_n256_c1(x: int): bool
+  return x <= -256
+end
+
+func i_n256_c2(x: int): bool
+  return x > -256
+end
+
+func i_n256_c3(x: int): bool
+  return x >= -256
+end
+
+func i_n256_c4(x: int): bool
+  return -256 < x
+end
+
+func i_n256_c5(x: int): bool
+  return -256 <= x
+end
+
+func i_n256_c6(x: int): bool
+  return -256 > x
+end
+
+func i_n256_c7(x: int): bool
+  return -256 >= x
+end
+
+func i_n256(x: int)
+  var r: word = 0
+  var c: byte = 0
+  if x < -256 then
+    r |= $0001
+  end
+  if x <= -256 then
+    r |= $0002
+  end
+  if x > -256 then
+    r |= $0004
+  end
+  if x >= -256 then
+    r |= $0008
+  end
+  if -256 < x then
+    r |= $0010
+  end
+  if -256 <= x then
+    r |= $0020
+  end
+  if -256 > x then
+    r |= $0040
+  end
+  if -256 >= x then
+    r |= $0080
+  end
+  flag = x < -256
+  if flag then
+    r |= $0100
+  end
+  flag = x <= -256
+  if flag then
+    r |= $0200
+  end
+  flag = x > -256
+  if flag then
+    r |= $0400
+  end
+  flag = x >= -256
+  if flag then
+    r |= $0800
+  end
+  flag = -256 < x
+  if flag then
+    r |= $1000
+  end
+  flag = -256 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = -256 > x
+  if flag then
+    r |= $4000
+  end
+  flag = -256 >= x
+  if flag then
+    r |= $8000
+  end
+  if i_n256_c0(x) then
+    c |= $01
+  end
+  if i_n256_c1(x) then
+    c |= $02
+  end
+  if i_n256_c2(x) then
+    c |= $04
+  end
+  if i_n256_c3(x) then
+    c |= $08
+  end
+  if i_n256_c4(x) then
+    c |= $10
+  end
+  if i_n256_c5(x) then
+    c |= $20
+  end
+  if i_n256_c6(x) then
+    c |= $40
+  end
+  if i_n256_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func i_255_c0(x: int): bool
+  return x < 255
+end
+
+func i_255_c1(x: int): bool
+  return x <= 255
+end
+
+func i_255_c2(x: int): bool
+  return x > 255
+end
+
+func i_255_c3(x: int): bool
+  return x >= 255
+end
+
+func i_255_c4(x: int): bool
+  return 255 < x
+end
+
+func i_255_c5(x: int): bool
+  return 255 <= x
+end
+
+func i_255_c6(x: int): bool
+  return 255 > x
+end
+
+func i_255_c7(x: int): bool
+  return 255 >= x
+end
+
+func i_255(x: int)
+  var r: word = 0
+  var c: byte = 0
+  if x < 255 then
+    r |= $0001
+  end
+  if x <= 255 then
+    r |= $0002
+  end
+  if x > 255 then
+    r |= $0004
+  end
+  if x >= 255 then
+    r |= $0008
+  end
+  if 255 < x then
+    r |= $0010
+  end
+  if 255 <= x then
+    r |= $0020
+  end
+  if 255 > x then
+    r |= $0040
+  end
+  if 255 >= x then
+    r |= $0080
+  end
+  flag = x < 255
+  if flag then
+    r |= $0100
+  end
+  flag = x <= 255
+  if flag then
+    r |= $0200
+  end
+  flag = x > 255
+  if flag then
+    r |= $0400
+  end
+  flag = x >= 255
+  if flag then
+    r |= $0800
+  end
+  flag = 255 < x
+  if flag then
+    r |= $1000
+  end
+  flag = 255 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = 255 > x
+  if flag then
+    r |= $4000
+  end
+  flag = 255 >= x
+  if flag then
+    r |= $8000
+  end
+  if i_255_c0(x) then
+    c |= $01
+  end
+  if i_255_c1(x) then
+    c |= $02
+  end
+  if i_255_c2(x) then
+    c |= $04
+  end
+  if i_255_c3(x) then
+    c |= $08
+  end
+  if i_255_c4(x) then
+    c |= $10
+  end
+  if i_255_c5(x) then
+    c |= $20
+  end
+  if i_255_c6(x) then
+    c |= $40
+  end
+  if i_255_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+func i_n257_c0(x: int): bool
+  return x < -257
+end
+
+func i_n257_c1(x: int): bool
+  return x <= -257
+end
+
+func i_n257_c2(x: int): bool
+  return x > -257
+end
+
+func i_n257_c3(x: int): bool
+  return x >= -257
+end
+
+func i_n257_c4(x: int): bool
+  return -257 < x
+end
+
+func i_n257_c5(x: int): bool
+  return -257 <= x
+end
+
+func i_n257_c6(x: int): bool
+  return -257 > x
+end
+
+func i_n257_c7(x: int): bool
+  return -257 >= x
+end
+
+func i_n257(x: int)
+  var r: word = 0
+  var c: byte = 0
+  if x < -257 then
+    r |= $0001
+  end
+  if x <= -257 then
+    r |= $0002
+  end
+  if x > -257 then
+    r |= $0004
+  end
+  if x >= -257 then
+    r |= $0008
+  end
+  if -257 < x then
+    r |= $0010
+  end
+  if -257 <= x then
+    r |= $0020
+  end
+  if -257 > x then
+    r |= $0040
+  end
+  if -257 >= x then
+    r |= $0080
+  end
+  flag = x < -257
+  if flag then
+    r |= $0100
+  end
+  flag = x <= -257
+  if flag then
+    r |= $0200
+  end
+  flag = x > -257
+  if flag then
+    r |= $0400
+  end
+  flag = x >= -257
+  if flag then
+    r |= $0800
+  end
+  flag = -257 < x
+  if flag then
+    r |= $1000
+  end
+  flag = -257 <= x
+  if flag then
+    r |= $2000
+  end
+  flag = -257 > x
+  if flag then
+    r |= $4000
+  end
+  flag = -257 >= x
+  if flag then
+    r |= $8000
+  end
+  if i_n257_c0(x) then
+    c |= $01
+  end
+  if i_n257_c1(x) then
+    c |= $02
+  end
+  if i_n257_c2(x) then
+    c |= $04
+  end
+  if i_n257_c3(x) then
+    c |= $08
+  end
+  if i_n257_c4(x) then
+    c |= $10
+  end
+  if i_n257_c5(x) then
+    c |= $20
+  end
+  if i_n257_c6(x) then
+    c |= $40
+  end
+  if i_n257_c7(x) then
+    c |= $80
+  end
+  libout.hexw(r)
+  libout.hex(c)
+  libout.space()
+end
+
+pub func main()
+  var i: byte
+  for i = 0 until 15 do
+    w_0000(words[i])
+    w_0100(words[i])
+    w_8000(words[i])
+    w_FF00(words[i])
+    w_00FF(words[i])
+    w_80FF(words[i])
+    i_0(ints[i])
+    i_256(ints[i])
+    i_n32768(ints[i])
+    i_n256(ints[i])
+    i_255(ints[i])
+    i_n257(ints[i])
+    libout.nl()
+  end
+end

@@ -135,9 +135,10 @@ def add(t, r, addr, target):
     global site_count
     if site_count == MAX_SITES:
         lk_err.fail(lk_err.E_SITES)
-    lk_tab.set_wk(W_SITES + 3 * site_count, addr)
-    lk_tab.set_wk(W_SITES + 3 * site_count + 1, (t << 8) | r)
-    lk_tab.set_wk(W_SITES + 3 * site_count + 2, target)
+    entry = W_SITES + 3 * site_count    # the place's first word
+    lk_tab.set_wk(entry, addr)
+    lk_tab.set_wk(entry + 1, (t << 8) | r)
+    lk_tab.set_wk(entry + 2, target)
     site_count += 1
 
 
@@ -202,17 +203,22 @@ def put_areas():
 def put_sites(t, r, plane_rows):
     """The places of type t of region r, their count first; with `plane_rows` (a region of planes of
     that many bytes), each followed by its plane (planes_below)."""
+    key = (t << 8) | r              # a place's second word, if it is of type t and region r
     n = 0
+    entry = W_SITES                 # place i's first word
     for i in range(0, site_count):
-        if lk_tab.wk(W_SITES + 3 * i + 1) == (t << 8) | r:
+        if lk_tab.wk(entry + 1) == key:
             n += 1
+        entry += 3
     lk_out.put_word(n)
     before = 0
+    entry = W_SITES
     for i in range(0, site_count):
-        if lk_tab.wk(W_SITES + 3 * i + 1) == (t << 8) | r:
-            before = put_place(before, lk_tab.wk(W_SITES + 3 * i))
+        if lk_tab.wk(entry + 1) == key:
+            before = put_place(before, lk_tab.wk(entry))
             if plane_rows != 0:
-                lk_out.put(planes_below(r, lk_tab.wk(W_SITES + 3 * i + 2), plane_rows))
+                lk_out.put(planes_below(r, lk_tab.wk(entry + 2), plane_rows))
+        entry += 3
 
 
 def plane_of(offset, plane_rows):
@@ -273,12 +279,14 @@ def put_region(r):
                 and (lk_tab.def_f[d] & lk_tab.D_CONST) != 0:
             lk_name.fail(lk_err.E_DYNAMIC, lk_tab.def_ref(d))
         if lk_scan.rdef_region[i] == r and movable(i):
-            if lk_tab.def_a[d] < first:
-                first = lk_tab.def_a[d]
-            if lk_tab.def_a[d] + lk_tab.def_b[d] > past:
-                past = lk_tab.def_a[d] + lk_tab.def_b[d]
-            if lk_tab.def_a[d] > last:
-                last = lk_tab.def_a[d]
+            start = lk_tab.def_a[d]         # where variable d starts, and the byte after it
+            after = start + lk_tab.def_b[d]
+            if start < first:
+                first = start
+            if after > past:
+                past = after
+            if start > last:
+                last = start
     if past == 0:
         first = 0
     lk_out.put_word(first)

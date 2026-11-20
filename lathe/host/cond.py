@@ -348,21 +348,32 @@ def equality(op, t):
 def subtract(count, signed, one_more):
     """Compare the operand under the newest one, through A, with the newest, by subtracting.
     Afterwards carry clear, or for signed types N set, means it is the smaller; if `one_more`
-    is subtracted as well, carry clear means it is the smaller or equal."""
+    is subtracted as well, carry clear means it is the smaller or equal. A word compared with
+    a constant whose low byte is 0 compares the high bytes alone: subtracting the low bytes
+    could only set the carry."""
     first = reg.depth - 2
     second = reg.depth - 1
-    reg.load(reg.A, first, 0)
-    if one_more:
-        reg.implied(reg.OP_CLC)
-        reg.alu(reg.OP_SBC, second, 0)
-    elif count == 1 and signed:
-        reg.implied(reg.OP_SEC)
-        reg.alu(reg.OP_SBC, second, 0)
-    else:
-        reg.compare(second, 0)
-    if count == 2:
+    if count == 2 and not one_more and reg.op_kind[second] == reg.O_CONST \
+            and reg.op_value[second] & 0xFF == 0:
         reg.load(reg.A, first, 1)
-        reg.alu(reg.OP_SBC, second, 1)
+        if signed:
+            reg.implied(reg.OP_SEC)
+            reg.alu(reg.OP_SBC, second, 1)
+        else:
+            reg.compare(second, 1)
+    else:
+        reg.load(reg.A, first, 0)
+        if one_more:
+            reg.implied(reg.OP_CLC)
+            reg.alu(reg.OP_SBC, second, 0)
+        elif count == 1 and signed:
+            reg.implied(reg.OP_SEC)
+            reg.alu(reg.OP_SBC, second, 0)
+        else:
+            reg.compare(second, 0)
+        if count == 2:
+            reg.load(reg.A, first, 1)
+            reg.alu(reg.OP_SBC, second, 1)
     if signed:
         same = fbuf.new_label()
         reg.branch(OP_BVC, same)       # after an overflow the sign is the wrong way round

@@ -763,12 +763,14 @@ def check_windows():
     module is fixed, and the overlays of a window are numbered from 1 with none missing."""
     ok = True
     for w in range(0, win_count):
-        ok = ok and win_lo[w] <= win_hi[w] and win_lo[w] >= 0x100
-        ok = ok and not overlaps(win_lo[w], win_hi[w], code_lo, code_hi)
-        ok = ok and not overlaps(win_lo[w], win_hi[w], data_lo, data_hi)
-        ok = ok and not (has_more and overlaps(win_lo[w], win_hi[w], more_lo, more_hi))
+        low = win_lo[w]                 # window w's first address and its last
+        high = win_hi[w]
+        ok = ok and low <= high and low >= 0x100
+        ok = ok and not overlaps(low, high, code_lo, code_hi)
+        ok = ok and not overlaps(low, high, data_lo, data_hi)
+        ok = ok and not (has_more and overlaps(low, high, more_lo, more_hi))
         for v in range(0, w):
-            ok = ok and not overlaps(win_lo[w], win_hi[w], win_lo[v], win_hi[v])
+            ok = ok and not overlaps(low, high, win_lo[v], win_hi[v])
     if not ok:
         lk_file.fail(lk_err.E_ENV_RANGE, lk_file.ARG_ENV)
     for w in range(0, win_count):

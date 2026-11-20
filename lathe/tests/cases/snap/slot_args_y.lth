@@ -1,0 +1,70 @@
+; Arguments stored into a callee's slots while an earlier argument, worked out, waits in A or
+; in A and X for its register: a constant or a plain variable goes to the slot through Y, LDY
+; and STY absolute or zero page, never indexed, and the waiting argument stays where it is
+; (lathe/docs/code-model.md, "Calls inside arguments"). An element goes through A as before,
+; and so the waiting argument to a temporary. The run-time checks are cases/e2e/slot_args_y.lth.
+module slot_args_y
+
+type Quad = func(x: byte, y: byte, z: byte, q: byte)
+
+var b: byte
+var c: byte
+var d: byte
+var e: byte
+var got: byte
+var u: word
+var v: word
+var w: word
+var table: [8]byte
+var words: [4]word
+var p: ^byte
+var h: Quad
+
+func four(x: byte, y: byte, z: byte, q: byte)
+  got = x ^ y ^ z ^ q
+end
+
+func pair(x: word, y: word)
+  u = x ^ y
+end
+
+func wide(x: word, y: byte, z: byte, q: word)
+  u = x ^ q
+  got = y ^ z
+end
+
+func one(x: byte): byte
+  return x + 1
+end
+
+; constants and variables through Y; a register argument for Y waiting as a variable
+func plain()
+  four(b + 1, 2, 3, 7)
+  four(b + 1, c, d, e)
+  four(b + 1, 9, 9, 9)
+  pair(v + w, $1234)
+  pair(v + w, u)
+  pair(v + w, word(e))
+  wide(v + w, b, 5, $FF00)
+end
+
+; elements and what a pointer points at, as register arguments or in the slot
+func indexed()
+  wide(v + w, table[c], c, u)
+  wide(v + w, p[c], e, words[c])
+  four(b + 1, p[e], table[c], d)
+end
+
+; a call in a later argument, and calls through a pointer
+func calls()
+  four(b + 1, c, d, one(e))
+  wide(u - v, one(b), e, w)
+  h = @four
+  h(b + 1, 2, 3, d)
+end
+
+pub func main()
+  plain()
+  indexed()
+  calls()
+end

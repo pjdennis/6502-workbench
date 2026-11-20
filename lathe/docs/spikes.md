@@ -1644,3 +1644,52 @@ byte of the module): the only variables of other row counts, `fn_edge` and the l
 not shrink, since `MAX_FUNCS` sizes 4,480 bytes of main RAM as well and its rows cannot be whole
 pages at 896. The account with `BBCFS 3`: 410 bytes free (636): the linker's resident part 205 more
 (`lk_tab` 125, the list 80), its bank 2 24 more as judged.
+
+## The linker's ROM space, measured (2026-11-20)
+
+([`bbc.md`](bbc.md), "One image for every machine with sideways RAM".) Image A (`ADAPT 1`, `ADFS 1`,
+`BBCFS 3`), every figure the linker's own judgement of its banks (`lk_judged.py`), which counts each
+module before shrinking with every variable that may go in the bank.
+
+**Where it stood.** On `c38e2ba` the ROM linker with `LKDYN 1` (the support for `dynamic` regions,
+module `lk_dyn`) needed 51,879 judged bytes in its three banks, which hold 48,816: **3,063 over**. It
+had been 781 over before the capacities work; since then `lk_dyn` had grown to 3,029 judged, and
+`LKDYN` added 946 to `lk_envf` and 331 to `lk_name`. No arrangement of the modules in three banks
+fits. On `1647a34`, after the
+planes, it was 52,506 judged (**3,690 over**).
+
+**Built** (each in host and twin, byte for byte; `LKDYN 0` in every ROM form as before):
+
+| Change | The linker's three banks (`LKDYN 0`) | `LKDYN 1` | The compiler's five banks |
+|---|---|---|---|
+| A constant, an address or a plain variable stored into a slot through Y while an argument waits in A, or A and X (`reg.put`, `put_const`; [`codegen.md`](codegen.md), "Calls") | 47,346 to 46,773: **573** | (with the next) | 69,498 to 69,358: **140** (`reg` 89 more) |
+| A big array's element read once into a named local, `check_windows`' range named once, `lk_dyn`'s place index stepping by 3 (the twins of `lk_place`, `lk_envf`, `lk_alloc`, `lk_dyn`; the host the same) | 46,773 to 46,644: **129** | 51,909 to 51,527: **382** | none |
+| A word compared with a constant whose low byte is 0 compares the high bytes alone (`cond.subtract`; [`codegen.md`](codegen.md), "Comparisons and conditions") | 46,644 to 46,537: **107** | 51,527 to 51,411: **116** | 69,358 to 69,345: **13** (`cond` 64 more) |
+| All three | **809** | 52,506 to 51,411: **1,095** | **153** |
+
+The first went further than the study's form of it, which stored only plain variables through Y
+and measured 384 and 172: constants and addresses go through Y too. Building it found a fault of
+long standing: a value waiting in A where a loop's label is placed (an `inline` function whose body
+starts with a loop, in an expression) was stored in its temporary inside the loop, so every pass
+after the first stored what the loop left in A. `reg.loop_label` now stores it first
+(`cases/e2e/inline_loop_owner.lth`); the stores through Y made it show in `inline_locals`.
+
+With `LKDYN 1` the linker is now 51,411 judged against 48,816: **2,595 over** (a measurement only:
+nothing with `LKDYN 1` is built into a ROM form).
+
+**The account after** (with `BBCFS 3`): Image A **1,218 bytes free** (410 before): the compiler's
+banks 13,710, 15,202, 13,934, 12,104, 14,395 (13,763, 15,271, 14,007, 12,188, 14,269), the linker's
+16,054, 15,060, 15,423 (16,245, 15,217, 15,884), the resident parts 12,449 and 10,161 bytes (12,475
+and 10,175), their variables in main RAM unchanged. The image without `ADAPT`: 5,439 free with
+`BBCFS 0` (4,563), 3,713 with `BBCFS 3` (2,837). The 32K image: 5,453 free (4,587), the compiler's
+main RAM 198 free (178). Cycles: the self-compile from the eight-bank image 875.3 million (877.2),
+Image A's 879.7 million at PAGE `$1900` (881.8); the linker's link of the compiler 3,006.0 million
+(3,024.8), Image A's 3,006.4 (3,025.3).
+
+**Candidates not built** (estimated): a long branch made a short one to a nearby `JMP` to the same
+place, about 140 bytes; a spilled word's low byte stored at once, before the high byte is worked
+out, about 150; `lk_envf.room_entry` through a table, about 150; more of `lk_dyn` (its three
+readings of the region definitions), 100 to 200.
+
+**Rejected**: a `JSR` and the `RTS` after it joined, 27 bytes measured; `BRK n` for the error
+calls, 87 bytes counted; repacking the banks, no gain.

@@ -1,0 +1,94 @@
+; Arguments stored into a callee's slots while an earlier argument, worked out, waits in A or
+; in A and X for its register: a constant or a plain variable goes to the slot through Y
+; (lathe/docs/code-model.md, "Calls inside arguments"). Every case where Y is in use around
+; such a store: a later argument for Y waiting as a variable, an element or what a pointer
+; points at as a register argument or a slot argument, a constant Y already holds, a call
+; through a pointer, a call in a later argument, and a word worked out in A and Y. Each callee
+; prints what it got, so a lost or swapped argument shows.
+module slot_args_y
+
+import libout
+
+type Quad = func(x: byte, y: byte, z: byte, q: byte)
+
+var b: byte = $11
+var c: byte = 3
+var d: byte = $44
+var e: byte = 5
+var u: word = $1234
+var v: word = $0102
+var w: word = $3040
+var table: [8]byte = [$A0, $A1, $A2, $A3, $A4, $A5, $A6, $A7]
+var words: [4]word = [$1111, $2222, $3333, $4444]
+var p: ^byte = @table
+var h: Quad
+
+func showb(x: byte)
+  libout.hex(x)
+  libout.space()
+end
+
+func show(x: word)
+  libout.hexw(x)
+  libout.space()
+end
+
+func four(x: byte, y: byte, z: byte, q: byte)
+  showb(x)
+  showb(y)
+  showb(z)
+  showb(q)
+  libout.nl()
+end
+
+func five(x: byte, y: byte, z: byte, q: byte, r: byte)
+  showb(x)
+  showb(y)
+  showb(z)
+  showb(q)
+  showb(r)
+  libout.nl()
+end
+
+func pair(x: word, y: word)
+  show(x)
+  show(y)
+  libout.nl()
+end
+
+func wide(x: word, y: byte, z: byte, q: word)
+  show(x)
+  showb(y)
+  showb(z)
+  show(q)
+  libout.nl()
+end
+
+func one(x: byte): byte
+  return x + 1
+end
+
+pub func main()
+  four(b + 1, 2, 3, 7)                  ; the slot's constant through Y
+  four(b + 1, c, d, e)                  ; the slot's variable through Y, then d loaded into Y
+  four(b + c, 0, 0, 0)
+  four(b + 1, 9, 9, 9)                  ; Y holds the constant the slot wants
+  five(b + 1, c, d, $55, $66)
+  five(b - c, c, d, e, b)
+  pair(v + w, $1234)                    ; a word's two bytes through Y
+  pair(v + w, u)
+  pair(v + w, word(e))
+  pair(v + w, $8000)
+  wide(v + w, b, 5, $FF00)              ; the register argument for Y waits as a variable
+  wide(v + w, table[c], c, u)           ; ... as an element, whose index needs X or Y
+  wide(v + w, p[c], e, words[c])        ; through a pointer, and an element in the slot
+  four(b + 1, p[e], table[c], d)
+  four(table[e] + 1, table[b & 7], c, table[c])
+  four(b + 1, c, d, one(e))             ; a call in the slot argument
+  four(b + 1, one(c), d, e)
+  wide(u - v, one(b), e, w)
+  h = @four
+  h(b + 1, 2, 3, d)                     ; through a pointer
+  h(b + c, c, table[e], $3C)
+  pair(v + w, w + u)                    ; a word worked out while another waits
+end

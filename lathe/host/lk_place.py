@@ -122,12 +122,14 @@ def place_object(obj):
             s = lk_name.global_sym(obj, lk_rec.get_word())
             d = lk_sym.row_of(s)
             bank = lk_win.bank_def(d)
-            if lk_tab.is_kept_def(d) and bank != 0 and lk_envf.bank_file[bank - 1] == 0:
-                lk_name.fail(lk_err.E_REGION_NO_FILE, s)    # only a region's can be: lk_envf
-            if lk_tab.is_kept_def(d) and bank != 0:
-                lk_tab.def_a[d] = take_bank(bank - 1, lk_tab.def_b[d], lk_tab.def_b[d])
-            elif lk_tab.is_kept_def(d):
-                lk_tab.def_a[d] = take(lk_tab.def_b[d])
+            if lk_tab.is_kept_def(d):
+                size = lk_tab.def_b[d]                      # data d's bytes
+                if bank == 0:
+                    lk_tab.def_a[d] = take(size)
+                elif lk_envf.bank_file[bank - 1] == 0:
+                    lk_name.fail(lk_err.E_REGION_NO_FILE, s)    # only a region's can be: lk_envf
+                else:
+                    lk_tab.def_a[d] = take_bank(bank - 1, size, size)
         kind = lk_rec.advance()
     lk_rec.close()
 

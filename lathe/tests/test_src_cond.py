@@ -50,9 +50,11 @@ def main():
     env.exit(0)
 
 
-# The grid: for each type, the constants at its edges (and one in between).
+# The grid: for each type, the constants at its edges (and one in between), and for words those
+# whose low byte is 0, or becomes 0 (> $FEFF is >= $FF00), where only the high bytes are compared.
 EDGES = {1: (0, 1, 0x7F, 0xFE, 0xFF), 2: (0, 1, 0x7F, 0xFFFF, 0xFF80),
-         3: (0, 1, 0xFF, 0x100, 0x1234, 0xFFFE, 0xFFFF), 4: (0, 1, 0x7FFF, 0x8000, 0xFFFF, 0x100),
+         3: (0, 1, 0xFF, 0x100, 0x1234, 0x8000, 0xFEFF, 0xFF00, 0xFFFE, 0xFFFF),
+         4: (0, 1, 0x7FFF, 0x8000, 0xFFFF, 0x100, 0xFEFF, 0xFF00),
          9: (0,)}
 OPERATORS = range(11, 17)
 USES = (b'iffalse', b'value\npop', b'wanted 1\n@\nwanted 0\ncarry 0\npop')

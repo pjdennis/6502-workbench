@@ -1,0 +1,49 @@
+; An inline function whose body starts with a loop, expanded in an expression whose left
+; operand is worked out and waits in A, or in A and X: the waiting value is stored in a
+; temporary before the loop starts, not inside it, where every pass after the first would
+; store what the loop left in A instead (2026-11-20).
+module inline_loop_owner
+
+import libout
+
+var text: [6]byte = [1, 2, 3, 4, 5, 0]
+var k: byte
+var total: word
+
+func seven(): byte
+  return 7
+end
+
+func big(): word
+  return $1200
+end
+
+; how far the text runs from k to its zero
+inline func scan(): byte
+  while text[k] != 0 do
+    k += 1
+  end
+  return k
+end
+
+; the sum of the text from k to its zero, by a loop whose first statement leaves A alone
+inline func sum_from(): word
+  while text[k] != 0 do
+    k += 1
+    total += text[k - 1]
+  end
+  return total
+end
+
+pub func main()
+  k = 0
+  libout.dec(seven() + scan())          ; 7 + 5
+  libout.space()
+  k = 2
+  libout.dec(word(seven()) + word(scan()))  ; 7 + 5
+  libout.space()
+  k = 1
+  total = 0
+  libout.hexw(big() + sum_from())       ; $1200 + 14
+  libout.nl()
+end

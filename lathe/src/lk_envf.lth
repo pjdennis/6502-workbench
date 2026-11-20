@@ -919,13 +919,17 @@ func check_windows()
   var k: byte
   var count: byte
   var same: bool
+  var low: word                 ; window w's first address and its last
+  var high: word
   for w = 0 until win_count do
-    ok = ok and win_lo[w] <= win_hi[w] and win_lo[w] >= $100
-    ok = ok and not overlaps(win_lo[w], win_hi[w], code_lo, code_hi)
-    ok = ok and not overlaps(win_lo[w], win_hi[w], data_lo, data_hi)
-    ok = ok and not (has_more and overlaps(win_lo[w], win_hi[w], more_lo, more_hi))
+    low = win_lo[w]
+    high = win_hi[w]
+    ok = ok and low <= high and low >= $100
+    ok = ok and not overlaps(low, high, code_lo, code_hi)
+    ok = ok and not overlaps(low, high, data_lo, data_hi)
+    ok = ok and not (has_more and overlaps(low, high, more_lo, more_hi))
     for v = 0 until w do
-      ok = ok and not overlaps(win_lo[w], win_hi[w], win_lo[v], win_hi[v])
+      ok = ok and not overlaps(low, high, win_lo[v], win_hi[v])
     end
   end
   if not ok then

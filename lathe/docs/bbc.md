@@ -2065,6 +2065,11 @@ and their capacities' entries). Byte for byte the same as before: every image wi
 image, the 32K image, the self-host ROM) and Wendy 2's banked compiler; Wendy 2's two banked
 linkers change (`LKDYN 1`: `lk_dyn` and `lk_envf`'s `planes`), and not by `LKROOMS`.
 
+Since then (2026-11-20, later) three changes of the generated code and the linker's source, every
+image's bytes changed by them: **1,218 bytes free** with `BBCFS 3`; the linker's banks as judged
+16,054, 15,060 and 15,423, the compiler's 13,710, 15,202, 13,934, 12,104 and 14,395; with `LKDYN 1`
+the linker 2,595 bytes over ([`spikes.md`](spikes.md), "The linker's ROM space, measured").
+
 ### What is not done
 
 - The linker with one bank (the work area's column offsets set at start-up: for the owner,

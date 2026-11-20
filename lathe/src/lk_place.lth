@@ -150,6 +150,7 @@ func place_object(obj: byte)
   var s: word
   var d: word
   var bank: byte
+  var size: word                ; data d's bytes
   lk_rec.open_object(obj)
   f = 0
   kept = false
@@ -174,13 +175,15 @@ func place_object(obj: byte)
       s = lk_name.global_sym(obj, lk_rec.get_word())
       d = lk_sym.row_of(s)
       bank = lk_win.bank_def(d)
-      if lk_tab.is_kept_def(d) and bank != 0 and lk_envf.bank_file[bank - 1] == 0 then
-        lk_name.fail(lk_err.E_REGION_NO_FILE, s)        ; only a region's can be: lk_envf
-      end
-      if lk_tab.is_kept_def(d) and bank != 0 then
-        lk_tab.def_a[d] = take_bank(bank - 1, lk_tab.def_b[d], lk_tab.def_b[d])
-      elif lk_tab.is_kept_def(d) then
-        lk_tab.def_a[d] = take(lk_tab.def_b[d])
+      if lk_tab.is_kept_def(d) then
+        size = lk_tab.def_b[d]
+        if bank == 0 then
+          lk_tab.def_a[d] = take(size)
+        elif lk_envf.bank_file[bank - 1] == 0 then
+          lk_name.fail(lk_err.E_REGION_NO_FILE, s)      ; only a region's can be: lk_envf
+        else
+          lk_tab.def_a[d] = take_bank(bank - 1, size, size)
+        end
       end
     end
     kind = lk_rec.advance()

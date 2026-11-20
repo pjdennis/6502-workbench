@@ -95,6 +95,7 @@ A two-byte operation needs somewhere to put its low byte while it computes the h
 | word `==` `!=` `$FFFF` (an `int` -1) | `LDA a` / `AND a+1` / `CMP #$FF`: one branch, and the carry is set if equal | Z |
 | unsigned word `<` `>=` | `LDA a` / `CMP b` / `LDA a+1` / `SBC b+1` | C |
 | signed `<` `>=` | subtract as above, then `BVC` over `EOR #$80` | N set / N clear |
+| word `<` `>=` a constant whose low byte is 0 (`$0100`, `$8000`, `$FF00`; and `> $00FF`, which is `>= $0100`) | the high bytes alone: `LDA a+1` / `CMP #>c`, or signed `LDA a+1` / `SEC` / `SBC #>c` and the `BVC` over `EOR #$80` (2026-11-20: the low bytes could only set the carry) | C, or N |
 
 - `and` and `or` evaluate the right side only when needed. `a and b` branches to the false label if `a` is false, then evaluates `b`. `or` is the mirror image. `not` swaps the true and false labels and the flag state.
 - A `bool` variable used as a condition is `LDA v` and "true when Z clear".
@@ -120,7 +121,7 @@ A `JSR` followed directly by `RTS`, with no label between them, becomes a `JMP`.
 
 ## Calls
 
-1. Each argument is evaluated in order. One for a parameter passed in a register (`code-model.md`, "Convention": A, X, Y for the first three if they are bytes; A and X for a first word, and Y for a byte after it) stays on the operand stack as it is: a Constant or a Variable, or a value In A, which the ownership rule stores in a temporary if a later argument needs A, as it does a Condition turned into 0 or 1 first. Every other argument is evaluated with the callee's parameter slot as its destination.
+1. Each argument is evaluated in order. One for a parameter passed in a register (`code-model.md`, "Convention": A, X, Y for the first three if they are bytes; A and X for a first word, and Y for a byte after it) stays on the operand stack as it is: a Constant or a Variable, or a value In A, which the ownership rule stores in a temporary if a later argument needs A, as it does a Condition turned into 0 or 1 first. Every other argument is evaluated with the callee's parameter slot as its destination. A constant, an address or a plain variable goes to a slot, or to a temporary in step 3, through Y (`LDY` / `STY`, absolute or zero page, never indexed) while such a value waits in A, or in A and X, so it can stay there (2026-11-20; `lathe/tests/cases/snap/slot_args_y.lth`).
 2. While arguments stored in slots are pending, any other call records the outer callee in its `CALL` record ([`object-format.md`](object-format.md)). A call of the callee itself then is error 100.
 3. Before a call, or the expansion of an `inline` function that is not pure or assigns to a variable, inside the arguments: each argument waiting for a register that is memory such code could change (anything but a temporary or constant data reached directly) is copied to a temporary, so that the arguments are taken from left to right.
 4. The register arguments are loaded: Y, then X, then A, each from where the operand is (a transfer if another register holds it). An element or what a pointer points at, whose index register could be another argument's, is copied to a temporary first when two or more arguments go in registers; one passed alone in A and X is loaded low byte first, so that an element's index in X is not lost. An operand that owns A below the arguments is stored first.

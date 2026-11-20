@@ -427,26 +427,39 @@ end
 
 ; Compare the operand under the newest one, through A, with the newest, by subtracting.
 ; Afterwards carry clear, or for signed types N set, means it is the smaller; if `one_more`
-; is subtracted as well, carry clear means it is the smaller or equal.
+; is subtracted as well, carry clear means it is the smaller or equal. A word compared with
+; a constant whose low byte is 0 compares the high bytes alone: subtracting the low bytes
+; could only set the carry.
 func subtract(count: byte, signed: bool, one_more: bool)
   var first: byte
   var second: byte
   var same: byte
   first = reg.depth - 2
   second = reg.depth - 1
-  reg.load(reg.A, first, 0)
-  if one_more then
-    reg.implied(reg.OP_CLC)
-    reg.alu(reg.OP_SBC, second, 0)
-  elif count == 1 and signed then
-    reg.implied(reg.OP_SEC)
-    reg.alu(reg.OP_SBC, second, 0)
-  else
-    reg.compare(second, 0)
-  end
-  if count == 2 then
+  if count == 2 and not one_more and reg.op_kind[second] == reg.O_CONST and
+      lo(reg.op_value[second]) == 0 then
     reg.load(reg.A, first, 1)
-    reg.alu(reg.OP_SBC, second, 1)
+    if signed then
+      reg.implied(reg.OP_SEC)
+      reg.alu(reg.OP_SBC, second, 1)
+    else
+      reg.compare(second, 1)
+    end
+  else
+    reg.load(reg.A, first, 0)
+    if one_more then
+      reg.implied(reg.OP_CLC)
+      reg.alu(reg.OP_SBC, second, 0)
+    elif count == 1 and signed then
+      reg.implied(reg.OP_SEC)
+      reg.alu(reg.OP_SBC, second, 0)
+    else
+      reg.compare(second, 0)
+    end
+    if count == 2 then
+      reg.load(reg.A, first, 1)
+      reg.alu(reg.OP_SBC, second, 1)
+    end
   end
   if signed then
     same = fbuf.new_label()

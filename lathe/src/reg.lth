@@ -1017,7 +1017,9 @@ end
 
 ; Store byte `k` of operand `i` in byte `target_k` of memory operand `target`, from
 ; whichever register holds it already, or else through A. A value in A and X is stored in
-; a temporary first if the target is an element, whose index needs X.
+; a temporary first if the target is an element, whose index needs X. A constant, an address
+; or a plain variable goes to a target that needs no index through Y while another operand
+; is in the registers, such as an argument waiting for them, which can then stay there.
 pub func put(i: byte, k: byte, target: byte, target_k: byte)
   var r: byte
   if op_kind[i] == O_AX and op_mode[target] == M_INDEXED then
@@ -1029,6 +1031,11 @@ pub func put(i: byte, k: byte, target: byte, target_k: byte)
     load(X, i, k)                   ; A may hold the byte below: keep it there
     r = X
   end
+  if r == NO_REG and owner != NONE and is_direct(i) and is_direct(target) and
+      (op_kind[i] == O_VAR or op_kind[i] == O_CONST or op_kind[i] == O_ADDR) then
+    load(Y, i, k)                   ; LDY and STY, absolute or zero page: never indexed
+    r = Y
+  end
   if r == NO_REG or not is_direct(target) then
     load(A, i, k)
     r = A
@@ -1036,10 +1043,14 @@ pub func put(i: byte, k: byte, target: byte, target_k: byte)
   store(r, target, target_k)
 end
 
-; Store a constant byte in byte `target_k` of memory operand `target`.
+; Store a constant byte in byte `target_k` of memory operand `target`: through a register
+; known to hold it, else through A, or through Y while an operand is in the registers.
 pub func put_const(value: byte, target: byte, target_k: byte)
   var r: byte = A
   var other: byte
+  if owner != NONE and is_direct(target) then
+    r = Y
+  end
   for other = 0 until 3 do
     if reg_known[other] and reg_const[other] == value and is_direct(target) then
       r = other
@@ -1172,9 +1183,12 @@ pub func label(target: byte)
   drop_state(s)
 end
 
-; Put a label here that later instructions will go to.
+; Put a label here that later instructions will go to. An operand in the registers is
+; stored in a temporary first, before the label: a store inside the loop would be made again
+; on every pass, of what the loop left there.
 pub func loop_label(target: byte)
   var t: byte
+  claim(A)
   t = fbuf.same(target)
   drop_state(fbuf.label_note[t])
   fbuf.label_note[t] = LOST

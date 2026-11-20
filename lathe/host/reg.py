@@ -868,7 +868,9 @@ def store_direct(r, i, k):
 def put(i, k, target, target_k):
     """Store byte `k` of operand `i` in byte `target_k` of memory operand `target`, from
     whichever register holds it already, or else through A. A value in A and X is stored in
-    a temporary first if the target is an element, whose index needs X."""
+    a temporary first if the target is an element, whose index needs X. A constant, an address
+    or a plain variable goes to a target that needs no index through Y while another operand
+    is in the registers, such as an argument waiting for them, which can then stay there."""
     if op_kind[i] == O_AX and op_mode[target] == M_INDEXED:
         spill(i)
     r = holder(i, k)
@@ -876,6 +878,10 @@ def put(i, k, target, target_k):
             and is_direct(target) and owner == NONE:
         load(X, i, k)                   # A may hold the byte below: keep it there
         r = X
+    if r == NO_REG and owner != NONE and is_direct(i) and is_direct(target) \
+            and (op_kind[i] == O_VAR or op_kind[i] == O_CONST or op_kind[i] == O_ADDR):
+        load(Y, i, k)                   # LDY and STY, absolute or zero page: never indexed
+        r = Y
     if r == NO_REG or not is_direct(target):
         load(A, i, k)
         r = A
@@ -883,8 +889,11 @@ def put(i, k, target, target_k):
 
 
 def put_const(value, target, target_k):
-    """Store a constant byte in byte `target_k` of memory operand `target`."""
+    """Store a constant byte in byte `target_k` of memory operand `target`: through a register
+    known to hold it, else through A, or through Y while an operand is in the registers."""
     r = A
+    if owner != NONE and is_direct(target):
+        r = Y
     for other in range(0, 3):
         if reg_known[other] and reg_const[other] == value and is_direct(target):
             r = other
@@ -1012,7 +1021,10 @@ def label(target):
 
 
 def loop_label(target):
-    """Put a label here that later instructions will go to."""
+    """Put a label here that later instructions will go to. An operand in the registers is
+    stored in a temporary first, before the label: a store inside the loop would be made again
+    on every pass, of what the loop left there."""
+    claim(A)
     t = fbuf.same(target)
     drop_state(fbuf.label_note[t])
     fbuf.label_note[t] = LOST

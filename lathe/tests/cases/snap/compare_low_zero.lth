@@ -1,0 +1,50 @@
+; A word or an int compared with a constant whose low byte is 0 compares the high bytes alone:
+; LDA x+1 / CMP #>c for a word, LDA x+1 / SEC / SBC #>c and the overflow's correction for an
+; int (lathe/docs/codegen.md, "Comparisons and conditions"). In a branch, as a value and in the
+; carry, the constant on either side, and those that become such a constant (> $00FF is
+; >= $0100). The run-time checks are cases/e2e/compare_low_zero.lth.
+module compare_low_zero
+
+var w: word
+var i: int
+var b: byte
+var flag: bool
+
+func below(x: word): bool
+  return x < $0100
+end
+
+func at_least(x: word): bool
+  return x >= $8000
+end
+
+func negative_enough(x: int): bool
+  return x < -256
+end
+
+pub func main()
+  if w < $0100 then
+    b = 1
+  end
+  if w >= $FF00 then
+    b = 2
+  end
+  if w > $00FF then
+    b = 3
+  end
+  if $8000 > w then
+    b = 4
+  end
+  flag = w <= $80FF
+  if i < 256 then
+    b = 5
+  end
+  if i >= -32768 then
+    b = 6
+  end
+  if -256 <= i then
+    b = 7
+  end
+  flag = i > 255
+  flag = below(w) and at_least(w) and negative_enough(i)
+end

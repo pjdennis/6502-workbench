@@ -490,6 +490,50 @@ show 4
 put 4 1 3 1
 implied $60
 finish
+== put and pconst through Y while A, or A and X, holds an operand
+mem 1 5 $FF 0 0 $FFFF
+mem 1 6 $FF 0 0 $FFFF
+preg 1
+pconst 7 1 0
+put 0 0 1 0
+lconst 1 9
+pconst 9 1 0
+show 2
+state
+pop
+preg 3
+mem 3 7 $FF 0 0 $FFFF
+mem 3 8 $FF 0 0 $FFFF
+put 3 0 4 0
+put 3 1 4 1
+pconst $12 4 1
+const 6 9
+put 5 0 4 0
+put 5 1 4 1
+pop
+mem 1 7 $FF 0 0 $FFFF
+retype 5 3
+put 5 1 4 1
+pop
+mem 1 6 $FF 0 0 $FFFF
+mem 1 9 $FF 0 0 $FFFF
+index 5
+mode 5 1 1
+put 5 0 4 0
+show 2
+state
+implied $60
+finish
+== a loop's label with an operand in the registers: it is stored first, before the label
+preg 3
+label
+looplabel 0
+show 0
+mem 1 5 $FF 0 0 $FFFF
+load 0 1 0
+branch $D0 0
+implied $60
+finish
 == the flags
 mem 1 5 $FF 0 0 $FFFF
 const 6 3

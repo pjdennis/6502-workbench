@@ -97,12 +97,14 @@ pub func begin()
 end
 
 func add(t: byte, r: byte, addr: word, target: word)
+  var entry: word               ; the place's first word
   if site_count == MAX_SITES then
     lk_err.fail(lk_err.E_SITES)
   end
-  lk_tab.set_wk(W_SITES + 3 * site_count, addr)
-  lk_tab.set_wk(W_SITES + 3 * site_count + 1, (word(t) << 8) | r)
-  lk_tab.set_wk(W_SITES + 3 * site_count + 2, target)
+  entry = W_SITES + 3 * site_count
+  lk_tab.set_wk(entry, addr)
+  lk_tab.set_wk(entry + 1, (word(t) << 8) | r)
+  lk_tab.set_wk(entry + 2, target)
   site_count += 1
 end
 
@@ -227,22 +229,29 @@ end
 func put_sites(t: byte, r: byte, plane_rows: word)
   var n: word
   var i: word
+  var entry: word               ; place i's first word
+  var key: word                 ; its second, if it is of type t and region r
   var before: word
+  key = (word(t) << 8) | r
   n = 0
+  entry = W_SITES
   for i = 0 until site_count do
-    if lk_tab.wk(W_SITES + 3 * i + 1) == (word(t) << 8) | r then
+    if lk_tab.wk(entry + 1) == key then
       n += 1
     end
+    entry += 3
   end
   lk_out.put_word(n)
   before = 0
+  entry = W_SITES
   for i = 0 until site_count do
-    if lk_tab.wk(W_SITES + 3 * i + 1) == (word(t) << 8) | r then
-      before = put_place(before, lk_tab.wk(W_SITES + 3 * i))
+    if lk_tab.wk(entry + 1) == key then
+      before = put_place(before, lk_tab.wk(entry))
       if plane_rows != 0 then
-        lk_out.put(planes_below(r, lk_tab.wk(W_SITES + 3 * i + 2), plane_rows))
+        lk_out.put(planes_below(r, lk_tab.wk(entry + 2), plane_rows))
       end
     end
+    entry += 3
   end
 end
 
@@ -340,6 +349,8 @@ func put_region(r: byte)
   var last: word                ; where its last variable starts
   var room: word
   var plane_rows: word
+  var start: word               ; where variable d starts, and the byte after it
+  var after: word
   lk_out.put(lk_envf.bank_value[lk_envf.region_bank[r] - 1])
   first = $FFFF
   past = 0
@@ -351,14 +362,16 @@ func put_region(r: byte)
       lk_name.fail(lk_err.E_DYNAMIC, lk_tab.def_ref(d))
     end
     if lk_scan.rdef_region[i] == r and movable(i) then
-      if lk_tab.def_a[d] < first then
-        first = lk_tab.def_a[d]
+      start = lk_tab.def_a[d]
+      after = start + lk_tab.def_b[d]
+      if start < first then
+        first = start
       end
-      if lk_tab.def_a[d] + lk_tab.def_b[d] > past then
-        past = lk_tab.def_a[d] + lk_tab.def_b[d]
+      if after > past then
+        past = after
       end
-      if lk_tab.def_a[d] > last then
-        last = lk_tab.def_a[d]
+      if start > last then
+        last = start
       end
     end
   end

@@ -345,10 +345,11 @@ reg_args__nested
     JSR reg_args__two
     STA reg_args__a
     JSR reg_args__one
+    LDY reg_args__b
+    STY reg_args__nested__St1
     STA reg_args__nested__St2
-    LDA reg_args__b
-    STA reg_args__nested__St1
     LDX reg_args__c
+    TYA
     JSR reg_args__two
     TAY
     LDX reg_args__nested__St1

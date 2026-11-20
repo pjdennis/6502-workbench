@@ -396,6 +396,8 @@ class WordCopyTest(RegTest):
         self.assertEqual(self.listing(), ['LDA g5', 'STA g6', 'LDX g5+1', 'STX g6+1', 'RTS'])
 
     def test_not_while_an_operand_is_in_the_registers_nor_for_a_widened_byte(self):
+        """While an operand is in A the byte goes through Y, and the operand stays in A
+        (2026-11-20; before, it went to a temporary and the byte through A)."""
         v, w = self.memory(WORD, 5), self.memory(WORD, 6)
         reg.push_register(BYTE)
         reg.put(v, 1, w, 1)
@@ -403,8 +405,7 @@ class WordCopyTest(RegTest):
         b = self.memory(BYTE, 7)
         reg.op_type[b] = WORD
         reg.put(b, 1, w, 1)
-        listing = self.listing()
-        self.assertEqual(listing[1:], ['LDA g5+1', 'STA g6+1', 'LDA #$00', 'STA g6+1', 'RTS'])
+        self.assertEqual(self.listing(), ['LDY g5+1', 'STY g6+1', 'LDA #$00', 'STA g6+1', 'RTS'])
 
 
 class FlagsTest(RegTest):

@@ -468,12 +468,16 @@ func start_choices()
   var k: byte
   var p: byte
   var d: word
+  var first: word               ; function f's first slot
+  var flags: byte               ; variable d's flags and its bytes
+  var size: word
   for w = 0 until WEIGHTS do
     lk_tab.set_wk(WEIGHT_COUNT + w, 0)
   end
   for f = 0 until lk_tab.fn_count do
     if lk_tab.fn_ctx[f] != 0 then
-      for s = lk_tab.fn_slot[f] until lk_tab.fn_slot[f] + lk_tab.fn_nslots(f) do
+      first = lk_tab.fn_slot[f]
+      for s = first until first + lk_tab.fn_nslots(f) do
         if lk_tab.slot_class(s) == 0 then
           must_fit(lk_tab.slot_bytes(s), lk_tab.fn_ref(f))
           lk_tab.set_slot_zp(s)
@@ -498,11 +502,13 @@ func start_choices()
   zp_vars = 0
   for d = 0 until lk_tab.def_count do
     if lk_tab.is_kept_var(d) then
-      if (lk_tab.def_f[d] & lk_tab.D_CLASS) == 0 then
-        must_fit(lk_tab.def_b[d], lk_tab.def_ref(d))
-        lk_tab.def_f[d] |= lk_tab.D_ZP
-        zp_vars += lk_tab.def_b[d]
-      elif (lk_tab.def_f[d] & lk_tab.D_CLASS) == 1 and lk_tab.def_b[d] <= zp_cap then
+      flags = lk_tab.def_f[d]
+      size = lk_tab.def_b[d]
+      if (flags & lk_tab.D_CLASS) == 0 then
+        must_fit(size, lk_tab.def_ref(d))
+        lk_tab.def_f[d] = flags | lk_tab.D_ZP
+        zp_vars += size
+      elif (flags & lk_tab.D_CLASS) == 1 and size <= zp_cap then
         lk_tab.add_wk(WEIGHT_COUNT + lk_tab.def_w(d), 1)
       end
     end
