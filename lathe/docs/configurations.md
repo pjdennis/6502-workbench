@@ -947,7 +947,9 @@ Since (2026-11-20, later, [`bbc.md`](bbc.md), "The linker's tables on two banks"
 P` lets a region of planes hold variables that keep their size. P is its planes in all: those of
 its variables that are a whole number of planes of N bytes, which are its planes; any other
 variable is fixed, and P must be what the others count (without `planes` every variable must be
-whole planes), else a bad entry, as is `planes` without `rows`. The plane after each high byte
+whole planes), else a bad entry, as is `planes` without `rows`, and (since 2026-11-20, later)
+`rows` without `to`: the placer gives a region of planes steps of rows up to its most, never all
+of an area, which would have written bytes for rows and moved its planes by 255 pages a step. The plane after each high byte
 of the list is then the planes below its address, counted by the variables below it (a fixed
 variable has none), so a fixed variable between planes moves with the planes below it; the
 list's format and the placer are as they were. Built for Image A's linker: `LKCALLS` holds the

@@ -696,8 +696,9 @@ func hold_word(value: word)
 end
 
 
-; The rest of a dynamic region's entry, its capacity variable just read: `rows N`, `from N`,
-; `want N` and `to N`, each optional, in that order. They are held after the variable's name.
+; The rest of a dynamic region's entry, its capacity variable just read: `rows N`, `planes N`,
+; `from N`, `want N` and `to N`, each optional, in that order (but a region of planes needs `to`:
+; the placer gives planes steps, never all of an area). They are held after the variable's name.
 func room_entry(i: byte)
   var more: bool
   var plane_rows: word
@@ -733,7 +734,8 @@ func room_entry(i: byte)
     more = read_token()
   end
   if more or (ceiling != 0 and ceiling < floor) or lo(plane_rows) != 0 or (plane_rows != 0 and floor != 0) or
-      (want != 0 and (ceiling == 0 or want > ceiling or want < floor)) or (planes != 0 and plane_rows == 0) then
+      (want != 0 and (ceiling == 0 or want > ceiling or want < floor)) or (planes != 0 and plane_rows == 0) or
+      (plane_rows != 0 and ceiling == 0) then
     bad()
   end
   hold_word(plane_rows)

@@ -627,8 +627,9 @@ def held_word(pos):
 
 def room_entry(i):
     """The rest of a dynamic region's entry, its capacity variable just read: `rows N`, `planes
-    N`, `from N`, `want N` and `to N`, each optional, in that order. They are held after the
-    variable's name."""
+    N`, `from N`, `want N` and `to N`, each optional, in that order (but a region of planes needs
+    `to`: the placer gives planes steps, never all of an area). They are held after the variable's
+    name."""
     region_room[i] = hold_token()
     plane_rows = 0
     planes = 0
@@ -653,7 +654,7 @@ def room_entry(i):
         more = read_token()
     if more or (ceiling != 0 and ceiling < floor) or (plane_rows & 0xFF) != 0 or (plane_rows != 0 and floor != 0) \
             or (want != 0 and (ceiling == 0 or want > ceiling or want < floor)) \
-            or (planes != 0 and plane_rows == 0):
+            or (planes != 0 and plane_rows == 0) or (plane_rows != 0 and ceiling == 0):
         bad()
     hold_word(plane_rows)
     hold_word(floor)

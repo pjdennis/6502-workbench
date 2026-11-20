@@ -366,9 +366,11 @@ class Dynamic(unittest.TestCase):
                     self.assertEqual(moved[at_ - CODE_LO], expect >> 8, hex(t))
 
     def test_a_region_of_planes_must_be_whole_planes(self):
-        """`rows` a whole number of pages, the block whole planes of it, no `from` with it."""
+        """`rows` a whole number of pages, the block whole planes of it, no `from` with it, and a
+        most (`to`): the placer gives planes steps of rows, never all of an area."""
         for env in (PLANES.replace('rows 256', 'rows 200'), PLANES.replace('rows 256', 'rows 512'),
-                    PLANES.replace('rows 256', 'rows 256 from 256')):
+                    PLANES.replace('rows 256', 'rows 256 from 256'), PLANES.replace(' to 768', ''),
+                    PLANES.replace(' to 768', ' want 512')):
             with self.subTest(env=env.splitlines()[-4]):
                 r = self.link([planes_user(), farcall_with(), placer()], env)
                 self.assertEqual(r.status, 1)
@@ -452,6 +454,7 @@ def cases():
             ('a ceiling below the floor', [user(room=True), farcall_with(), placer()],
              ROOM.replace('t.room\n', 't.room from 400 to 100\n')),
             ('planes', [planes_user(), farcall_with(), placer()], PLANES),
+            ('planes without a most', [planes_user(), farcall_with(), placer()], PLANES.replace(' to 768', '')),
             ('planes of a size the block is not', [planes_user(), farcall_with(), placer()],
              PLANES.replace('rows 256', 'rows 512')),
             ('planes and a fixed variable', [planes_and_fixed_user(), farcall_with(), placer()], FIXED),

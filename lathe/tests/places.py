@@ -188,6 +188,7 @@ def attempt(places, page, himem, slots, steps):
         if r.size == 0 or r.value >= 0x10:
             continue
         if r.room and r.steps == 255:
+            assert not r.planed, 'a region of planes has a most (the linker refuses one without `to`)'
             best = None
             for a in areas:
                 goes = fit(a, r.least, r)
