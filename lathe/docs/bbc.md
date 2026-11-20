@@ -1501,6 +1501,10 @@ The options put to the owner (2026-11-20): linker entries for a bank that is the
 
 ## One image for every machine with sideways RAM (2026-11-20)
 
+(Since "The ROM plan" below, a region moves as one block by whole pages, the list has no calls of
+map and unmap, and blocks of a region in main RAM are not turned into nothing; what follows up to
+there is the first build, as it was measured.)
+
 The owner's decision, after the study ([`spikes.md`](spikes.md), "One ROM for every BBC: a study"):
 one 128 KB image for a machine with at least one bank of free sideways RAM, one for a machine
 with none, each working with the DFS or ADFS by PAGE and using the room the DFS leaves. This is
@@ -1593,6 +1597,68 @@ by the placer through `rt_bbc` (no ROM saved, the start-up's copying saved).
 The linker of the ROM forms leaves dynamic regions out (`define LKDYN 0`, about 2.7 KB of its banks),
 so the 128 KB image's `*LLINK` cannot link a program with a dynamic region (`dynamic` is a bad entry,
 link error 3); the developer's form, Wendy 2's builds and the host's can.
+
+### The ROM plan: the lists by whole pages, the placer smaller (2026-11-20, later)
+
+Image A as first built did not fit with `BBCFS 3` (about 1,190 bytes over) and its `*LLINK`
+could not link it (`LKDYN 0`). So, measured with `BBCFS 3`, `ADFS 1`, judged and placed by the
+links, free as `bbcrom.image` lays the image out:
+
+| | The lists | The placer | Free in the image (`LKDYN 0`) |
+|---|---|---|---|
+| Today's B+128 image, no `ADAPT` | | | 2,903 |
+| Image A as first built | 1,982 (1,183 and 799) | 1,031 twice | about 1,190 over |
+| **Image A now** | **623** (382 and 241) | **591 twice** | **1,072** |
+
+What changed (host and twin, byte for byte; `test_lk_dynamic.py`, `test_bbc_place.py`):
+
+- **A region moves as one block, by whole pages.** The low byte of every address in it stays as
+  it is, so the low bytes are not listed, and a word or a high byte is changed by adding one
+  number to one byte: no kind, no linked low byte, no variable table, one byte a place in most
+  cases. The block wastes at most 255 bytes where it goes, and no two-byte variable can come to
+  lie across a page (the refusal of them went).
+- **No list of the calls of map and unmap.** Their 254 places (146 and 108, in 112 function
+  copies) cost about 600 bytes of lists and 200 of code; what they bought is 67 cycles a block of
+  a region in main RAM. A region in main RAM keeps its blocks, mapping the module's own slot. On a
+  B+ nothing moves at all now (below); on a Master the blocks of `STRING`, `WANTS` and `LKNODES`
+  stay, about 74 million cycles of the linker's link of the compiler (2.4 %, the study's count of
+  `LKNODES`' blocks at 67 cycles) and little in a compile.
+- So the list is, for each region, its bank's value, its block, its high bytes and its blocks'
+  banks (161 and 75 high bytes, 69 and 51 banks), and `rt_place` is 591 bytes.
+
+What goes to main RAM now (the model of the placer over the lists): on a B+ at PAGE `$1900` or
+`$1F00`, shadow mode or not, nothing (the smallest blocks are 1,600 and 2,048 bytes, and a block
+needs its own low byte); on a Master (`$0E00`, `$8000`) the compiler's `STRING` and `WANTS` and the
+linker's `LKNODES`. The DFS's room is the next stage's, the capacities set at start-up.
+
+Tested: `test_bbc_adapt.ImageAWithEitherFilingSystem`, Image A with `BBCFS 3`, compiles, links and
+runs a program of several modules under `--bbc-fs dfs` (PAGE `$1900`), `--bbc-fs adfs` (`$1F00`)
+and a filing system that is neither, every file the host tools'.
+
+**The linker in the image with `LKDYN 1`**, so that the image's `*LLINK` can link the image's own
+tools: about 2,612 bytes of the linker's banks as judged (`lk_dyn` 1,938; `lk_emit` 266, `lk_envf`
+116, `lk_name` 109, `lk_boot` 69, `lk_alloc` 41, `lk_graph` 34, `lk_win` 20, `lk_place` 19), banks 5
+and 6 then 463 and 1,559 over as judged, the image 581 over before the lists: **about 1,160 bytes
+over** in all. The loop test of the first build linked the compiler's developer's form
+(`lathec-bbc.env` with `ROMFORM 0`, no `dynamic` regions), not Image A's ROM form.
+
+**Ranked, what would bring `LKDYN 1` in** (estimated from these measurements):
+
+1. One placer in the module's home bank for both tools: 591 bytes (a change to `module.asm`,
+   `bbcrom.py` and `MODLOAD`'s HOME file; not built: it waits for the loader's work to land).
+2. `lk_dyn` written smaller (its 1,938 bytes judged are three readings of the region definitions a
+   place; one table of each definition's dynamic number, kept as they are read, would take most
+   of them out): 600 to 900 bytes (estimated).
+3. Then the banks rebalanced: `link` and `lk_dyn` in the linker's third bank, which has 313
+   judged left.
+4. If still short: one of the shelved savings of `spikes.md`, `BRK n` for the error calls (0.75 KB)
+   or the bank on the stack in `with` blocks (0.5 KB).
+
+On top of that, stage 2 needs the probe and the capacities (estimated 300 to 500 bytes of the
+placer, and the twins' capacity variables, about 40 bytes of main RAM and a few hundred of the
+compiler's banks), and Image B (1,900 free, its linker's first bank 198 short with `BBCFS 3`) needs
+the placer and the lists for main RAM only, without `lk_dyn` in its linker unless the owner wants
+the 32K machine to rebuild its own image.
 
 ### What is not done
 

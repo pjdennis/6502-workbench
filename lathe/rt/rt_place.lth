@@ -1,30 +1,26 @@
 ; The placer of a BBC program's dynamic regions (lathe/docs/bbc.md, "One image for every machine
 ; with sideways RAM"; configurations.md, "Regions placed at run time"): the environment's
-; `placer rt_place`. `$start` calls place() with the linker's list of the places that name a
-; dynamic region's variables (lathe/host/lk_dyn.py has its form) after rt_bbc.start and before
-; `$init`, so before anything uses a region. The list and every place it names are in main RAM,
-; where the module copied the program's resident part at the command; this module itself may be
-; in a bank of the module (it only reads the list and writes main RAM). It is written in
-; assembly because each tool of the 128 KB image holds a copy and the image has little room
-; (lathe/docs/bbc.md, "One image for every machine with sideways RAM").
+; `placer rt_place`. `$start` calls place() with the linker's list of the places of the dynamic
+; regions (lathe/host/lk_dyn.py has its form) after rt_bbc.start and before `$init`, so before
+; anything uses a region. The list and every place it names are in main RAM, where the module
+; copied the program's resident part at the command; this module itself may be in a bank of the
+; module (it only reads the list and writes main RAM). It is written in assembly for the room of
+; the 128 KB image.
 ;
 ; What it does:
 ;
 ; 1. Reads PAGE and HIMEM (OSBYTE 131 and 132). PAGE above the fixed part's first address (the
 ;    code range's) is refused, `PAGE too high`, and HIMEM below the end of the program's ranges,
-;    `Mode 7 needed`, as the module refuses it: MOS errors raised from $0100, as a sideways ROM's
-;    must be.
+;    `Mode 7 needed`: MOS errors raised from $0100, as a sideways ROM's must be.
 ; 2. Knows the free main RAM: from PAGE to the fixed part, what the link left free (the code range
 ;    from the list on, since the list is not needed once read, and `data` and `more` after their
 ;    variables), and from the end of the program's ranges to HIMEM (a shadow screen's kilobyte).
-; 3. Puts each dynamic region, in the order of the environment's entries, in main RAM if all its
-;    variables fit there, each in the first free area that holds it; a region that does not fit
-;    stays where it is linked, in its sideways RAM slot.
-; 4. Changes the places: each address of a moved variable by how far it moved;
-;    each `with` block's bank of a region in main RAM to the module's own slot (nothing that runs
-;    inside a block reads the window, so any slot does, and this one leaves the window as it
-;    was); and the blocks of every function copy whose blocks all map regions in main RAM into
-;    nothing (a JSR of map or unmap three NOPs, a JMP of unmap an RTS), so that they cost nothing.
+; 3. Puts each dynamic region, in the order of the environment's entries, in main RAM if its block
+;    fits in a free area at an address with the same low byte as where it is linked (a region
+;    moves by whole pages, lk_dyn.py); a region that does not fit stays in its slot.
+; 4. For a region it moved: adds the pages moved to each high byte the list names, and makes each
+;    of its blocks' banks the module's own slot (nothing that runs inside a block reads the
+;    window, so any slot does, and this one leaves the window as it was).
 ;
 ; With every region where it is linked nothing is written. The zero page it uses is the MOS's
 ; workspace for * commands, $A8-$AF, not the program's.
@@ -34,40 +30,27 @@ import rt_bbc (mslot)
 
 const LIST = $A8                    ; the list, as it is read
 const PTR = $AA                     ; a place being changed, or an area's first address
-const SIZE = $AC                    ; the size of the variable being placed, or an area's last
-const VARS = $AE                    ; the list's table of variables: address, size, region
+const SIZE = $AC                    ; the size of the block being placed, or an area's last
 
 const MAX_AREAS = 6
-const MAX_VARS = 32                 ; lk_dyn.MAX_VARS
 
 var code_lo: word                   ; the fixed part's first address
 var top: word                       ; the end of the program's ranges, + 1
 var page: word
 var himem: word
 var before: word                    ; the place read last
-var end_at: word                    ; the last byte a variable would take
+var linked: word                    ; where the region's block is linked
+var goes: word                      ; where a block would go
+var end_at: word                    ; and the last byte it would take
 var areas: byte                     ; the free areas of main RAM, first to last
 var first_lo: [MAX_AREAS]byte
 var first_hi: [MAX_AREAS]byte
 var last_lo: [MAX_AREAS]byte
 var last_hi: [MAX_AREAS]byte
-var saved_lo: [MAX_AREAS]byte       ; the areas' firsts before a region is tried
-var saved_hi: [MAX_AREAS]byte
 var regions: byte
-var region: byte
-var count: byte                     ; the variables
-var moved_lo: [MAX_VARS]byte        ; where each variable goes, then by how far it moves
-var moved_hi: [MAX_VARS]byte
-var main_lo: byte                   ; a bit for each region in main RAM, regions 0 to 7
-var main_hi: byte                   ; and 8 to 15
-var fits: byte
-var number: byte                    ; a loop's count
-var tag: byte
-var low: byte
-var mask_lo: byte
-var mask_hi: byte
+var pages: byte                     ; the pages the region moves, 0 if it stays
+var number: word                    ; a list's places
 
-const BITS: [8]byte = [1, 2, 4, 8, 16, 32, 64, 128]
 const ERRORS: [28]byte = "PAGE too high\0Mode 7 needed\0"
 const PAGE_TOO_HIGH = 0             ; offsets in ERRORS
 const MODE_7_NEEDED = 14
@@ -90,16 +73,6 @@ asm func next_word(): word in ax
   JSR next_byte
   TAX
   PLA
-end
-
-; A bytes of the list passed over. X is kept.
-asm func skip(bytes: byte in a)
-  CLC
-  ADC LIST
-  STA LIST
-  BCC .skip_end
-  INC LIST+1
-.skip_end
 end
 
 ; The next place: `before` the distance in the byte, or the word after a byte 0; in before and
@@ -146,33 +119,31 @@ asm func add_area()
 .add_end
 end
 
-; Z clear if region X is in main RAM.
-asm func in_main(r: byte in x)
-  CPX #8
-  BCS .in_main_hi
-  LDA BITS,X
-  AND main_lo
-  RTS
-.in_main_hi
-  LDA BITS-8,X
-  AND main_hi
-end
-
-; SIZE bytes from the first free area that holds them: the address in A (low) and Y (high), the
-; carry clear; the carry set if none does.
+; SIZE bytes at an address with the low byte of `linked`, from the first free area that holds
+; them: the address in `goes`, the carry clear; the carry set if none does.
 asm func take()
   LDX #0
 .take_area
   CPX areas
   BCS .take_none
-  LDA first_lo,X                    ; the last byte it takes: first + SIZE - 1
+  LDA linked                        ; the area's first page, at linked's low byte
+  STA goes
+  LDA first_hi,X
+  STA goes+1
+  LDA goes                          ; below the area's first: a page on
+  CMP first_lo,X
+  BCS .take_end
+  INC goes+1
+  BEQ .take_next                    ; past $FFFF
+.take_end
+  LDA goes                          ; the last byte it takes: at + SIZE - 1
   CLC
   ADC SIZE
   STA end_at
-  LDA first_hi,X
+  LDA goes+1
   ADC SIZE+1
   STA end_at+1
-  BCS .take_next                    ; past $FFFF
+  BCS .take_next
   LDA end_at
   SEC
   SBC #1
@@ -185,17 +156,13 @@ asm func take()
   LDA last_hi,X
   SBC end_at+1
   BCC .take_next
-  LDA first_lo,X                    ; taken: the area starts after it
-  PHA
-  LDY first_hi,X
-  LDA end_at
+  LDA end_at                        ; taken: the area starts after it
   CLC
   ADC #1
   STA first_lo,X
   LDA end_at+1
   ADC #0
   STA first_hi,X
-  PLA
   CLC
   RTS
 .take_next
@@ -205,125 +172,25 @@ asm func take()
   SEC
 end
 
-; Y: where variable `number`'s entry starts in the table (its address); A: number.
-asm func entry()
-  LDA number
-  ASL A                             ; five bytes an entry (the carry is clear: at most 31)
-  ASL A
-  ADC number
-  TAY
-  LDA number
+; The next list of places: their number, in `number`.
+asm func next_count()
+  JSR next_word
+  STA number
+  STX number+1
 end
 
-; Put region `region` in main RAM if all its variables fit there: then its bit, and each one's
-; moved_lo and moved_hi where it goes; if not, the areas as they were and its variables'
-; moved_lo and moved_hi 0.
-asm func try_main()
-  LDX areas
-.save
-  DEX
-  BMI .saved
-  LDA first_lo,X
-  STA saved_lo,X
-  LDA first_hi,X
-  STA saved_hi,X
-  JMP .save
-.saved
-  LDA #1
-  STA fits
-  LDA #0
-  STA number
-.try_var
+; One place fewer in `number`: Z set when none is left before it.
+asm func count_down()
   LDA number
-  CMP count
-  BCS .tried
-  JSR entry
-  INY
-  INY
-  LDA (VARS),Y                      ; its size
-  STA SIZE
-  INY
-  LDA (VARS),Y
-  STA SIZE+1
-  INY
-  LDA (VARS),Y                      ; its region
-  CMP region
-  BNE .next_var
-  JSR take
-  BCS .no_room
-  LDX number
-  STA moved_lo,X
-  TYA
-  STA moved_hi,X
-  JMP .next_var
-.no_room
-  LDA #0
-  STA fits
-.next_var
-  INC number
-  JMP .try_var
-.tried
-  LDA fits
-  BNE .moves
-  LDX areas                         ; no room: the areas as they were
-.restore
-  DEX
-  BMI .moves
-  LDA saved_lo,X
-  STA first_lo,X
-  LDA saved_hi,X
-  STA first_hi,X
-  JMP .restore
-.moves
-  LDA #0                            ; each variable of the region: by how far it moves
-  STA number
-.move
+  ORA number+1
+  BEQ .counted
   LDA number
-  CMP count
-  BCS .moved
-  JSR entry
-  INY
-  INY
-  INY
-  INY
-  LDA (VARS),Y
-  CMP region
-  BNE .next_move
-  LDX number
-  LDA fits
-  BEQ .stays
-  JSR entry                         ; where it goes less where it is linked
-  LDA moved_lo,X
-  SEC
-  SBC (VARS),Y
-  STA moved_lo,X
-  INY
-  LDA moved_hi,X
-  SBC (VARS),Y
-  STA moved_hi,X
-  JMP .next_move
-.stays
-  LDA #0
-  STA moved_lo,X
-  STA moved_hi,X
-.next_move
-  INC number
-  JMP .move
-.moved
-  LDA fits
-  BEQ .try_end
-  LDX region
-  CPX #8
-  BCS .mark_hi
-  LDA BITS,X
-  ORA main_lo
-  STA main_lo
-  RTS
-.mark_hi
-  LDA BITS-8,X
-  ORA main_hi
-  STA main_hi
-.try_end
+  BNE .low
+  DEC number+1
+.low
+  DEC number
+  LDA #1                            ; Z clear: a place to read
+.counted
 end
 
 ; Raise the MOS error at ERRORS + X from $0100: BRK, number 0, its text, 0.
@@ -390,11 +257,11 @@ pub asm func place(places: ^byte in ax)
   STA SIZE+1
   JSR add_area
   JSR next_byte
-  STA number
+  STA regions
 .areas
-  LDA number
+  LDA regions
   BEQ .areas_read
-  DEC number
+  DEC regions
   JSR next_word
   STA PTR
   STX PTR+1
@@ -416,170 +283,61 @@ pub asm func place(places: ^byte in ax)
   SBC #0
   STA SIZE+1
   JSR add_area
-; The regions' banks (not used yet) and the variables' table: address, size, region. Each
-; variable where it is linked, then each region in main RAM if all its variables fit.
+; Each region: its bank's value (not used yet), its block, its high bytes, its blocks' banks.
   JSR next_byte
   STA regions
-  JSR skip
-  JSR next_byte
-  STA count
-  LDA LIST
-  STA VARS
-  LDA LIST+1
-  STA VARS+1
-  LDX count
-  BEQ .skipped
-.skip_vars
-  LDA #5
-  JSR skip
-  DEX
-  BNE .skip_vars
-.skipped
-  LDX count
-.unmoved
-  DEX
-  BMI .all_unmoved
-  LDA #0
-  STA moved_lo,X
-  STA moved_hi,X
-  JMP .unmoved
-.all_unmoved
-  LDA #0
-  STA main_lo
-  STA main_hi
-  STA region
 .region
-  LDA region
-  CMP regions
-  BCS .placed
-  JSR try_main
-  INC region
-  JMP .region
-.placed
-; The addresses: a tag (the kind in its top two bits, the variable in the rest), a place, and
-; for a high byte the low byte the linker put beside it.
+  LDA regions
+  BEQ .done
+  DEC regions
+  JSR next_byte                     ; the bank's value
+  JSR next_word
+  STA linked
+  STX linked+1
+  JSR next_word
+  STA SIZE
+  STX SIZE+1
+  LDA #0
+  STA pages
+  LDA SIZE
+  ORA SIZE+1
+  BEQ .moved                        ; nothing to move
+  JSR take
+  BCS .moved                        ; no room: it stays in its slot
+  LDA goes+1                          ; the pages it moves
+  SEC
+  SBC linked+1
+  STA pages
+.moved
   LDA #0
   STA before
   STA before+1
-.address
-  JSR next_byte
-  BEQ .banks
-  STA tag
+  JSR next_count
+.high
+  JSR count_down
+  BEQ .highs_done
   JSR next_place
-  LDA tag
-  AND #$C0
-  CMP #$C0
-  BNE .no_low
-  JSR next_byte
-  STA low
-.no_low
-  LDA tag
-  AND #$3F
-  TAX
-  LDA moved_lo,X
-  ORA moved_hi,X
-  BEQ .address                      ; not moved
+  LDA pages
+  BEQ .high
+  CLC
   LDY #0
-  LDA tag
-  AND #$C0
-  CMP #$40
-  BEQ .word
-  CMP #$80
-  BEQ .low_byte
-  LDA low                           ; the high byte: with the carry of the low one
-  CLC
-  ADC moved_lo,X
-  LDA (PTR),Y
-  ADC moved_hi,X
+  ADC (PTR),Y
   STA (PTR),Y
-  JMP .address
-.word
-  LDA (PTR),Y
-  CLC
-  ADC moved_lo,X
-  STA (PTR),Y
-  INY
-  LDA (PTR),Y
-  ADC moved_hi,X
-  STA (PTR),Y
-  JMP .address
-.low_byte
-  LDA (PTR),Y
-  CLC
-  ADC moved_lo,X
-  STA (PTR),Y
-  JMP .address
-; The banks: the region + 1, a place. A region in main RAM: the module's own slot.
-.banks
+  JMP .high
+.highs_done
   LDA #0
   STA before
   STA before+1
+  JSR next_count
 .bank
-  JSR next_byte
-  BEQ .calls
-  STA region
-  DEC region
+  JSR count_down
+  BEQ .region
   JSR next_place
-  LDX region
-  JSR in_main
+  LDA pages
   BEQ .bank
-  LDA rt_bbc.mslot
+  LDA rt_bbc.mslot                  ; in main RAM: the module's own slot
   LDY #0
   STA (PTR),Y
   JMP .bank
-; The calls of map and unmap, by function copy: their number, the regions the copy maps, the
-; places.
-.calls
-  LDA #0
-  STA before
-  STA before+1
-.group
-  JSR next_byte
-  BEQ .done
-  STA number
-  JSR next_word
-  STA mask_lo
-  STX mask_hi
-  LDA #0                            ; fits: the blocks become nothing
-  STA fits
-  LDA mask_lo
-  ORA mask_hi
-  BEQ .call
-  LDA mask_lo                       ; every region the copy maps in main RAM (KEEP, $8000,
-  AND main_lo                       ; is no region's)
-  CMP mask_lo
-  BNE .call
-  LDA mask_hi
-  AND main_hi
-  CMP mask_hi
-  BNE .call
-  INC fits
-.call
-  LDA number
-  BEQ .group
-  DEC number
-  JSR next_place
-  LDA fits
-  BEQ .call
-  LDA PTR                           ; the opcode before the operand
-  BNE .back
-  DEC PTR+1
-.back
-  DEC PTR
-  LDY #0
-  LDA (PTR),Y
-  CMP #$20
-  BNE .tail
-  LDA #$EA                          ; JSR: three NOPs
-  STA (PTR),Y
-  INY
-  STA (PTR),Y
-  INY
-  STA (PTR),Y
-  JMP .call
-.tail
-  LDA #$60                          ; JMP unmap: RTS
-  STA (PTR),Y
-  JMP .call
 .done
 end

@@ -880,24 +880,23 @@ byte; `test_lk_dynamic.py`):
 - While the image is written it holds every place of the fixed code (and of constant data in fixed
   memory) that names a variable of a dynamic region, by kind (the word of an address, its low byte,
   its high byte with the low byte the linker put there, for the carry), every `with` block's bank
-  (`LDA #bank`, kind 6), and every call of the far-call module's `map` and `unmap` (`JSR`, or the
-  `JMP` of a block that ends a function), grouped by function copy with the regions that copy's
-  blocks map. They are two words each in the work area after the slot names (`lk_dyn.W_SITES`),
+  (`LDA #bank`, kind 6). They are two words each in the work area after the slot names (`lk_dyn.W_SITES`),
   which nothing uses while the image is written: 1,100 places at full capacities, 248 at the
   small build's and 2 at the 32K build's, so a large program with dynamic regions needs the full build (link
   error 65 otherwise).
 - After everything else in the code range it writes the list (`$places`): the code range's first
   address, the end of the program's ranges, the free areas the link left (the code range from the
-  list on, `data` and `more` after their variables), each dynamic region's bank, each of its
-  variables (address, size, region), then the places, each a byte of distance from the last (or 0
-  and the address). The compiler's list is 1,183 bytes (224 addresses, 69 banks, 146 calls in 68
-  copies), the linker's 799.
+  list on, `data` and `more` after their variables), and for each dynamic region its bank's value,
+  its block (from the first byte of its lowest variable to the last of its highest) and two lists
+  of places, each a byte of distance from the last (or 0 and the address): the high bytes (of each
+  `#>` and of each word that is an address of its variables) and its blocks' `LDA #bank` bytes. A
+  region moves as one block by whole pages, so the low bytes stay as they are and are not listed
+  ([`bbc.md`](bbc.md), "The ROM plan"). The compiler's list is 382 bytes, the linker's 241.
 - `$start` calls `PLACER.place` with the list's address in A and X after `FARCALL.start` and
   before `$init` (7 bytes), through its stub if the module is placed in a bank.
 - Refused: a dynamic region without a placer, or whose placer defines no `place` (link error 63);
   a dynamic region's variable or bank named where it cannot be moved, in a bank's code or constant
-  data (a bank is ROM on the BBC), constant data in a dynamic region, and a two-byte variable in
-  one, which must not lie across a page on an NMOS 6502 wherever it goes (64); too many places for
+  data (a bank is ROM on the BBC), and constant data in a dynamic region (64); too many places for
   the work area (65).
 - `define LKDYN 0` (`#if LKDYN` in the twins) leaves all of it out of a build of the linker: the
   BBC's ROM forms are built so, for the room of the 128 KB image (about 2.7 KB of the linker's

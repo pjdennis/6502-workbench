@@ -57,11 +57,10 @@ import lk_win (def_dest)
 var writing: byte = 0           ; the file being written: 0 the image, or a bank + 1
 
 ; With a dynamic region: the fix-up just applied, at address `addr`, of this kind and naming sym,
-; standing for `address`, in an instruction `op` (0 in constant data), as lk_dyn holds or refuses
-; it.
-func site(kind: byte, sym: word, addr: word, address: word, op: byte)
+; as lk_dyn holds or refuses it.
+func site(kind: byte, sym: word, addr: word)
   if writing == 0 then
-    lk_dyn.note(kind, sym, addr, address, op)
+    lk_dyn.note(kind, sym, addr)
   else
     lk_dyn.refuse(kind, sym, lk_fix.cur_sym)
   end
@@ -141,8 +140,7 @@ func instruction(obj: byte, n: word, pos: word): word
       lk_out.put(op)
 #if LKDYN
       if lk_envf.region_dynamic != 0 then
-        site(lo(lk_fix.held(lk_fix.FX_KIND)), lk_fix.held(lk_fix.FX_SYM), lk_out.base + lk_out.written,
-             address, op)
+        site(lo(lk_fix.held(lk_fix.FX_KIND)), lk_fix.held(lk_fix.FX_SYM), lk_out.base + lk_out.written)
       end
 #end
       lk_out.put_word(address)
@@ -165,12 +163,11 @@ func instruction(obj: byte, n: word, pos: word): word
         end
         b = lo(v)
       else
-        v = value(n, op)
-        b = lk_fix.part(v, kind)
+        b = lk_fix.part(value(n, op), kind)
       end
 #if LKDYN
       if lk_envf.region_dynamic != 0 then
-        site(kind, lk_fix.held(lk_fix.FX_SYM), lk_out.base + lk_out.written, v, op)
+        site(kind, lk_fix.held(lk_fix.FX_SYM), lk_out.base + lk_out.written)
       end
 #end
       lk_fix.next_fix()
@@ -191,11 +188,6 @@ func emit_copy(obj: byte, n: word)
   before = lk_out.written
   planned = lk_rec.left() - lk_fix.lost(lk_tab.ctx_of(n))
   lk_fix.rewind()
-#if LKDYN
-  if lk_envf.region_dynamic != 0 then
-    lk_dyn.begin_copy()
-  end
-#end
   pos = 0
   while lk_rec.left() > 0 do
     pos = instruction(obj, n, pos)
@@ -255,8 +247,7 @@ func emit_data(obj: byte, dest: byte)
       end
 #if LKDYN
       if lk_envf.region_dynamic != 0 then
-        site(lo(lk_fix.held(lk_fix.FX_KIND)), lk_fix.held(lk_fix.FX_SYM), lk_out.base + lk_out.written,
-             address, 0)
+        site(lo(lk_fix.held(lk_fix.FX_KIND)), lk_fix.held(lk_fix.FX_SYM), lk_out.base + lk_out.written)
       end
 #end
       if lk_fix.held(lk_fix.FX_KIND) == lk_fix.K_WORD then

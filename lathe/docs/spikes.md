@@ -1545,3 +1545,8 @@ start-up: `*LATHE` 1,045,256 cycles, `*LLINK` 754,204 (852,232 and 651,777 today
 and 799 bytes, copied and read. The image has 414 bytes free with `BBCFS 0`; with `BBCFS 3` it is
 about 1,190 over. The study estimated 2.5 KB of ROM for lists and code: they took 4.0 KB (the
 lists 2.0 KB, close to its 1.5 KB; the placer 1.0 KB a tool, not 0.5 KB once).
+
+Later the same day (`bbc.md`, "The ROM plan"): a region moved as one block by whole pages, and no
+list of the calls of map and unmap, the lists are 623 bytes and the placer 591; Image A then fits
+with `BBCFS 3` (1,072 bytes free, against 2,903 for the same image without `ADAPT`), but not with
+the linker's `lk_dyn` in it (`LKDYN 1`, about 2,612 bytes as judged: about 1,160 over).

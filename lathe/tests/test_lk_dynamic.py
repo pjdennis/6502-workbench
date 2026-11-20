@@ -117,52 +117,49 @@ class Dynamic(unittest.TestCase):
         self.assertEqual(r.image[end:0xFFFC - CODE_LO], bytes(0xFFFC - CODE_LO - end))
         self.assertEqual((p.code_lo, p.top), (CODE_LO, 0xF000))
         self.assertEqual(p.areas, [(at, 0x7FFF), (0xC000, 0xEFFF)])
-        self.assertEqual(p.regions, [0x14])
         v, w = r.addr('V', 't.v'), r.addr('V', 't.w')
-        self.assertEqual(p.variables, [(v, 300, 0), (w, 4, 0)])
+        self.assertEqual(len(p.regions), 1)
+        self.assertEqual((p.regions[0].value, p.regions[0].first, p.regions[0].size),
+                         (0x14, w, v + 300 - w))                        # w below v, at the top
 
     def test_every_place_is_what_it_says(self):
+        """The high bytes: of each word (its second byte) and each `#>`; no low byte. The banks:
+        each block's LDA #bank of the dynamic region, not of `text`."""
         r = self.link([user(), farcall_with(), placer()])
         p, at = places_of(r)
         v, w, main, other = r.addr('V', 't.v'), r.addr('V', 't.w'), r.addr('F', 't.main'), r.addr('F', 't.other')
         image = r.image
 
-        def at_(a, n=1):
-            return int.from_bytes(image[a - CODE_LO:a - CODE_LO + n], 'little')
+        def at_(a):
+            return image[a - CODE_LO]
 
-        self.assertEqual(p.addresses, [(places.WORD, 0, main + 6, None), (places.WORD, 1, main + 9, None),
-                                       (places.LOW, 0, main + 12, None),
-                                       (places.HIGH, 0, main + 14, (v + 0x1F0) & 0xFF),
-                                       (places.WORD, 1, other + 14, None)])
-        self.assertEqual(at_(main + 6, 2), v + 5)
-        self.assertEqual(at_(main + 9, 2), w)
-        self.assertEqual(at_(main + 12), (v + 0x1F0) & 0xFF)
-        self.assertEqual(at_(main + 14), (v + 0x1F0) >> 8)
-        self.assertEqual(p.banks, [(0, main + 1), (0, other + 9)])
+        self.assertEqual(p.regions[0].highs, [main + 7, main + 10, main + 14, other + 15])
+        self.assertEqual([at_(a) for a in p.regions[0].highs],
+                         [(v + 5) >> 8, w >> 8, (v + 0x1F0) >> 8, w >> 8])
+        self.assertEqual(p.regions[0].banks, [main + 1, other + 9])
         self.assertEqual(at_(main + 1), 0x14)
-        self.assertEqual(p.groups, [(1, [main + 3, main + 16]), (1 | places.KEEP, [other + 3, other + 11,
-                                                                                  other + 17, other + 20])])
 
-    def test_moving_the_variables_by_the_list_moves_every_address_of_them(self):
-        """With v moved by the list to $C123 and w to $C300 (the model of the placer,
-        places.apply), each address of them in main's code is moved by as much, the high byte with
-        the carry of the low; the bank's value is the module's slot and the calls of map and unmap
-        are nothing; no other byte changes. In its slot where it is linked nothing changes."""
+    def test_moving_the_region_by_the_list_moves_every_address_of_it(self):
+        """With work's block moved by the list two pages up and more to $C0xx (the model of the
+        placer, places.apply), each address of v and w in main's code is moved by as much, the
+        low bytes as they were; the bank's value is the module's slot; no other byte changes. In
+        its slot where it is linked nothing changes."""
         r = self.link([user(other=False), farcall_with(), placer()])
         p, at = places_of(r)
         v, w, main = r.addr('V', 't.v'), r.addr('V', 't.w'), r.addr('F', 't.main')
-        moved = bytearray(places.apply(r.image, CODE_LO, p, {0: 0xC123, 1: 0xC300}, {}))
+        first = p.regions[0].first
+        to = 0xC000 | (first & 0xFF)
+        delta = to - first
+        moved = bytearray(places.apply(r.image, CODE_LO, p, {0: to}, {}))
         expected = bytearray(r.image)
         m = main - CODE_LO
         expected[m + 1] = 4                                             # the module's slot
-        expected[m + 2:m + 5] = b'\xEA\xEA\xEA'                         # JSR map: nothing
-        expected[m + 6:m + 8] = (0xC123 + 5).to_bytes(2, 'little')
-        expected[m + 9:m + 11] = (0xC300).to_bytes(2, 'little')
-        expected[m + 12] = (0xC123 + 0x1F0) & 0xFF
-        expected[m + 14] = ((0xC123 + 0x1F0) >> 8) & 0xFF
-        expected[m + 15:m + 18] = b'\xEA\xEA\xEA'                       # JSR unmap
+        expected[m + 6:m + 8] = (v + 5 + delta).to_bytes(2, 'little')
+        expected[m + 9:m + 11] = (w + delta).to_bytes(2, 'little')
+        expected[m + 14] = ((v + 0x1F0 + delta) >> 8) & 0xFF
+        self.assertEqual(moved[m + 12], (v + 0x1F0) & 0xFF)             # the low byte as it was
         self.assertEqual(moved, expected)
-        self.assertEqual(places.apply(r.image, CODE_LO, p, {}, {0: 0x14}), r.image)
+        self.assertEqual(places.apply(r.image, CODE_LO, p, {}, {}), r.image)
 
     def test_a_dynamic_region_named_from_a_bank_is_refused(self):
         """Constant data of a module in a bank that holds a dynamic variable's address: the ROM's
@@ -194,12 +191,11 @@ class Dynamic(unittest.TestCase):
         self.assertEqual(r.status, 1)
         self.assertIn('link error 64: a dynamic region is used where it cannot move', r.errors)
 
-    def test_a_two_byte_variable_in_a_dynamic_region_is_refused(self):
-        """On an NMOS 6502 a two-byte variable must not lie across a page; the region's block may
-        go anywhere."""
+    def test_a_two_byte_variable_in_a_dynamic_region_moves_too(self):
+        """Moved by whole pages, a two-byte variable stays off a page's end, where the linker put
+        it."""
         r = link([two_byte(), farcall_with(), placer()], DYNAMIC)
-        self.assertEqual(r.status, 1)
-        self.assertIn('link error 64: a dynamic region is used where it cannot move: u.p', r.errors)
+        self.assertEqual((r.status, r.errors), (0, ''))
 
     def test_nothing_changes_without_a_dynamic_region(self):
         a = link([user(), farcall_with(), placer()], STATIC + 'placer p\n')

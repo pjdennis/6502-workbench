@@ -116,21 +116,15 @@ var main_length: word = 0       ; MAINMODULE.main is at HEAP_START
 pub var main_sym: word = lk_tab.NONE    ; what it stands for, once something defines it
 pub var fc_call: word = lk_tab.NONE     ; what FARCALL.call and FARCALL.start stand for, once defined
 pub var fc_start: word = lk_tab.NONE
-; With a dynamic region (lk_dyn): what FARCALL.map, FARCALL.unmap and PLACER.place stand for, once
-; defined, and the symbols with those names, which bind() looks out for (begin() sets them).
-pub var fc_map: word
-pub var fc_unmap: word
+; With a dynamic region (lk_dyn): what PLACER.place stands for, once defined, and the symbol with
+; that name, which bind() looks out for (begin() sets them).
 pub var fc_place: word
-var map_ref: word
-var unmap_ref: word
 var place_ref: word
 
 pub const MAIN_SUFFIX: [5]byte = ".main"
 const INIT_SUFFIX: [6]byte = ".$init"
 const CALL_SUFFIX: [5]byte = ".call"
 const START_SUFFIX: [6]byte = ".start"
-const MAP_SUFFIX: [4]byte = ".map"
-const UNMAP_SUFFIX: [6]byte = ".unmap"
 const PLACE_SUFFIX: [6]byte = ".place"
 ; The compiler names the far-call module's map and unmap `rt_with.map` and `rt_with.unmap`
 ; (`with` blocks, configurations.md). With a `farcall MODULE` entry, a name that starts so is
@@ -326,11 +320,7 @@ pub func begin()
   fc_call = lk_tab.NONE
   fc_start = lk_tab.NONE
 #if LKDYN
-  fc_map = lk_tab.NONE
-  fc_unmap = lk_tab.NONE
   fc_place = lk_tab.NONE
-  map_ref = lk_tab.NONE
-  unmap_ref = lk_tab.NONE
   place_ref = lk_tab.NONE
 #end
 end
@@ -501,15 +491,9 @@ func rename_farcall()
 end
 
 #if LKDYN
-; With a dynamic region: s is a new function symbol; note it if it is FARCALL.map, FARCALL.unmap
-; or PLACER.place (lk_dyn), for bind().
+; With a dynamic region: s is a new function symbol; note it if it is PLACER.place (lk_dyn), for
+; bind().
 func note_dynamic_names(s: word)
-  if is_farcall(@MAP_SUFFIX, len(MAP_SUFFIX)) then
-    map_ref = s
-  end
-  if is_farcall(@UNMAP_SUFFIX, len(UNMAP_SUFFIX)) then
-    unmap_ref = s
-  end
   if is_named(lk_envf.placer, @PLACE_SUFFIX, len(PLACE_SUFFIX)) then
     place_ref = s
   end
@@ -599,12 +583,6 @@ pub func bind(s: word, r: word)
     fc_start = r
   end
 #if LKDYN
-  if s == map_ref then
-    fc_map = r
-  end
-  if s == unmap_ref then
-    fc_unmap = r
-  end
   if s == place_ref then
     fc_place = r
   end

@@ -218,3 +218,34 @@ class ImageA(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+import test_bbc_asked_fs  # noqa: E402
+
+
+@unittest.skipUnless(rom128.HAVE_TOOLS, 'compiler or emulator missing')
+class ImageAWithEitherFilingSystem(test_bbc_asked_fs.OneImage):
+    """Image A built with BBCFS 3 (the filing system asked when a tool runs): test_bbc_asked_fs's
+    runs, a program of several modules compiled, linked and run under the DFS (PAGE $1900) and
+    under ADFS (PAGE $1F00), and under a filing system that is neither, every file the host
+    tools' under that disc's names."""
+
+    @classmethod
+    def setUpClass(cls):
+        saved = bbcrom.rom_env
+
+        def rom_env(source, out, first=1, banks=8, settings=None):
+            return saved(source, out, first, banks, settings=dict(settings or {}, ADAPT=1))
+
+        bbcrom.rom_env = rom_env
+        try:
+            super().setUpClass()
+        finally:
+            bbcrom.rom_env = saved
+
+    def test_its_regions_are_dynamic(self):
+        for command, resident, rom, map_path, notes in self.tools:
+            with open(rom) as f:
+                self.assertRegex(f.read(), r'(?m)^define\s+ADAPT 1')
+            with open(map_path) as f:
+                self.assertIn('rt_place.place', f.read())

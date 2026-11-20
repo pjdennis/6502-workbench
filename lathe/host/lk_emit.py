@@ -34,12 +34,11 @@ import lk_win
 writing = 0                         # the file being written: 0 the image, or a bank + 1
 
 
-def site(kind, sym, addr, address, op):
+def site(kind, sym, addr):
     """With a dynamic region: the fix-up just applied, at address `addr`, of this kind and naming
-    sym, standing for `address`, in an instruction `op` (0 in constant data), as lk_dyn holds or
-    refuses it."""
+    sym, as lk_dyn holds or refuses it."""
     if writing == 0:
-        lk_dyn.note(kind, sym, addr, address, op)
+        lk_dyn.note(kind, sym, addr)
     else:
         lk_dyn.refuse(kind, sym, lk_fix.cur_sym)
 
@@ -96,7 +95,7 @@ def instruction(obj, n, pos):
             lk_out.put(op)
             if lk_dyn.active():
                 site(lk_fix.held(lk_fix.FX_KIND), lk_fix.held(lk_fix.FX_SYM),
-                     (lk_out.base + lk_out.written) & 0xFFFF, address, op)
+                     (lk_out.base + lk_out.written) & 0xFFFF)
             lk_out.put_word(address)
         lk_fix.next_fix()
         return pos + size
@@ -111,12 +110,10 @@ def instruction(obj, n, pos):
                 b = lk_fix.bank_value(lk_fix.held(lk_fix.FX_SYM))
                 if b > 0xFF:
                     lk_fix.bad()
-                address = b
             else:
-                address = value(n, op)
-                b = lk_fix.part(address, kind)
+                b = lk_fix.part(value(n, op), kind)
             if lk_dyn.active():
-                site(kind, lk_fix.held(lk_fix.FX_SYM), (lk_out.base + lk_out.written) & 0xFFFF, address, op)
+                site(kind, lk_fix.held(lk_fix.FX_SYM), (lk_out.base + lk_out.written) & 0xFFFF)
             lk_fix.next_fix()
         elif k == size - 1 and lk_op.is_branch(op, lk_scan.cpu_of(obj)):
             b = branch(pos + size, b, ctx)
@@ -130,8 +127,6 @@ def emit_copy(obj, n):
     before = lk_out.written
     planned = lk_rec.left() - lk_fix.lost(lk_tab.ctx_of(n))
     lk_fix.rewind()
-    if lk_dyn.active():
-        lk_dyn.begin_copy()
     pos = 0
     while lk_rec.left() > 0:
         pos = instruction(obj, n, pos)
@@ -175,7 +170,7 @@ def emit_data(obj, dest):
                                         # address only reached is formed by code
             if lk_dyn.active():
                 site(lk_fix.held(lk_fix.FX_KIND), lk_fix.held(lk_fix.FX_SYM),
-                     (lk_out.base + lk_out.written) & 0xFFFF, address, 0)
+                     (lk_out.base + lk_out.written) & 0xFFFF)
             if lk_fix.held(lk_fix.FX_KIND) == lk_fix.K_WORD:
                 if lk_rec.left() == 0:
                     lk_fix.bad()
