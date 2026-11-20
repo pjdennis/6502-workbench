@@ -943,6 +943,18 @@ wants the same way; then it writes. The linker's environment text is 512 bytes w
 (384 without) for the capacity variables' names. Built for the compiler's name heap, symbol
 table (planes), function buffer, constant table, string and saved tokens.
 
+Since (2026-11-20, later, [`bbc.md`](bbc.md), "The linker's tables on two banks"): `rows N planes
+P` lets a region of planes hold variables that keep their size. P is its planes in all: those of
+its variables that are a whole number of planes of N bytes, which are its planes; any other
+variable is fixed, and P must be what the others count (without `planes` every variable must be
+whole planes), else a bad entry, as is `planes` without `rows`. The plane after each high byte
+of the list is then the planes below its address, counted by the variables below it (a fixed
+variable has none), so a fixed variable between planes moves with the planes below it; the
+list's format and the placer are as they were. Built for Image A's linker: `LKCALLS` holds the
+calls (`lk_tab.edge_rows rows 768 planes 2`) and the functions' first calls at their size,
+`LKSLOTS` the slots' two columns (`lk_tab.slot_rows rows 1024 planes 2`) and the large slots at
+theirs.
+
 ## Decisions for the owner
 
 | Decision | Recommendation |

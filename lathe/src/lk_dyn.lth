@@ -27,7 +27,7 @@ import lk_alloc (data_end, more_end)
 import lk_boot (places_addr)
 import lk_envf (bank_value, code_hi, code_lo, data_hi, data_lo, fail_text, has_more, more_hi,
                 more_lo, region_bank, region_count, region_dynamic, region_room, room_ceiling,
-                room_floor, room_rows, room_want)
+                room_floor, room_planes, room_rows, room_want)
 import lk_err (begin, E_CODE_FULL, E_DYNAMIC, E_ENV_ENTRY, E_SITES, fail, finish, over)
 import lk_fix (cur_sym, FX_ADD, FX_KIND, FX_SYM, held, is_word, K_BANK, K_HIGH, K_REACH_HIGH)
 import lk_name (fail, fail_in, room_def)
@@ -196,9 +196,35 @@ func plane_of(offset: word, plane_rows: word): byte
   return k
 end
 
+; True if variable d is a whole number of planes of `plane_rows` bytes.
+func is_planes(d: word, plane_rows: word): bool
+  return word(plane_of(lk_tab.def_b[d], plane_rows)) * plane_rows == lk_tab.def_b[d]
+end
+
+; The planes of region r, of `plane_rows` bytes, below the byte at `target`: those of the variables
+; that end at or before it, and in the one it is in those before its own (the end of the block is
+; the plane after the last). A variable that is not whole planes has none.
+func planes_below(r: byte, target: word, plane_rows: word): byte
+  var i: byte
+  var d: word
+  var k: byte
+  k = 0
+  for i = 0 until lk_scan.rdef_count do
+    d = lk_scan.rdef_def[i]
+    if lk_scan.rdef_region[i] == r and movable(i) and is_planes(d, plane_rows) then
+      if lk_tab.def_a[d] + lk_tab.def_b[d] <= target then
+        k += plane_of(lk_tab.def_b[d], plane_rows)
+      elif lk_tab.def_a[d] <= target then
+        k += plane_of(target - lk_tab.def_a[d], plane_rows)
+      end
+    end
+  end
+  return k
+end
+
 ; The places of type t of region r, their count first; with `plane_rows` (a region of planes of that
-; many bytes, from `first`), each followed by its plane.
-func put_sites(t: byte, r: byte, first: word, plane_rows: word)
+; many bytes), each followed by its plane (planes_below).
+func put_sites(t: byte, r: byte, plane_rows: word)
   var n: word
   var i: word
   var before: word
@@ -214,7 +240,7 @@ func put_sites(t: byte, r: byte, first: word, plane_rows: word)
     if lk_tab.wk(W_SITES + 3 * i + 1) == (word(t) << 8) | r then
       before = put_place(before, lk_tab.wk(W_SITES + 3 * i))
       if plane_rows != 0 then
-        lk_out.put(plane_of(lk_tab.wk(W_SITES + 3 * i + 2) - first, plane_rows))
+        lk_out.put(planes_below(r, lk_tab.wk(W_SITES + 3 * i + 2), plane_rows))
       end
     end
   end
@@ -252,17 +278,25 @@ func put_room(r: byte, first: word, past: word, last: word): word
   var least: word
   var unit: word
   var steps: word
+  var planes: byte
+  var whole: bool               ; the variables' planes are what the entry says
   plane_rows = lk_envf.room_rows(r)
   floor = lk_envf.room_floor(r)
   ceiling = lk_envf.room_ceiling(r)
   want = lk_envf.room_want(r)
   if plane_rows != 0 then
-    if past == first or word(plane_of(past - first, plane_rows)) * plane_rows != past - first then
+    planes = planes_below(r, past, plane_rows)
+    if lk_envf.room_planes(r) != 0 then
+      whole = word(planes) == lk_envf.room_planes(r)
+    else
+      whole = word(planes) * plane_rows == past - first
+    end
+    if past == first or not whole then
       lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
     end
     value = plane_rows
     least = past - first
-    unit = word(plane_of(past - first, plane_rows)) << 8
+    unit = word(planes) << 8
   else
     if floor == 0 then
       floor = past - last
@@ -339,8 +373,8 @@ func put_region(r: byte)
   if room != 0 then
     plane_rows = put_room(r, first, past, last)
   end
-  put_sites(T_ADD, r, first, plane_rows)
-  put_sites(T_BANK, r, first, 0)
+  put_sites(T_ADD, r, plane_rows)
+  put_sites(T_BANK, r, 0)
 end
 
 ; After the code in the image: the list ($places).

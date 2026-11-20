@@ -1942,7 +1942,9 @@ heap's 51 steps each costing up to eight walks of the list. Now 891.1 million (8
 2's placer, which tried far less: the rest is the walks that remain, about 0.54 million a command,
 and 512 symbols' rows against 560).
 
-**Not built: fewer than three banks** (`*LLINK` refused, `Too little sideways RAM`). What it needs:
+**Not built: fewer than three banks** (`*LLINK` refused, `Too little sideways RAM`). What it needs
+(since built for two banks, by planes beside variables of a fixed size: "The linker's tables on
+two banks", below):
 
 - The linker's tables are not planes of one size a region. `LKWORK` and `LKNODES` are one word
   array, the work area, split at `W_SPLIT`, whose columns are at offsets in its index made of
@@ -1972,10 +1974,101 @@ and 512 symbols' rows against 560).
   32K build's size or more (functions about 448, slots 2,000, calls 1,800), not the compiler
   (799 functions).
 
+### The linker's tables on two banks (2026-11-20, later)
+
+**Built** (host and twin byte for byte for the linker; `test_lk_dynamic.py`, `test_bbc_place.py`,
+`test_bbc_rooms.TheLinker`): `*LLINK` runs on a Model B with two banks of sideways RAM, under the
+DFS and ADFS, with its symbols of the object files, its slots and its calls sized as it starts.
+
+- **Not planes per variable: planes beside variables of a fixed size.** The design handed over was
+  planes per variable (each variable of a region its own plane size and steps, the list a header a
+  variable, the placer's layout of the block a variable at a time: an estimated 100 to 150 bytes
+  of the module). Measured, one capacity a region is enough: the variables of other row counts
+  are `lk_tab.fn_edge` (896 rows of a word, 1,792 bytes) in `LKCALLS` and `big_slot` and
+  `big_size` (64 rows each, 256 bytes) in `LKSLOTS`, and neither needs to shrink. `fn_edge`
+  cannot usefully: `MAX_FUNCS` also sizes four columns of the functions in main RAM (4,480 bytes,
+  which stay), its rows would have to be whole pages (768 is below the compiler's 799 functions;
+  1,024 would need 640 more bytes of main RAM, where the linker has about 220), and two banks hold
+  it at its size. So a region of planes may hold variables that keep their size: `dynamic VARIABLE
+  rows N planes P ...` (configurations.md, "Regions placed at run time"), P the planes in all,
+  which its variables of a whole number of planes of N have; the others are fixed. The linker
+  lists after each high byte, as before, the planes below its address, now counted by the
+  variables below it (`lk_dyn.planes_below`: a fixed variable has none), so a fixed variable
+  between planes moves with the planes below it. **The list's format and the placer do not
+  change**: no byte of the module (2,061 bytes of code and tables, as before).
+- **The linker's twins** under `define LKROOMS` (1 in `linker-bbc.env` with `ADAPT`, 0 in every
+  other linker environment and in `lk_ram32`'s measuring one; the 16th of `linker-bbc.env`'s 16
+  defines): `lk_name.local` is linked with `LINKED_LOCALS` (768) rows, `slot_sz` and `slot_weight`
+  with `LINKED_SLOTS` (1,024), `edge_word` with `LINKED_EDGES` (768), and the placer writes the
+  rows they get in `lk_name.local_rows`, `lk_tab.slot_rows` and `lk_tab.edge_rows`, which the
+  tests of those capacities and the calls kept at the top of `edge_word` (`edge_rows - 1 - 2 *
+  i`) read where every other build reads `MAX_LOCALS`, `MAX_SLOTS` and `MAX_EDGES`; in every other
+  build each is a constant of that value, so those builds compile to the same bytes. The work
+  area's columns keep `MAX_EDGES` (3,600) and `MAX_FUNCS` rows, the most `edge_rows` can be; the
+  work area (`LKWORK` and `LKNODES`, 18,000 bytes) stays whole.
+- **The entries** (`linker-bbc.env`, `ADAPT`), in the order that packs three banks: `LKWORK`;
+  `LKLOCAL ... dynamic lk_name.local_rows rows 768 want 4096 to 4096`; `LKSLOTS ... dynamic
+  lk_tab.slot_rows rows 1024 planes 2 want 3840 to 4096`; `LKCALLS ... dynamic lk_tab.edge_rows rows
+  768 planes 2 want 3584 to 3584`; `LKNODES`. The floors are the 32K build's capacities rounded up
+  to whole pages (640 symbols, 848 slots, 768 calls). The mosts: three banks hold the symbols and
+  the slots in one slot, 16,128 bytes with 4,096 and 3,840 rows (4,096 and 4,096 would be 16,640),
+  so the slots want 3,840 and give up their last step first; on four banks both have 4,096 (4,000
+  before), the calls 3,584 (3,600: whole pages).
+
+**What each machine's linker gets** (the model of the placer over Image A's list,
+`test_bbc_rooms.TheLinker.test_what_the_linker_gets_on_each_machine`; the emulator ran every
+machine but the Master; the start-up, `*LLINK` with no arguments, at PAGE `$1900`):
+
+| Machine | Symbols of the object files | Slots | Calls | Functions, nodes, the rest | `*LLINK`'s start-up, cycles |
+|---|---|---|---|---|---|
+| B+128 (DFS, ADFS, shadow mode), Model B with four banks, Master (model) | **4,096** (4,000) | **4,096** (4,000) | 3,584 (3,600) | full (896 functions, 900 nodes) | 743,805 (722,309) |
+| three banks | **4,096** | 3,840 (4,000) | 3,584 | full | 791,266 (722,071) |
+| **two banks, DFS or ADFS** | **1,536** | **2,304** | **1,280** | full | **1,164,924** (refused) |
+| one bank | refused | | | | 1,468,029 to the refusal |
+| the 32K Model B's build, for comparison | 640 | 848 | 768 | 296 functions, 300 nodes | |
+
+With two banks the work area takes one slot (14,400 bytes) and everything else the other: the
+placer halves the three tables' steps in turn (no table has steps over its want but the slots'
+last) until they fit beside `LKNODES`, 15,888 of its 16,352 bytes. Main RAM below `$1F00` (the
+DFS's 1,536 bytes) holds none of them at those sizes, so the DFS and ADFS get the same.
+
+**What it links.** On two banks, under the DFS and ADFS, every file what the host linker writes at
+those capacities (`lk_rooms.py` gives the host linker them) and at its own: a program of the
+end-to-end cases (`TheLinker.test_the_linker_links_a_program_on_two_banks`) and the largest
+generated programs that run in mode 7 (`test_gen_program.OnTwoBanks`, opt-in, below). The compiler
+does not link there: link error 13, too many calls, on the BBC and from the host at those
+capacities alike, after 134.6 million cycles (it needs 3,255 calls). With three banks the linker
+links the compiler in 3,025.3 million cycles (3,024.3 before), every file the host's.
+
+**The largest program on two banks** (`LATHE_BBC_TWO_BANKS_PROGRAMS=1 ... test_gen_program`):
+from PAGE `$1900`, 8 modules of 26 functions and a main (the 32K Model B's 25 KB target: 2,879
+lines, 250 functions, 24,296 bytes of code and constants and 343 of variables, 705 bytes left
+below HIMEM); from `$1F00`, 8 modules of 24 (2,699 lines, 226 functions, 23,392 and 311, 105 left).
+Each is compiled by `*LATHE`, linked by `*LLINK` and run on the Model B with two banks: the output
+what the generator computed, every file the host tools' at the capacities Image A's tools get there
+(`test_bbc_rooms.host_files_at`) and at their own; 13 compiles, the link and the run in 668.7 and
+644.6 million cycles. **Neither tool's capacities limit a program there; the memory it runs in
+does**: one more function a module does not fit below HIMEM. On the host at the two-bank
+capacities, with no limit of memory on the program, 10 modules of 33 functions (392 functions,
+37,265 bytes of code) compile and link; the linker's tightest table is then its calls (1,091 of
+1,280), so the calls limit a program of about 42 KB of code, more than the BBC's code range below
+`$C000` takes.
+
+**The account** (`BBCFS 3`, `ADFS 1`, as `bbcrom.image` lays it out): **410 bytes free** (636
+before). The module's code and tables 2,061 bytes, unchanged. The linker's banks as judged 16,245,
+15,217 (15,193: the tests of `local_rows` in `lk_scan` and `lk_name`, 24 bytes) and 15,884. Its
+resident part 205 bytes more: `lk_tab` 125 (the calls kept at the top of `edge_word` addressed
+from a variable, in `add_waiting` and `build_chains`, and the two tests of capacity) and the list
+of places 80 (331 bytes, 251 before: a plane byte after each of the three regions' 53 high bytes
+and their capacities' entries). Byte for byte the same as before: every image without `ADAPT`
+(the B+128's DFS, ADFS and tool-chain images, the eight-bank ROM and its asked-filing-system
+image, the 32K image, the self-host ROM) and Wendy 2's banked compiler; Wendy 2's two banked
+linkers change (`LKDYN 1`: `lk_dyn` and `lk_envf`'s `planes`), and not by `LKROOMS`.
+
 ### What is not done
 
-- The linker with fewer than three banks (above: options for the owner), the Master, and the
-  rest of the probing policy: stage 2's next parts.
+- The linker with one bank (the work area's column offsets set at start-up: for the owner,
+  "The linker's tables"), the Master, and the rest of the probing policy: stage 2's next parts.
 - Image B, the bare 32K Model B: stage 3.
 - The module's own check: it copies the resident part to `$1F00` before the tool's `PAGE too high`;
   with PAGE above `$1F00` that copy writes below PAGE. The module should refuse PAGE above a

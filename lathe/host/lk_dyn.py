@@ -41,15 +41,18 @@ to the placer module's `place` (the environment's `placer` entry) after FARCALL.
                           only when no region has more than its own want to give
                     byte  1 if the region is planes (`rows`), else 0
             word    N, then N places: a high byte, to which the pages moved are added; in
-                    a region of planes each place is followed by a byte, the plane its address
-                    is in (from 0, the first of the block), which moves by as many pages more
-                    as the steps the block grows by
+                    a region of planes each place is followed by a byte, the planes below its
+                    address (planes_below), each of which moves it by as many pages more as
+                    the steps the block grows by
             word    M, then M places: a block's `LDA #bank` byte, which is the bank's value
 
 A region of planes (`rows N`): each of its variables is planes of N bytes, one a row (a byte
 array of N, `sym_bytes`, seven columns of N, or a word array with `rows`, two planes a column),
 one after another; with R rows each plane is R bytes, so plane k of the block moves by k * (R -
-N) / 256 pages more than the block, and the capacity variable holds R.
+N) / 256 pages more than the block, and the capacity variable holds R. With `planes P` the region
+may hold variables that are not whole planes, which keep their size: its planes are those of its
+other variables, P in all, and a place with k planes below it moves by k * (R - N) / 256 pages
+more than the block, in a fixed variable as in a plane.
 
 A place is a byte d, 1 to 255, for the place d bytes after the one before it in its list (the
 first after address 0), or a byte 0 and the address.
@@ -196,9 +199,9 @@ def put_areas():
         lk_out.put_word(lk_envf.more_hi)
 
 
-def put_sites(t, r, first, plane_rows):
+def put_sites(t, r, plane_rows):
     """The places of type t of region r, their count first; with `plane_rows` (a region of planes of
-    that many bytes, from `first`), each followed by its plane."""
+    that many bytes), each followed by its plane (planes_below)."""
     n = 0
     for i in range(0, site_count):
         if lk_tab.wk(W_SITES + 3 * i + 1) == (t << 8) | r:
@@ -209,7 +212,7 @@ def put_sites(t, r, first, plane_rows):
         if lk_tab.wk(W_SITES + 3 * i + 1) == (t << 8) | r:
             before = put_place(before, lk_tab.wk(W_SITES + 3 * i))
             if plane_rows != 0:
-                lk_out.put(plane_of(lk_tab.wk(W_SITES + 3 * i + 2) - first, plane_rows))
+                lk_out.put(planes_below(r, lk_tab.wk(W_SITES + 3 * i + 2), plane_rows))
 
 
 def plane_of(offset, plane_rows):
@@ -219,6 +222,26 @@ def plane_of(offset, plane_rows):
     while offset >= plane_rows:
         offset -= plane_rows
         k += 1
+    return k
+
+
+def is_planes(d, plane_rows):
+    """True if variable d is a whole number of planes of `plane_rows` bytes."""
+    return plane_of(lk_tab.def_b[d], plane_rows) * plane_rows == lk_tab.def_b[d]
+
+
+def planes_below(r, target, plane_rows):
+    """The planes of region r, of `plane_rows` bytes, below the byte at `target`: those of the
+    variables that end at or before it, and in the one it is in those before its own (the end of
+    the block is the plane after the last). A variable that is not whole planes has none."""
+    k = 0
+    for i in range(0, lk_scan.rdef_count):
+        d = lk_scan.rdef_def[i]
+        if lk_scan.rdef_region[i] == r and movable(i) and is_planes(d, plane_rows):
+            if lk_tab.def_a[d] + lk_tab.def_b[d] <= target:
+                k += plane_of(lk_tab.def_b[d], plane_rows)
+            elif lk_tab.def_a[d] <= target:
+                k += plane_of(target - lk_tab.def_a[d], plane_rows)
     return k
 
 
@@ -265,8 +288,8 @@ def put_region(r):
     plane_rows = 0
     if room != 0:
         plane_rows = put_room(r, first, past, last)
-    put_sites(T_ADD, r, first, plane_rows)
-    put_sites(T_BANK, r, first, 0)
+    put_sites(T_ADD, r, plane_rows)
+    put_sites(T_BANK, r, 0)
 
 
 def put_room(r, first, past, last):
@@ -278,11 +301,16 @@ def put_room(r, first, past, last):
     ceiling = lk_envf.room_ceiling(r)
     want = lk_envf.room_want(r)
     if plane_rows != 0:
-        if past == first or plane_of(past - first, plane_rows) * plane_rows != past - first:
+        planes = planes_below(r, past, plane_rows)
+        if lk_envf.room_planes(r) != 0:
+            whole = planes == lk_envf.room_planes(r)
+        else:
+            whole = planes * plane_rows == past - first
+        if past == first or not whole:
             lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
         value = plane_rows
         least = past - first
-        unit = plane_of(past - first, plane_rows) * 256
+        unit = planes * 256
     else:
         if floor == 0:
             floor = past - last

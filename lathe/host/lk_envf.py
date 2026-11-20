@@ -165,9 +165,10 @@ region_name = [0] * MAX_REGIONS
 region_bank = bytearray(MAX_REGIONS)    # the bank + 1, or 0 for fixed memory
 region_dynamic = 0                  # bit i: region i is `dynamic`, placed again at the start (lk_dyn)
 region_room = [0] * MAX_REGIONS     # a dynamic region's capacity variable's name + 1, or 0 (lk_dyn);
-                                    # in the text after the name, four words: room_rows,
-                                    # room_floor, room_want, room_ceiling
+                                    # in the text after the name, five words: room_rows,
+                                    # room_floor, room_want, room_ceiling, room_planes
 ROWS_WORD = b"rows"
+PLANES_WORD = b"planes"
 WANT_WORD = b"want"
 FROM_WORD = b"from"
 TO_WORD = b"to"
@@ -625,17 +626,21 @@ def held_word(pos):
 
 
 def room_entry(i):
-    """The rest of a dynamic region's entry, its capacity variable just read: `rows N`, `from N`,
-    `want N` and `to N`, each optional, in that order. They are held after the variable's
-    name."""
+    """The rest of a dynamic region's entry, its capacity variable just read: `rows N`, `planes
+    N`, `from N`, `want N` and `to N`, each optional, in that order. They are held after the
+    variable's name."""
     region_room[i] = hold_token()
     plane_rows = 0
+    planes = 0
     floor = 0
     want = 0
     ceiling = 0
     more = read_token()
     if more and is_word(ROWS_WORD):
         plane_rows = number()
+        more = read_token()
+    if more and is_word(PLANES_WORD):
+        planes = number()
         more = read_token()
     if more and is_word(FROM_WORD):
         floor = number()
@@ -647,12 +652,14 @@ def room_entry(i):
         ceiling = number()
         more = read_token()
     if more or (ceiling != 0 and ceiling < floor) or (plane_rows & 0xFF) != 0 or (plane_rows != 0 and floor != 0) \
-            or (want != 0 and (ceiling == 0 or want > ceiling or want < floor)):
+            or (want != 0 and (ceiling == 0 or want > ceiling or want < floor)) \
+            or (planes != 0 and plane_rows == 0):
         bad()
     hold_word(plane_rows)
     hold_word(floor)
     hold_word(want)
     hold_word(ceiling)
+    hold_word(planes)
 
 
 def room_rows(r):
@@ -674,6 +681,12 @@ def room_want(r):
 def room_ceiling(r):
     """Region r's `to`, the most room of its capacity variable, or 0 (no limit)."""
     return held_word(region_room[r] + text[region_room[r] - 1] + 6)
+
+
+def room_planes(r):
+    """Region r's `planes`, its planes in all, which its variables of whole planes have (the
+    others keep their size), or 0: every variable is whole planes."""
+    return held_word(region_room[r] + text[region_room[r] - 1] + 8)
 
 
 def more_entry():

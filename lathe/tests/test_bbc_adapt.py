@@ -151,11 +151,12 @@ class ImageA(unittest.TestCase):
             rom128.compile_modules(self, self.image, ('rom',), ['err', 'src'])
 
     def test_too_little_sideways_ram_is_refused(self):
-        """With two banks the compiler starts (its tables are set at start-up) and the linker,
-        whose regions do not fit, is refused: `Too little sideways RAM`; with none both are."""
+        """With two banks both tools start (their tables are set at start-up: lathe/docs/bbc.md,
+        "The linker's tables on two banks"); with none both are refused: `Too little sideways
+        RAM`."""
         self.need_image()
         base = boards.BOARDS['bbc']
-        for ram, command, refused in (('8,9', 'LATHE', False), ('8,9', 'LLINK', True),
+        for ram, command, refused in (('8,9', 'LATHE', False), ('8,9', 'LLINK', False),
                                       ('none', 'LATHE', True), ('none', 'LLINK', True)):
             board = dataclasses.replace(base, options=base.options + ('--bbc-model', 'b', '--bbc-sideways-ram', ram))
             with self.subTest(ram=ram, command=command), rom128.scheme(), tempfile.TemporaryDirectory() as d:
@@ -163,7 +164,7 @@ class ImageA(unittest.TestCase):
                 if refused:
                     self.assertIn(b'Too little sideways RAM', out + err)
                 else:
-                    self.assertIn(b'usage: lathec', out)
+                    self.assertIn(b'usage: lathec' if command == 'LATHE' else b'usage: link', out)
 
     def test_page_above_the_fixed_part_is_refused(self):
         """PAGE above $1F00: the tool refuses, `PAGE too high`. The module has copied the

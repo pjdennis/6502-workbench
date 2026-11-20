@@ -41,7 +41,7 @@ import lk_err (E_CLASS_DIFFERS, E_DAMAGED, E_DEFS, E_DUPLICATE, E_LOCALS, E_NEED
                E_NO_FARCALL, E_OBJECTS, E_PLACE_UNLINKED, E_UNDEFINED, E_VERSION, fail)
 import lk_file (arg_count, ARG_OBJECT, fail)
 import lk_name (begin, bind, fail, fc_call, fc_start, global_sym, is_block_sym, is_init_sym,
-                local_count, mark_all, MAX_LOCALS, MAX_OBJECTS, more, name_add, name_begin, now,
+                local_count, local_rows, mark_all, MAX_OBJECTS, more, name_add, name_begin, now,
                 obj_def, obj_first, obj_fn, object_count, resolve, set_block, set_local, set_more,
                 symbol)
 import lk_rec (advance, close, damaged, get_byte, get_word, left, open_object, R_CALL, R_CLAS,
@@ -154,7 +154,7 @@ func rec_sym()
     obj_cpu[cur_obj] |= OBJ_CLASSES
   end
   read_name()
-  if lk_name.local_count == lk_name.MAX_LOCALS then
+  if lk_name.local_count == lk_name.local_rows then
     lk_err.fail(lk_err.E_LOCALS)
   end
   lk_name.set_local(lk_name.local_count, lk_name.symbol(kind))

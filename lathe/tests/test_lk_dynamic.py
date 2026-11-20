@@ -23,6 +23,8 @@ DYNAMIC = (ENV + WINDOW + REGION_BANKS + 'region work WIN 4 dynamic\nregion text
            'placer p\n')
 STATIC = ENV + WINDOW + REGION_BANKS + 'region work WIN 4\nregion text WIN 5\nfarcall fc\n'
 PLANES = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic t.room rows 256 to 768\n')
+FIXED = DYNAMIC.replace('region work WIN 4 dynamic\n',
+                        'region work WIN 4 dynamic t.room rows 256 planes 3 to 768\n')
 ROOM = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic t.room\n')
 CODE_LO = 0x0200
 
@@ -135,6 +137,38 @@ def planes_user():
     c.abs(0x8D, t.v('q'))
     c.abs(0x8D, t.v('q'), add=5)
     c.byte(0xA9, 3, t.v('q'), add=0x100)    # LDA #>(q+256), the end of the block
+    c.abs(0x20, t.f('rt_with.unmap'))
+    c.raw(0x60)
+    t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)])
+    return t
+
+
+def planes_and_fixed_user():
+    """Module t as planes_user, with f (300 bytes, not whole planes) between q and p in region
+    work; main names f and f + 299 too."""
+    t = Obj('t')
+    t.v('p')
+    t.v('q')
+    t.v('f')
+    t.v('room')
+    t.var('room', 2, NEVER)
+    t.raw(16, string('work'))
+    t.var('q', 256, NEVER)
+    t.raw(16, string('work'))
+    t.var('f', 300, NEVER)
+    t.raw(16, string('work'))
+    t.var('p', 512, NEVER)
+    c = t.code()
+    c.abs(0xAD, t.v('room'))
+    c.byte(0xA9, 6, t.v('p'))
+    c.abs(0x20, t.f('rt_with.map'))
+    c.abs(0x8D, t.v('p'))
+    c.abs(0x8D, t.v('p'), add=0x107)
+    c.abs(0x8D, t.v('f'))
+    c.abs(0x8D, t.v('f'), add=299)
+    c.abs(0x8D, t.v('q'))
+    c.abs(0x8D, t.v('q'), add=5)
+    c.byte(0xA9, 3, t.v('q'), add=0x100)    # LDA #>(q+256)
     c.abs(0x20, t.f('rt_with.unmap'))
     c.raw(0x60)
     t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)])
@@ -340,6 +374,48 @@ class Dynamic(unittest.TestCase):
                 self.assertEqual(r.status, 1)
                 self.assertIn('link error 3: environment file: bad entry', r.errors)
 
+    def test_a_region_of_planes_may_hold_variables_of_a_fixed_size(self):
+        """`rows 256 planes 3 to 768`: the variables of whole planes are the region's planes, three
+        in all (p two, q one); f, of 300 bytes, keeps its size, and each high byte's plane is the
+        planes below its address, so that f moves with the planes below it and every address of
+        p, f and q in main's code is where they are with R rows."""
+        r = self.link([planes_and_fixed_user(), farcall_with(), placer()], FIXED)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        p, at = places_of(r)
+        work = p.regions[0]
+        pa, qa, fa = r.addr('V', 't.p'), r.addr('V', 't.q'), r.addr('V', 't.f')
+        first = min(pa, qa, fa)
+        self.assertEqual((work.holds, work.least, work.unit, work.steps, work.planed),
+                         (256, 1068, 768, 2, True))
+        targets = [pa, pa + 0x100 + 7, fa, fa + 299, qa, qa + 5, qa + 0x100]     # as main names them
+
+        def below(t):
+            n = 0
+            for a, size in ((pa, 512), (qa, 256)):
+                n += size // 256 if a + size <= t else (t - a) // 256 if a <= t else 0
+            return n
+        self.assertEqual(work.planes, [below(t) for t in targets])
+        self.assertNotEqual(work.planes, [(t - first) // 256 for t in targets])
+        to = 0xC000 | (first & 0xFF)
+        for steps in (0, 1, 2):
+            with self.subTest(steps=steps):
+                moved = places.apply(r.image, CODE_LO, p, {0: to}, {}, steps={0: steps})
+                for k, t in enumerate(targets):
+                    expect = to + (t - first) + below(t) * 256 * steps
+                    self.assertEqual(moved[work.highs[k] - CODE_LO], expect >> 8, hex(t))
+
+    def test_planes_must_count_the_variables_of_whole_planes(self):
+        """With a variable that is not whole planes the region needs `planes`, and their count must
+        be the planes of its other variables; `planes` needs `rows`."""
+        for env in (PLANES, FIXED.replace('planes 3', 'planes 2'), FIXED.replace('planes 3', 'planes 4'),
+                    FIXED.replace('rows 256 planes 3', 'planes 3')):
+            with self.subTest(env=env.splitlines()[-4]):
+                r = self.link([planes_and_fixed_user(), farcall_with(), placer()], env)
+                self.assertEqual(r.status, 1)
+                self.assertIn('link error 3: environment file: bad entry', r.errors)
+        r = self.link([planes_user(), farcall_with(), placer()], PLANES.replace('rows 256', 'rows 256 planes 3'))
+        self.assertEqual((r.status, r.errors), (0, ''))
+
     def test_nothing_changes_without_a_dynamic_region(self):
         a = link([user(), farcall_with(), placer()], STATIC + 'placer p\n')
         b = link([user(), farcall_with(), placer()], STATIC)
@@ -377,7 +453,11 @@ def cases():
              ROOM.replace('t.room\n', 't.room from 400 to 100\n')),
             ('planes', [planes_user(), farcall_with(), placer()], PLANES),
             ('planes of a size the block is not', [planes_user(), farcall_with(), placer()],
-             PLANES.replace('rows 256', 'rows 512'))]
+             PLANES.replace('rows 256', 'rows 512')),
+            ('planes and a fixed variable', [planes_and_fixed_user(), farcall_with(), placer()], FIXED),
+            ('planes miscounted', [planes_and_fixed_user(), farcall_with(), placer()],
+             FIXED.replace('planes 3', 'planes 2')),
+            ('a fixed variable without planes', [planes_and_fixed_user(), farcall_with(), placer()], PLANES)]
 
 
 class Twin(unittest.TestCase):

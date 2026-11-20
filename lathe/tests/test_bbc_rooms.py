@@ -17,6 +17,13 @@ the emulator has (four banks, three, two; DFS, ADFS, a shadow mode), what the ho
 with that machine's capacities; with two banks the compiler compiles three of its own modules
 (all of them with LATHE_BBC_ROOMS_SELFHOST=1) under the DFS and ADFS, every file the host's.
 LATHE_BBC_ROOMS_REPORT=1 prints every machine's capacities and the cycles.
+
+TheLinker: what Image A's linker gets on each machine (its symbols of the object files, slots and
+calls are planes sized as it starts: lathe/docs/bbc.md, "The linker's tables on two banks"), by the
+model of the placer; *LLINK starts with two banks of sideways RAM and is refused with one; on two
+banks, under the DFS and ADFS, it links a program, every file what the host linker writes at those
+capacities (lk_rooms.py). With LATHE_BBC_ROOMS_SELFHOST=1 it links the compiler on three banks,
+every file the host's, and on two refuses it as the host linker at those capacities does.
 """
 import os
 import shutil
@@ -364,11 +371,73 @@ class OnTheBBC(unittest.TestCase):
             self.assertTrue(compiled)
 
 
+# What Image A's linker gets (lathe/src/linker-bbc.env, ADAPT): the rows of lk_name.local, of the
+# slots' columns and of the calls (`locals`, `slots`, `calls`: lk_rooms.py), by the number of banks.
+LINKER_FULL = {'locals': 4096, 'slots': 4096, 'calls': 3584}
+LINKER_GETS = {4: LINKER_FULL, 3: dict(LINKER_FULL, slots=3840),
+               2: {'locals': 1536, 'slots': 2304, 'calls': 1280}, 1: None}
+LINKER_REGIONS = {'lklocal': 'locals', 'lkslots': 'slots', 'lkcalls': 'calls'}
+ROOMS_LINKER = os.path.join(HERE, 'lk_rooms.py')
+
+
+def linker_capacities(tool, machine):
+    """{table: rows} of Image A's linker on a machine, by the model of the placer; None if refused."""
+    got = capacities(tool, machine)
+    if got is None:
+        return None
+    return {LINKER_REGIONS[k]: v[2] for k, v in got.items() if v[2] is not None}
+
+
+def two_banks(page):
+    """The machine of MACHINES with two banks at PAGE `page` ('1900' or '1F00')."""
+    return [m for m in MACHINES if m[4] and m[4][0] == page and len(m[3]) == 2][0]
+
+
+def host_link_at(link, disk, caps):
+    """The host linker run in disk (a copy of the BBC's) with the capacities `caps` {table: rows}
+    (lk_rooms.py): (status, output and error output, {file: bytes} it wrote)."""
+    import lk_rooms
+    before = set(os.listdir(disk))
+    r = subprocess.run([sys.executable, ROOMS_LINKER] + link, cwd=disk, capture_output=True,
+                       env=dict(os.environ, LATHE_LK_CAPACITIES=lk_rooms.setting(caps)))
+    files = {}
+    for f in os.listdir(disk):
+        if f not in before:
+            with open(os.path.join(disk, f), 'rb') as handle:
+                files[f] = handle.read()
+    return r.returncode, r.stdout + r.stderr, files
+
+
+def host_files_at(compiles, link, disk, tools, machine):
+    """The host compiler and linker run in disk (a copy of the BBC's) as the BBC runs them, at the
+    capacities Image A's tools (`tools`, test_bbc_adapt.build_image's) get on `machine`, by the
+    model of the placer (lathec_heap.py, lk_rooms.py): ({file: bytes} of what they wrote,
+    [(status, output and error output)] of each run)."""
+    import lk_rooms
+    caps = capacities(tools[0], machine)
+    environ = dict(os.environ, LATHE_NAME_HEAP=str(caps['names'][2]), LATHE_SAVED_TOKENS=str(caps['tokens'][2]),
+                   LATHE_CAPACITIES='buffer=%d,string=%d,syms=%d,table=%d' % (
+                       caps['funcbuf'][2], caps['string'][2], caps['syms'][2], caps['outtab'][2]),
+                   LATHE_LK_CAPACITIES=lk_rooms.setting(linker_capacities(tools[1], machine)))
+    before = set(os.listdir(disk))
+    said = []
+    for args in compiles:
+        r = subprocess.run([sys.executable, HEAP_TOOL] + args, cwd=disk, capture_output=True, env=environ)
+        said.append((r.returncode, r.stdout + r.stderr))
+    r = subprocess.run([sys.executable, ROOMS_LINKER] + link, cwd=disk, capture_output=True, env=environ)
+    said.append((r.returncode, r.stdout + r.stderr))
+    return {f: read(os.path.join(disk, f)) for f in os.listdir(disk) if f not in before}, said
+
+
 @unittest.skipUnless(os.path.isfile(support.EMULATOR), 'emulator missing')
-class TheLinkerOnThreeBanks(unittest.TestCase):
-    """The linker's five regions packed into three slots (lathe/src/linker-bbc.env's order):
-    *LLINK starts on a Model B with three banks of sideways RAM and is refused with two; with
-    LATHE_BBC_ROOMS_SELFHOST=1 it links the compiler there, every file the host linker's."""
+class TheLinker(unittest.TestCase):
+    """Image A's linker (lathe/src/linker-bbc.env's order, LKROOMS 1): its five regions packed into
+    three slots at full capacities, and into two with the symbols, the slots and the calls sized as
+    it starts (lathe/docs/bbc.md, "The linker's tables on two banks"); *LLINK starts on a Model B
+    with two banks of sideways RAM and is refused with one. On two banks, under the DFS and ADFS, it
+    links a program, every file what the host linker writes at those capacities (and at its own);
+    with LATHE_BBC_ROOMS_SELFHOST=1 it links the compiler with three banks, every file the host
+    linker's, and with two refuses it as the host linker at those capacities does."""
 
     @classmethod
     def setUpClass(cls):
@@ -380,42 +449,111 @@ class TheLinkerOnThreeBanks(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
-    def test_three_banks_are_enough(self):
+    def test_what_the_linker_gets_on_each_machine(self):
+        """By the model of the placer: four banks every table at its most (4,096 symbols of the
+        object files, 4,096 slots, 3,584 calls); three the slots 3,840; two the tables halved in
+        turn until they fit beside the work area, under either filing system; one refused."""
+        for m in MACHINES:
+            with self.subTest(machine=m[0]):
+                self.assertEqual(linker_capacities(self.tools[1], m), LINKER_GETS[min(len(m[3]), 4)])
+
+    def test_two_banks_are_enough(self):
         import dataclasses
         import boards
         import test_bbc_rom128 as rom128
         base = boards.BOARDS['bbc']
-        for ram, starts in (('8,9,10', True), ('8,9', False)):
+        for ram, starts in (('8,9,10', True), ('8,9', True), ('8', False)):
             board = dataclasses.replace(base, options=base.options + ('--bbc-model', 'b', '--bbc-sideways-ram', ram))
             with self.subTest(ram=ram), rom128.scheme(), tempfile.TemporaryDirectory() as d:
                 code, out, err, cycles = boards.run_module(board, self.image, d, 'LLINK', raw=True)
                 self.assertEqual(b'usage: link' in out, starts)
                 self.assertEqual(b'Too little sideways RAM' in out + err, not starts)
+                if REPORT:
+                    print('\nImage A, sideways RAM %s: *LLINK starts in %d cycles' % (ram, cycles))
 
-    @unittest.skipUnless(SELFHOST, 'LATHE_BBC_ROOMS_SELFHOST=1 has the linker link the compiler on three banks')
-    def test_the_linker_links_the_compiler_on_three_banks(self):
+    def bbc_link(self, page, ram, disk):
+        """*LLINK @LINKARG on disk at PAGE `page` on a Model B with sideways RAM `ram`:
+        (status, output, what the MOS said, {file: bytes} written, cycles)."""
         import boards
         import test_bbc_adapt
         import test_bbc_rom128 as rom128
         import test_bbc_selflink as selflink
         import test_bbc_toolchain as chain
+        with test_bbc_adapt.machine(page, model=('--bbc-model', 'b', '--bbc-sideways-ram', ram)), rom128.scheme():
+            lines = [boards.module_command('LLINK', ['@' + selflink.COMMAND_FILE])]
+            status, out, mos, written, cycles, traffic = chain.bbc_run(self.image, disk, lines)
+        return status, out, mos, written, cycles
+
+    def test_the_linker_links_a_program_on_two_banks(self):
+        """A program of the end-to-end cases, its objects the host compiler's, linked on two banks
+        under the DFS and ADFS: every file the host linker's at those capacities, and at its own."""
+        import test_bbc_selflink as selflink
+        import test_bbc_toolchain as chain
+        case = [c for c in chain.corpus() if c[0] == 'calls'][0]
         for page in ('1900', '1F00'):
-            with test_bbc_adapt.machine(page, model=('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10')), \
-                    rom128.scheme():
-                name, source, env = selflink.TOOLS[0]
-                work = os.path.join(self.dir, 'link-%s' % page)
-                disk, compiles, link, files = selflink.prepare(name, source, env, work)
+            with self.subTest(page=page):
+                caps = linker_capacities(self.tools[1], two_banks(page))
+                disk, compiles, link, files, said, load = chain.prepare(case, os.path.join(self.dir, 'calls-' + page))
                 for f in files:
                     if f.endswith('.lo'):
-                        shutil.copy(os.path.join(work, 'host', f), disk)
-                lines = [boards.module_command('LLINK', ['@' + selflink.COMMAND_FILE])]
-                status, out, mos, written, cycles, traffic = chain.bbc_run(self.image, disk, lines)
-                self.assertEqual((status, out, mos), (0, b'', b''))
-                print('\nImage A, three banks, PAGE &%s: the linker links the compiler in %d cycles' % (page, cycles))
+                        shutil.copy(os.path.join(os.path.dirname(disk), 'host', f), disk)
+                with open(os.path.join(disk, selflink.COMMAND_FILE), 'w') as f:
+                    f.write(' '.join(link) + '\r\n')
+                at_caps = os.path.join(self.dir, 'calls-host-' + page)
+                shutil.copytree(disk, at_caps)
+                status, host_said, host_files = host_link_at(link, at_caps, caps)
+                self.assertEqual((status, host_said), (0, b''))
                 expected = selflink.link_outputs(files)
+                self.assertEqual(host_files, expected)
+                status, out, mos, written, cycles = self.bbc_link(page, '8,9', disk)
+                self.assertEqual((status, out, mos), (0, b'', b''))
                 self.assertEqual(sorted(written), sorted(expected))
                 for f in expected:
                     self.assertTrue(written[f] == expected[f], f + ' differs')
+
+    @unittest.skipUnless(SELFHOST, 'LATHE_BBC_ROOMS_SELFHOST=1 has the linker link the compiler on three banks')
+    def test_the_linker_links_the_compiler_on_three_banks(self):
+        import test_bbc_selflink as selflink
+        for page in ('1900', '1F00'):
+            name, source, env = selflink.TOOLS[0]
+            work = os.path.join(self.dir, 'link-%s' % page)
+            disk, compiles, link, files = selflink.prepare(name, source, env, work)
+            for f in files:
+                if f.endswith('.lo'):
+                    shutil.copy(os.path.join(work, 'host', f), disk)
+            status, out, mos, written, cycles = self.bbc_link(page, '8,9,10', disk)
+            self.assertEqual((status, out, mos), (0, b'', b''))
+            print('\nImage A, three banks, PAGE &%s: the linker links the compiler in %d cycles' % (page, cycles))
+            expected = selflink.link_outputs(files)
+            self.assertEqual(sorted(written), sorted(expected))
+            for f in expected:
+                self.assertTrue(written[f] == expected[f], f + ' differs')
+
+    @unittest.skipUnless(SELFHOST, 'LATHE_BBC_ROOMS_SELFHOST=1 has the linker refuse the compiler on two banks')
+    def test_the_compiler_is_too_large_for_two_banks(self):
+        """The compiler's link needs more calls than two banks give: the linker on the BBC stops
+        with what the host linker at those capacities says."""
+        import test_bbc_selflink as selflink
+        name, source, env = selflink.TOOLS[0]
+        work = os.path.join(self.dir, 'link-two')
+        disk, compiles, link, files = selflink.prepare(name, source, env, work)
+        for f in files:
+            if f.endswith('.lo'):
+                shutil.copy(os.path.join(work, 'host', f), disk)
+        for page in ('1900', '1F00'):
+            with self.subTest(page=page):
+                caps = linker_capacities(self.tools[1], two_banks(page))
+                at_caps = os.path.join(self.dir, 'link-two-host-' + page)
+                shutil.copytree(disk, at_caps)
+                status, said, host_files = host_link_at(link, at_caps, caps)
+                self.assertNotEqual(status, 0)
+                here = os.path.join(self.dir, 'link-two-' + page)
+                shutil.copytree(disk, here)
+                got = self.bbc_link(page, '8,9', here)
+                self.assertNotEqual(got[0], 0)
+                self.assertIn(said.strip().splitlines()[0], got[1] + got[2])
+                print('\nImage A, two banks, PAGE &%s: the compiler refused, %r, in %d cycles'
+                      % (page, said.strip().decode('latin-1'), got[4]))
 
 
 if __name__ == '__main__':

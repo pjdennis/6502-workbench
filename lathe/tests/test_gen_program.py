@@ -16,6 +16,11 @@ memory, strict), from the 32K image (test_bbc_ram32.build_image): every module c
 *LATHE, the objects and interfaces on drive 1, linked by *LLINK @LINKARG, the image *SAVEd and
 run; every file the host tools' and the output what the generator computed.
 LATHE_BBC_RAM32_REPORT=1 prints the account of each (the tightest tables, cycles, the disc).
+
+With LATHE_BBC_TWO_BANKS_PROGRAMS=1, the largest programs that run in mode 7 on a Model B with two
+banks of sideways RAM, under the DFS (PAGE $1900) and ADFS ($1F00), compiled, linked and run by
+Image A (lathe/docs/bbc.md, "The linker's tables on two banks"): every file the host tools' at the
+capacities Image A's tools get there and at their own, and the output what the generator computed.
 """
 import glob
 import json
@@ -40,6 +45,7 @@ import test_bbc_dfs as dfs  # noqa: E402
 
 PROGRAMS = os.environ.get('LATHE_BBC_RAM32_PROGRAMS') == '1'
 REPORT = os.environ.get('LATHE_BBC_RAM32_REPORT') == '1'
+TWO_BANKS_PROGRAMS = os.environ.get('LATHE_BBC_TWO_BANKS_PROGRAMS') == '1'
 HAVE_TOOLS = os.path.isfile(support.EMULATOR) and os.path.isfile(build.COMPILER)
 RAM32_COMPILER = os.path.join(HERE, 'lathec_ram32.py')
 DFS_ENV = os.path.join(support.LATHE, 'env', 'bbc-dfs.env')
@@ -318,6 +324,98 @@ def link_tightest(use, capacities):
     rows = [(1 - use[t] / c, '%s %d of %d' % (t, use[t], c)) for t, c in capacities.items()
             if t in use and c and t not in ('classes', 'class params', 'members', 'contexts', 'objects')]
     return ', '.join(r[1] for r in sorted(rows)[:3])
+
+
+# ---- On a Model B with two banks of sideways RAM ----------------------------------------------
+
+# The largest programs that run in mode 7 from PAGE on a Model B with Image A and two banks (the
+# generator's usual functions; at either PAGE one more function a module does not fit below HIMEM):
+# (PAGE, modules, functions a module). At $1900 it is the 32K Model B's 25 KB target.
+TWO_BANKS = (('1900', 8, 26), ('1F00', 8, 24))
+
+
+def page_env(path, size, page):
+    """bbc-dfs.env with the code from `page` to the end of a program of `size` (code, variables),
+    the data from there to mode 7's HIMEM: path, or None if it does not fit."""
+    split = page + size[0]
+    if split + size[1] >= lk_ram32.HIMEM[7]:
+        return None
+    with open(DFS_ENV) as f:
+        text = f.read()
+    text, n = re.subn(r'(?m)^code\s.*$', 'code      $%04X $%04X' % (page, split - 1), text)
+    assert n == 1
+    text, n = re.subn(r'(?m)^data\s.*$', 'data      $%04X $%04X' % (split, lk_ram32.HIMEM[7] - 1), text)
+    assert n == 1
+    with open(path, 'w') as f:
+        f.write(text)
+    return path
+
+
+@unittest.skipUnless(HAVE_TOOLS and TWO_BANKS_PROGRAMS,
+                     'LATHE_BBC_TWO_BANKS_PROGRAMS=1 compiles, links and runs the programs on two banks')
+class OnTwoBanks(unittest.TestCase):
+    """The largest program of TWO_BANKS on a Model B with two banks of sideways RAM, under the DFS
+    (PAGE $1900) and ADFS ($1F00), from Image A (test_bbc_adapt.build_image): every module compiled
+    by *LATHE, linked by *LLINK and run, every file what the host tools write at the capacities
+    Image A's tools get there (test_bbc_rooms.host_files_at) and at their own, and the output what
+    the generator computed."""
+
+    @classmethod
+    def setUpClass(cls):
+        import test_bbc_adapt
+        cls.dir = tempfile.mkdtemp(prefix='lathe-gen-two-banks-')
+        cls.tools, cls.account, cls.image, cls.listing = test_bbc_adapt.build_image(os.path.join(cls.dir, 'image'))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_the_largest_programs(self):
+        import test_bbc_adapt
+        import test_bbc_rom128 as rom128
+        import test_bbc_rooms as rooms
+        import test_bbc_toolchain as toolchain
+        for page, modules, functions in TWO_BANKS:
+            with self.subTest(page=page):
+                work = os.path.join(self.dir, page)
+                p = gen_program.Program(modules, functions, 2.0, 1, None)
+                main = p.write(os.path.join(work, 'src'))
+                measured = os.path.join(work, 'measure')
+                with rt_first():
+                    build.build(main, os.path.join(work, 'measure.bin'),
+                                env=measure_env(os.path.join(work, 'measure.env')), keep=measured)
+                size = lk_ram32.link_size(os.path.join(measured, 'genmain.map'))
+                env = page_env(os.path.join(work, 'genmain.env'), size, int(page, 16))
+                self.assertIsNotNone(env, '%r does not fit from &%s' % (size, page))
+                with open(os.path.join(work, 'src', 'genmain.expected.out'), 'rb') as f:
+                    expected = f.read()
+                steps = recorded(main, env, os.path.join(work, 'steps'))
+                disk = os.path.join(work, 'bbc')
+                os.makedirs(disk)
+                compiles, link = toolchain.lay_out(steps, disk)
+                host = os.path.join(work, 'host')
+                shutil.copytree(disk, host)
+                files, said = toolchain.host_files(compiles, link, host)
+                self.assertEqual(said, [(0, b'')] * len(said))
+                machine = rooms.two_banks(page)
+                at_caps = os.path.join(work, 'host-two-banks')
+                shutil.copytree(disk, at_caps)
+                files_at, said = rooms.host_files_at(compiles, link, at_caps, self.tools, machine)
+                self.assertEqual(said, [(0, b'')] * len(said))
+                self.assertEqual(files_at, files)
+                lines = toolchain.bbc_lines(compiles, link, int(page, 16), len(files[link[2]]))
+                with test_bbc_adapt.machine(page, model=machine[4][2]), rom128.scheme():
+                    status, out, mos, written, cycles, traffic = toolchain.bbc_run(self.image, disk, lines)
+                self.assertEqual((status, mos), (0, b''))
+                self.assertEqual(out, expected)
+                self.assertEqual(sorted(written), sorted(files))
+                for f in files:
+                    self.assertTrue(written[f] == files[f], f + ' differs')
+                print('\nTwo banks, PAGE &%s: %d modules of the program and the main, %d lines, %d functions; '
+                      'code and constants %d, variables %d, %d bytes below HIMEM left; %d compiles, the link '
+                      'and the run in %.1f million cycles' % (
+                          page, modules + 1, p.lines(), p.functions(), size[0], size[1],
+                          lk_ram32.HIMEM[7] - int(page, 16) - size[0] - size[1], len(compiles), cycles / 1e6))
 
 
 if __name__ == '__main__':

@@ -189,7 +189,8 @@ pub var region_dynamic: word        ; bit i: region i is `dynamic`, placed again
                                     ; read() sets it)
 pub var region_room: [MAX_REGIONS]word  ; a dynamic region's capacity variable's name + 1, or 0 (lk_dyn;
                                         ; with LKDYN 0 nothing uses it, so it is not linked); in the
-                                        ; text after the name, two words: room_floor, room_ceiling
+                                        ; text after the name, five words: room_rows, room_floor,
+                                        ; room_want, room_ceiling, room_planes
 pub var region_used: byte = 0       ; lk_scan: a bank + 1 that a variable or constant is in, or 0
 
 const MAX_DEFINES = 16
@@ -668,6 +669,7 @@ const FROM_WORD: [4]byte = "from"
 const TO_WORD: [2]byte = "to"
 const ROWS_WORD: [4]byte = "rows"
 const WANT_WORD: [4]byte = "want"
+const PLANES_WORD: [6]byte = "planes"
 
 ; True if the word just read is the `size` bytes at w.
 func is_word(w: ^byte, size: byte): bool
@@ -702,14 +704,20 @@ func room_entry(i: byte)
   var floor: word
   var want: word
   var ceiling: word
+  var planes: word
   region_room[i] = hold_token()
   plane_rows = 0
+  planes = 0
   floor = 0
   want = 0
   ceiling = 0
   more = read_token()
   if more and is_word(@ROWS_WORD, len(ROWS_WORD)) then
     plane_rows = number()
+    more = read_token()
+  end
+  if more and is_word(@PLANES_WORD, len(PLANES_WORD)) then
+    planes = number()
     more = read_token()
   end
   if more and is_word(@FROM_WORD, len(FROM_WORD)) then
@@ -725,13 +733,14 @@ func room_entry(i: byte)
     more = read_token()
   end
   if more or (ceiling != 0 and ceiling < floor) or lo(plane_rows) != 0 or (plane_rows != 0 and floor != 0) or
-      (want != 0 and (ceiling == 0 or want > ceiling or want < floor)) then
+      (want != 0 and (ceiling == 0 or want > ceiling or want < floor)) or (planes != 0 and plane_rows == 0) then
     bad()
   end
   hold_word(plane_rows)
   hold_word(floor)
   hold_word(want)
   hold_word(ceiling)
+  hold_word(planes)
 end
 
 #end
@@ -761,6 +770,12 @@ end
 ; Region r's `to`, the most room of its capacity variable, or 0 (no limit).
 pub func room_ceiling(r: byte): word
   return held_word(region_room[r] + text[region_room[r] - 1] + 6)
+end
+
+; Region r's `planes`, its planes in all, which its variables of whole planes have (the others keep
+; their size), or 0: every variable is whole planes.
+pub func room_planes(r: byte): word
+  return held_word(region_room[r] + text[region_room[r] - 1] + 8)
 end
 
 func region_entry()

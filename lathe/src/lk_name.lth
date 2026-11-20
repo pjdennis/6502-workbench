@@ -53,7 +53,7 @@ import lk_file (arg_length, ARG_MAIN, ARG_OBJECT, fail, PATH)
 import lk_rec (advance, close, get_byte, get_word, open_object, open_quiet, R_DATA, R_END, R_FUNC,
                R_MOD, R_SYM, R_VAR, VERSION)
 import lk_sym (CLASS, count, edge_bits, FUNCTION, kind_of, new_number, ref, row_of, UNDEF, VARIABLE)
-import lk_tab (ctx_of, edge_at, edge_count, edge_sym, is_extra_copy, MAX_EDGES, memb_class,
+import lk_tab (ctx_of, edge_at, edge_count, edge_rows, edge_sym, is_extra_copy, memb_class,
                memb_count, memb_func, node_sym, NONE, set_edge_at, set_wk, SYM_BITS, waiting, wk,
                WORK_SIZE)
 import sys (write)
@@ -68,12 +68,24 @@ pub const MAX_LOCALS = 1400
 pub const MAX_LOCALS = 4000     ; SYM records in all object files together
 #end
 #end
+#if LKROOMS
+; In the image for every machine with sideways RAM (linker-bbc.env with ADAPT 1) `local` is
+; planes that the placer sizes as the tool starts (`region LKLOCAL WIN 20 dynamic
+; lk_name.local_rows rows 768 want 4096 to 4096`: lathe/docs/bbc.md, "The linker's tables on two
+; banks"): linked with LINKED_LOCALS rows and given local_rows, which the placer writes and the
+; test of its capacity reads. In every other build it has MAX_LOCALS rows.
+const LINKED_LOCALS = 768
+pub var local_rows: word
+#else
+const LINKED_LOCALS = MAX_LOCALS
+pub const local_rows = MAX_LOCALS
+#end
 
 pub var object_count: byte = 0
 pub var obj_first: [MAX_OBJECTS + 1]word        ; row in `local` of each object's symbol 0
 pub var obj_fn: [MAX_OBJECTS + 1]word           ; row in lk_tab.fn_ of each object's first function
 pub var obj_def: [MAX_OBJECTS + 1]word          ; row in lk_tab.def_ of each object's first definition
-pub var local: [MAX_LOCALS]word rows nozp in LKLOCAL
+pub var local: [LINKED_LOCALS]word rows nozp in LKLOCAL
 pub var local_count: word = 0
 
 ; While the files are read for the tables: lk_tab.work, in words, from MARKS up (lk_scan's waiting
@@ -258,7 +270,7 @@ func mark_object(obj: byte)
       if alias then
         h = other
       end
-      if count < MAX_LOCALS then
+      if count < local_rows then
         set_local(count, h & L_HASH)
         ; A pointer class is described by every file that uses it, defined by none.
         if sym_kind == lk_sym.CLASS then
@@ -668,7 +680,7 @@ pub func resolve()
     retarget(e)
   end
   for i = 0 until lk_tab.waiting do
-    e = lk_tab.MAX_EDGES - 1 - 2 * i
+    e = lk_tab.edge_rows - 1 - 2 * i
     lk_tab.set_edge_at(e, now(lk_tab.edge_at(e)))
     retarget(e - 1)
   end

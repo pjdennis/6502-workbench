@@ -107,6 +107,24 @@ pub const MAX_CLASSES = 32
 pub const MAX_CPARAMS = 128
 const MAX_MEMBERS = 128
 #end
+#if LKROOMS
+; In the image for every machine with sideways RAM (linker-bbc.env with ADAPT 1) the calls' and
+; the slots' tables are planes that the placer sizes as the tool starts (`region LKCALLS WIN 21
+; dynamic lk_tab.edge_rows rows 768 planes 2 want 3584 to 3584`: lathe/docs/bbc.md, "The linker's
+; tables on two banks"): linked at their least, LINKED_EDGES and LINKED_SLOTS rows, a whole number
+; of pages each, and given edge_rows and slot_rows rows, which the placer writes and the tests of
+; their capacity read. The work area's columns of calls and functions keep MAX_EDGES and MAX_FUNCS
+; rows, the most edge_rows can be. In every other build the tables have MAX_EDGES and MAX_SLOTS rows.
+const LINKED_EDGES = 768
+const LINKED_SLOTS = 1024
+pub var edge_rows: word
+pub var slot_rows: word
+#else
+const LINKED_EDGES = MAX_EDGES
+const LINKED_SLOTS = MAX_SLOTS
+pub const edge_rows = MAX_EDGES
+pub const slot_rows = MAX_SLOTS
+#end
 pub const MAX_CONTEXTS = 8      ; a context is a bit in a byte
 pub const NONE = $FFFF
 
@@ -149,11 +167,11 @@ pub var fn_class: [MAX_FUNCS]byte       ; a class the function is a member of + 
 pub var fn_edge: [MAX_FUNCS]word rows nozp in LKCALLS  ; where its calls start
 
 pub var slot_count: word = 0
-pub var slot_sz: [MAX_SLOTS]byte nozp in LKSLOTS    ; SL_ bits: size, class, parameter, in zero page
+pub var slot_sz: [LINKED_SLOTS]byte nozp in LKSLOTS ; SL_ bits: size, class, parameter, in zero page
 pub var big_count: byte = 0
 pub var big_slot: [MAX_BIG_SLOTS]word nozp in LKSLOTS  ; slots of 15 bytes or more, in slot order
 pub var big_size: [MAX_BIG_SLOTS]word nozp in LKSLOTS
-pub var slot_weight: [MAX_SLOTS]byte nozp in LKSLOTS
+pub var slot_weight: [LINKED_SLOTS]byte nozp in LKSLOTS
 
 pub var cls_count: byte = 0
 pub var cls_rep: [MAX_CLASSES]byte
@@ -176,7 +194,8 @@ pub var memb_class: [MAX_MEMBERS]word   ; references (lk_sym)
 pub var memb_func: [MAX_MEMBERS]word
 
 pub var edge_count: word = 0
-pub var edge_word: [MAX_EDGES]word rows nozp in LKCALLS ; function or class called, and the flags above it
+pub var edge_word: [LINKED_EDGES]word rows nozp in LKCALLS
+                                ; function or class called, and the flags above it
 pub var waiting: word = 0       ; while the files are read: calls at the top, two rows each
                                 ; (the caller, then the call)
 
@@ -294,7 +313,7 @@ end
 ; Add the next slot of function f, the function defined last.
 pub func new_slot(f: word, size: word, zp_class: byte, param: bool, weight: byte)
   var bits: byte
-  if slot_count == MAX_SLOTS then
+  if slot_count == slot_rows then
     lk_err.fail(lk_err.E_SLOTS)
   end
   if size >= SL_BIG then
@@ -456,7 +475,7 @@ func run_end(r: word): word
 end
 
 func room_for(needed: word)
-  if edge_count + 2 * waiting + needed > MAX_EDGES then
+  if edge_count + 2 * waiting + needed > edge_rows then
     lk_err.fail(lk_err.E_CALLS)
   end
 end
@@ -496,15 +515,15 @@ pub func add_waiting(caller: word, target: word, flags: byte)
   var i: word
   with LKCALLS do
     for i = 0 until waiting do
-      if edge_word[MAX_EDGES - 1 - 2 * i] == caller and (edge_word[MAX_EDGES - 2 - 2 * i] & SYM_BITS) == target then
+      if edge_word[edge_rows - 1 - 2 * i] == caller and (edge_word[edge_rows - 2 - 2 * i] & SYM_BITS) == target then
         return
       end
     end
   end
   room_for(2)
   with LKCALLS do
-    edge_word[MAX_EDGES - 1 - 2 * waiting] = caller
-    edge_word[MAX_EDGES - 2 - 2 * waiting] = target | (word(flags) << FLAG_SHIFT)
+    edge_word[edge_rows - 1 - 2 * waiting] = caller
+    edge_word[edge_rows - 2 - 2 * waiting] = target | (word(flags) << FLAG_SHIFT)
   end
   waiting += 1
 end
@@ -555,8 +574,8 @@ pub func build_chains()
   own_end = edge_count
   with LKCALLS do
     for i = 0 until waiting do
-      set_wk(W_WCALLER + i, edge_word[MAX_EDGES - 1 - 2 * i])
-      set_wk(W_WCALL + i, edge_word[MAX_EDGES - 2 - 2 * i])
+      set_wk(W_WCALLER + i, edge_word[edge_rows - 1 - 2 * i])
+      set_wk(W_WCALL + i, edge_word[edge_rows - 2 - 2 * i])
     end
     for f = 0 until fn_count do
       set_wk(W_START + f, fn_edge[f])

@@ -1623,3 +1623,24 @@ the planes); the compiler's banks as judged 13,763, 15,271, 14,007, 12,188, 14,2
 the capacities' tests, and the symbols' columns made at `init()`); the linker's three unchanged
 (16,245, 15,193, 15,884); the compiler's list longer by the planes of `SYMS`' places and the new
 capacities' entries.
+
+## The linker on two banks, measured (2026-11-20)
+
+([`bbc.md`](bbc.md), "The linker's tables on two banks".) Image A, `--bbc-strict` on filled memory,
+every file what the host linker gives at the machine's capacities (`lk_rooms.py`):
+
+| | four banks | three banks | two banks, DFS | two banks, ADFS |
+|---|---|---|---|---|
+| symbols of the object files, slots, calls | 4,096, 4,096, 3,584 | 4,096, 3,840, 3,584 | 1,536, 2,304, 1,280 | the same |
+| `*LLINK`'s start-up | 743,805 (722,309 before) | 791,266 (722,071) | 1,164,924 (refused) | 1,160,371 at `$1F00` |
+| the compiler's link | | 3,025.3 million (3,024.3) | link error 13 at 134.6 million, as the host's | the same |
+| the largest generated program that runs in mode 7 | | | 250 functions, 24,296 bytes; 668.7 million for 13 compiles, the link and the run | 226 functions, 23,392 bytes; 644.6 million |
+
+The start-up costs 21,000 cycles more with four banks (a plane byte after each of the 53 high
+bytes of the three regions, and their capacities written) and three banks one walk more (the
+slots give up their last step). What was weighed: planes per variable (the design handed over,
+an estimated 100 to 150 bytes of the module) against planes beside variables of a fixed size (no
+byte of the module): the only variables of other row counts, `fn_edge` and the large slots, need
+not shrink, since `MAX_FUNCS` sizes 4,480 bytes of main RAM as well and its rows cannot be whole
+pages at 896. The account with `BBCFS 3`: 410 bytes free (636): the linker's resident part 205 more
+(`lk_tab` 125, the list 80), its bank 2 24 more as judged.

@@ -93,6 +93,73 @@ ROOM_LINES = ['bank      WIN 32 $0C', 'region    work WIN 32 dynamic dynreg.room
 STATIC = ['bank      WIN 32 $0C', 'region    work WIN 32']
 
 
+# A region of planes with a variable of fixed size between them (`rows 512 planes 3`): table, a word
+# array of two planes, and tail, a byte array of one, have `rows` rows, which the placer sets; other
+# keeps its eight bytes. The block from its lowest: tail, other, table.
+PLANES_PROGRAM = '''module dynreg
+
+import bbc
+
+var table: [512]word rows in work
+var other: [8]byte in work
+var tail: [512]byte in work
+pub var given: word
+
+func digit(d: byte)
+  if d < 10 then
+    bbc.put_byte('0' + d)
+  else
+    bbc.put_byte('A' + d - 10)
+  end
+end
+
+func hex(w: word)
+  digit(hi(w) >> 4)
+  digit(hi(w) & $0F)
+  digit(lo(w) >> 4)
+  digit(lo(w) & $0F)
+  bbc.put_byte(' ')
+end
+
+pub func main()
+  var i: word
+  var sum: word
+  var at_table: word
+  var at_other: word
+  var at_tail: word
+  with work do
+    for i = 0 until given do
+      table[i] = i * 3
+      tail[i] = lo(i) + 1
+    end
+    other[3] = 7
+  end
+  sum = 0
+  with work do
+    for i = 0 until given do
+      sum += table[i] + tail[i]
+    end
+    sum += other[3]
+    at_table = word(@table)
+    at_other = word(@other)
+    at_tail = word(@tail)
+  end
+  hex(sum)
+  hex(at_tail)
+  hex(at_other)
+  hex(at_table)
+  hex(given)
+  bbc.put_byte(10)
+end
+'''
+PLANES_LINES = ['bank      WIN 32 $0C', 'region    work WIN 32 dynamic dynreg.given rows 512 planes 3 to TO',
+                'placer    rt_place']
+
+
+def planes_sum(rows):
+    return (sum(3 * i + (((i & 0xFF) + 1) & 0xFF) for i in range(rows)) + 7) & 0xFFFF
+
+
 def expected_sum(size):
     return (sum(i & 0xFF for i in range(size)) + 7) & 0xFFFF
 
@@ -236,6 +303,45 @@ class Placed(unittest.TestCase):
                 else:
                     self.assertTrue(0x8000 <= at < 0x8100, hex(at))
                     self.assertEqual(room, 4000 + 256 * 25)
+
+    def test_a_region_of_planes_with_a_variable_of_fixed_size(self):
+        """`rows 512 planes 3 to 1024` and `to 8192`: the placer gives the planes their most where
+        it fits (3,080 bytes, in main RAM), or gives up half the steps until it fits (8,192 rows
+        do not fit a slot; 4,352 do); `other`, between the planes, moves with the plane below it.
+        Filled and summed to the rows it is given, every variable is where the model of the placer
+        puts it, by the planes below it, and none overlaps another."""
+        for to, page, model, slots in (('1024', '1900', (), [0, 1, 12, 13]), ('1024', '1F00', (), [0, 1, 12, 13]),
+                                       ('8192', '1900', (), [0, 1, 12, 13]),
+                                       ('8192', '1F00', ('--bbc-model', 'b', '--bbc-sideways-ram', '9'), [9])):
+            name = 'planes-%s-%s-%d' % (to, page, len(slots))
+            lines = [line.replace('TO', to) for line in PLANES_LINES]
+            image = self.build(name, 0, lines, code_hi=0x2C00, program=PLANES_PROGRAM)
+            work = os.path.join(self.dir, name)
+            p, names = places.of_tool(os.path.join(work, 'DYN'), os.path.join(work, 'dynreg-rom.env'),
+                                      os.path.join(work, 'work', 'dynreg.map'))
+            linked = {}
+            with open(os.path.join(work, 'work', 'dynreg.map')) as f:
+                for line in f:
+                    w = line.split()
+                    if w[0] == 'V' and w[3] in ('dynreg.table', 'dynreg.other', 'dynreg.tail'):
+                        linked[w[3][7:]] = (int(w[1], 16), int(w[2], 16))
+            with self.subTest(to=to, page=page, slots=slots):
+                status, out, err, cycles = self.run_at(image, page, model)
+                self.assertEqual((status, err), (0, b''))
+                total, tail, other, table, rows = (int(x, 16) for x in out.split())
+                region = p.regions[0]
+                placed = places.plan(p, int(page, 16), 0x7C00, slots)[0]
+                self.assertEqual((region.holds, region.unit, region.planed), (512, 768, True))
+                self.assertEqual(rows, placed.room)
+                self.assertEqual(rows, 1024 if to == '1024' else 4352)
+                self.assertEqual(total, planes_sum(rows))
+                first = min(a for a, size in linked.values())
+                for name_, got, below in (('tail', tail, 0), ('other', other, 1), ('table', table, 1)):
+                    self.assertEqual(got, placed.where + linked[name_][0] - first + below * (rows - 512), name_)
+                if to == '1024':
+                    self.assertLess(placed.where, 0x7C00)
+                else:
+                    self.assertTrue(0x8000 <= placed.where < 0x8100, hex(placed.where))
 
 
 if __name__ == '__main__':

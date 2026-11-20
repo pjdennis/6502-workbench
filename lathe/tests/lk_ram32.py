@@ -62,6 +62,7 @@ define    BBCFS 0
 define    TEXTS_IN_MODULE 0
 define    LKSMALL 1
 define    LKDYN 1
+define    LKROOMS 0
 define    ROMFORM 0
 define    ADFS 0
 define    ROM128 0
