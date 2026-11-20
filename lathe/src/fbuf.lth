@@ -145,6 +145,14 @@ const BITS: [8]byte = [$01, $02, $04, $08, $10, $20, $40, $80]
 const UNPLACED = $FFFF
 
 var buffer: [BUFFER_SIZE]byte in FUNCBUF
+#if ROOMS
+; The room for the function's entries: in the image for every machine with sideways RAM, what the placer gives region FUNCBUF
+; as the tool starts (`region FUNCBUF WIN 33 dynamic fbuf.buffer_room from 1024 to 4096`: lathe/docs/bbc.md, "Capacities set at start-up"); in every
+; other build BUFFER_SIZE.
+var buffer_room: word
+#else
+const buffer_room = BUFFER_SIZE
+#end
 pub var used: word = 0
 var stage: [MAX_ENTRY]byte             ; the entry being made, until end_entry() adds it
 var stage_length: byte = 0
@@ -244,7 +252,7 @@ func end_entry()
     if unreached then
       return
     end
-    if used + stage_length > BUFFER_SIZE then
+    if used + stage_length > buffer_room then
       err.fatal(err.E_FUNC_BIG)
     end
     older = newest

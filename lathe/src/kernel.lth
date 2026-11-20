@@ -525,12 +525,17 @@ end
 ; straight to its symbols and the table needs no hash of its own. The chains are short:
 ; one symbol per module that has the name, and the local that hides it.
 
+#if ROOMS
+pub const MAX_SYMS = 256        ; (ROOMS, Image A: as linked, planes of 256 rows; sym_rows below)
+const MAX_MEMBERS = 256         ; (the members' rows are the symbols')
+#else
 #if SMALL
 pub const MAX_SYMS = 264        ; (SMALL: the test programs' small build; above 256, which
 const MAX_MEMBERS = 264         ; a word index needs)
 #else
 pub const MAX_SYMS = 560
 const MAX_MEMBERS = 512         ; gen.lth needs 437 (432 until 2026-11-17, when it needed 427)
+#end
 #end
 pub const MAX_MODULES = 16      ; the module being compiled and those it imports
 
@@ -598,6 +603,16 @@ const SYM_WORD_SIZE = WORD_COLUMNS * MAX_SYMS
 
 var sym_bytes: [SYM_BYTE_SIZE]byte nozp in SYMS
 var sym_words: [SYM_WORD_SIZE]word rows in SYMS
+#if ROOMS
+; The rows of the symbol table and of the members: in the image for every machine with sideways
+; RAM, what the placer gives region SYMS as the tool starts, 256, 512 or 768 (`region SYMS WIN 34
+; dynamic kernel.sym_rows rows 256 to 768`: each of its variables is planes of 256 rows as
+; linked, each column a plane, and the placer moves each plane by its own pages; lathe/docs/
+; bbc.md, "One bank"); in every other build MAX_SYMS.
+pub var sym_rows: word
+#else
+pub const sym_rows = MAX_SYMS
+#end
 var byte_base: [BYTE_COLUMNS]word   ; where each byte column starts in sym_bytes (init())
 var word_base: [WORD_COLUMNS]word
 pub var sym_count: word
@@ -605,8 +620,15 @@ pub var thaw_top: word = MAX_SYMS   ; the lowest thawed symbol: they lie from he
 pub var local_base: word        ; the first symbol of the function being compiled
 pub var local_names: word       ; name_top when that function began
 
+#if ROOMS
+; In Image A a member's type and register are two planes of one array: an array of 256 takes a
+; byte index, and the members' rows are sym_rows, up to 768.
+const MEMBER_VALUE_AT = MAX_MEMBERS
+var member_columns: [2 * MAX_MEMBERS]byte nozp in SYMS
+#else
 var member_type: [MAX_MEMBERS]byte nozp in SYMS
 var member_value: [MAX_MEMBERS]byte nozp in SYMS    ; a parameter's or result's register
+#end
 pub var member_count: word
 
 pub var module_name: [MAX_MODULES]word
@@ -689,14 +711,22 @@ end
 ; Member `m`'s type.
 pub func member_type_of(m: word): byte
   with SYMS do
+#if ROOMS
+    return member_columns[m]
+#else
     return member_type[m]
+#end
   end
 end
 
 ; Member `m`'s register.
 pub func member_value_of(m: word): byte
   with SYMS do
+#if ROOMS
+    return member_columns[MEMBER_VALUE_AT + m]
+#else
     return member_value[m]
+#end
   end
 end
 
@@ -899,12 +929,21 @@ end
 
 ; Add a member to the newest symbol. Returns the member's number.
 pub func member_add(t: byte, value: byte): word
+#if ROOMS
+  if member_count == sym_rows then      ; the members have the symbols' rows in Image A
+#else
   if member_count == MAX_MEMBERS then
+#end
     err.fatal(err.E_MEMBERS_FULL)
   end
   with SYMS do
+#if ROOMS
+    member_columns[member_count] = t
+    member_columns[MEMBER_VALUE_AT + member_count] = value
+#else
     member_type[member_count] = t
     member_value[member_count] = value
+#end
   end
   member_count += 1
   return member_count - 1
@@ -1119,6 +1158,9 @@ end
 
 pub func init()
   var s: byte
+#if ROOMS
+  var column: word
+#end
   var bucket: byte
   text_top = @text
   path = text_reserve(PATH_SIZE)
@@ -1130,7 +1172,7 @@ pub func init()
   end
   name_top = 1
   sym_count = 0
-  thaw_top = MAX_SYMS
+  thaw_top = sym_rows
   local_base = 0
   local_names = name_top
   for s = 0 until MAX_MODULES do
@@ -1138,6 +1180,18 @@ pub func init()
   end
   member_count = 0
   module_count = 0
+#if ROOMS
+  column = 0                            ; each column sym_rows on from the one before (its
+  for s = 0 until BYTE_COLUMNS do       ; plane, where the placer has put it)
+    byte_base[s] = column
+    column += sym_rows
+  end
+  column = 0
+  for s = 0 until WORD_COLUMNS do
+    word_base[s] = column
+    column += sym_rows
+  end
+#else
   byte_base[C_SCOPE] = SCOPE_AT
   byte_base[C_KIND] = KIND_AT
   byte_base[C_FLAGS] = FLAGS_AT
@@ -1150,4 +1204,5 @@ pub func init()
   word_base[C_OBJ] = OBJ_AT
   word_base[C_MEMBERS] = MEMBERS_AT
   word_base[C_LINK] = LINK_AT
+#end
 end

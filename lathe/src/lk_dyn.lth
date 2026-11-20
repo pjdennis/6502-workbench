@@ -27,9 +27,9 @@ import lk_alloc (data_end, more_end)
 import lk_boot (places_addr)
 import lk_envf (bank_value, code_hi, code_lo, data_hi, data_lo, fail_text, has_more, more_hi,
                 more_lo, region_bank, region_count, region_dynamic, region_room, room_ceiling,
-                room_floor)
+                room_floor, room_rows, room_want)
 import lk_err (begin, E_CODE_FULL, E_DYNAMIC, E_ENV_ENTRY, E_SITES, fail, finish, over)
-import lk_fix (cur_sym, FX_KIND, FX_SYM, held, is_word, K_BANK, K_HIGH, K_REACH_HIGH)
+import lk_fix (cur_sym, FX_ADD, FX_KIND, FX_SYM, held, is_word, K_BANK, K_HIGH, K_REACH_HIGH)
 import lk_name (fail, fail_in, room_def)
 import lk_out (base, put, put_word, seek, written)
 import lk_scan (MAX_REGION_DEFS, rdef_count, rdef_def, rdef_region)
@@ -38,7 +38,7 @@ import lk_tab (D_CONST, def_a, def_b, def_f, def_ref, is_kept_def, is_kept_var, 
                W_SNAME, wk)
 
 const W_SITES = lk_tab.W_SNAME + 128    ; after the slot names (lk_emit, lk_map): free while the
-const MAX_SITES = (lk_tab.W_OWN - W_SITES) / 2  ; image is written, before the map is
+const MAX_SITES = (lk_tab.W_OWN - W_SITES) / 3  ; image is written, before the map is
 
 const T_ADD = 1                 ; a high byte: the pages moved are added to it
 const T_BANK = 2                ; a block's bank
@@ -96,12 +96,13 @@ pub func begin()
   site_count = 0
 end
 
-func add(t: byte, r: byte, addr: word)
+func add(t: byte, r: byte, addr: word, target: word)
   if site_count == MAX_SITES then
     lk_err.fail(lk_err.E_SITES)
   end
-  lk_tab.set_wk(W_SITES + 2 * site_count, addr)
-  lk_tab.set_wk(W_SITES + 2 * site_count + 1, (word(t) << 8) | r)
+  lk_tab.set_wk(W_SITES + 3 * site_count, addr)
+  lk_tab.set_wk(W_SITES + 3 * site_count + 1, (word(t) << 8) | r)
+  lk_tab.set_wk(W_SITES + 3 * site_count + 2, target)
   site_count += 1
 end
 
@@ -113,6 +114,7 @@ pub func site(dest: byte)
   var kind: byte
   var sym: word
   var addr: word
+  var target: word
   var r: byte
   kind = lo(lk_fix.held(lk_fix.FX_KIND))
   sym = lk_fix.held(lk_fix.FX_SYM)
@@ -124,12 +126,13 @@ pub func site(dest: byte)
   if dest != 0 then
     lk_name.fail_in(lk_err.E_DYNAMIC, sym, lk_fix.cur_sym)
   end
+  target = lk_tab.def_a[lk_sym.row_of(sym)] + lk_fix.held(lk_fix.FX_ADD)
   if kind == lk_fix.K_BANK then
-    add(T_BANK, r, addr)
+    add(T_BANK, r, addr, target)
   elif lk_fix.is_word(kind) then
-    add(T_ADD, r, addr + 1)
+    add(T_ADD, r, addr + 1, target)
   elif kind == lk_fix.K_HIGH or kind == lk_fix.K_REACH_HIGH then
-    add(T_ADD, r, addr)
+    add(T_ADD, r, addr, target)
   end
 end
 
@@ -181,25 +184,42 @@ func put_areas()
   end
 end
 
-; The places of type t of region r, their count first.
-func put_sites(t: byte, r: byte)
+; The plane of a region of planes of `plane_rows` bytes that byte `offset` of its block is in (the end
+; of the block is the plane after the last).
+func plane_of(offset: word, plane_rows: word): byte
+  var k: byte
+  k = 0
+  while offset >= plane_rows do
+    offset -= plane_rows
+    k += 1
+  end
+  return k
+end
+
+; The places of type t of region r, their count first; with `plane_rows` (a region of planes of that
+; many bytes, from `first`), each followed by its plane.
+func put_sites(t: byte, r: byte, first: word, plane_rows: word)
   var n: word
   var i: word
   var before: word
   n = 0
   for i = 0 until site_count do
-    if lk_tab.wk(W_SITES + 2 * i + 1) == (word(t) << 8) | r then
+    if lk_tab.wk(W_SITES + 3 * i + 1) == (word(t) << 8) | r then
       n += 1
     end
   end
   lk_out.put_word(n)
   before = 0
   for i = 0 until site_count do
-    if lk_tab.wk(W_SITES + 2 * i + 1) == (word(t) << 8) | r then
-      before = put_place(before, lk_tab.wk(W_SITES + 2 * i))
+    if lk_tab.wk(W_SITES + 3 * i + 1) == (word(t) << 8) | r then
+      before = put_place(before, lk_tab.wk(W_SITES + 3 * i))
+      if plane_rows != 0 then
+        lk_out.put(plane_of(lk_tab.wk(W_SITES + 3 * i + 2) - first, plane_rows))
+      end
     end
   end
 end
+
 
 ; The address of region r's capacity variable, or 0 if it names none. It must be a variable of two
 ; bytes or more, linked, in main memory and in no region.
@@ -220,6 +240,61 @@ func room_of(r: byte): word
   return lk_tab.def_a[d]
 end
 
+; Region r's capacity, its block from `first` to `past`, its last variable at `last`: what the
+; variable holds at the least, the least bytes of the block, what a step adds, the steps to the
+; most and whether it is planes. Returns the rows of a plane, or 0.
+func put_room(r: byte, first: word, past: word, last: word): word
+  var plane_rows: word
+  var floor: word
+  var ceiling: word
+  var want: word
+  var value: word
+  var least: word
+  var unit: word
+  var steps: word
+  plane_rows = lk_envf.room_rows(r)
+  floor = lk_envf.room_floor(r)
+  ceiling = lk_envf.room_ceiling(r)
+  want = lk_envf.room_want(r)
+  if plane_rows != 0 then
+    if past == first or word(plane_of(past - first, plane_rows)) * plane_rows != past - first then
+      lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
+    end
+    value = plane_rows
+    least = past - first
+    unit = word(plane_of(past - first, plane_rows)) << 8
+  else
+    if floor == 0 then
+      floor = past - last
+    end
+    value = floor
+    least = last - first + floor
+    unit = 256
+  end
+  steps = 255
+  if ceiling != 0 then
+    steps = (ceiling - value) >> 8
+    if steps > 254 then
+      lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
+    end
+  end
+  lk_out.put_word(value)
+  lk_out.put_word(least)
+  lk_out.put_word(unit)
+  lk_out.put(lo(steps))
+  if want != 0 then
+    lk_out.put(lo((want - value) >> 8))
+  else
+    lk_out.put(0)
+  end
+  if plane_rows != 0 then
+    lk_out.put(1)
+  else
+    lk_out.put(0)
+  end
+  return plane_rows
+end
+
 ; Region r (its entry in lk_envf): its bank's value, its block, its capacity variable and its
 ; places; constant data in a dynamic region is refused, as it would have to be copied where the
 ; block goes.
@@ -230,6 +305,7 @@ func put_region(r: byte)
   var past: word
   var last: word                ; where its last variable starts
   var room: word
+  var plane_rows: word
   lk_out.put(lk_envf.bank_value[lk_envf.region_bank[r] - 1])
   first = $FFFF
   past = 0
@@ -259,21 +335,12 @@ func put_region(r: byte)
   lk_out.put_word(past - first)
   room = room_of(r)
   lk_out.put_word(room)
+  plane_rows = 0
   if room != 0 then
-    lk_out.put_word(last - first)
-    if lk_envf.room_floor(r) != 0 then
-      lk_out.put_word(last - first + lk_envf.room_floor(r))
-    else
-      lk_out.put_word(past - first)
-    end
-    if lk_envf.room_ceiling(r) != 0 then
-      lk_out.put_word(last - first + lk_envf.room_ceiling(r))
-    else
-      lk_out.put_word(0)
-    end
+    plane_rows = put_room(r, first, past, last)
   end
-  put_sites(T_ADD, r)
-  put_sites(T_BANK, r)
+  put_sites(T_ADD, r, first, plane_rows)
+  put_sites(T_BANK, r, first, 0)
 end
 
 ; After the code in the image: the list ($places).

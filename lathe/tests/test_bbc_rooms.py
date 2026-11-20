@@ -33,6 +33,9 @@ ALL = os.environ.get('LATHE_BBC_ROOMS_ALL') == '1'
 REPORT = os.environ.get('LATHE_BBC_ROOMS_REPORT') == '1'
 SELFHOST = os.environ.get('LATHE_BBC_ROOMS_SELFHOST') == '1'
 HEAP_TOOL = os.path.join(HERE, 'lathec_heap.py')
+ONE_BANK_FUNCTIONS = 20         # functions a module of the generated program test_one_bank compiles
+ONE_BANK_LARGEST = 82           # with LATHE_BBC_ROOMS_SELFHOST=1: the most with which one bank compiles
+                                # them (its members are full at 84: error 72)
 LINKED = 9216                   # kernel.NAME_HEAP_SIZE, the heap as linked
 BIG_NAMES = 330                 # bignames: 12,923 bytes of the heap at most
 
@@ -68,10 +71,11 @@ class Module:
             shutil.copy(li, self.dir)
         self.count = 0
 
-    def compile(self, heap, need=None, tokens=None):
-        """The host compiler with a heap of `heap` bytes and room for `tokens` bytes of saved
-        tokens (else inline.SAVED_SIZE): (status, error output, {file: bytes}); with `need`, the
-        most the heap was asked for, too."""
+    def compile(self, heap, need=None, tokens=None, caps=None):
+        """The host compiler with a heap of `heap` bytes, room for `tokens` bytes of saved tokens
+        (else inline.SAVED_SIZE) and the capacities `caps` ({'syms': rows, 'buffer': ..., 'table':
+        ..., 'string': ...}, lathec_heap.py): (status, error output, {file: bytes}); with `need`,
+        the most the heap was asked for, too."""
         self.count += 1
         d = os.path.join(self.dir, 'at-%d-%d' % (heap, self.count))
         shutil.copytree(self.dir, d, ignore=shutil.ignore_patterns('at-*'))
@@ -81,6 +85,8 @@ class Module:
             environ['LATHE_NAME_HEAP_NEED'] = os.path.join(self.dir, 'need')
         if tokens:
             environ['LATHE_SAVED_TOKENS'] = str(tokens)
+        if caps:
+            environ['LATHE_CAPACITIES'] = ','.join('%s=%d' % kv for kv in sorted(caps.items()))
         done = subprocess.run([sys.executable, HEAP_TOOL] + list(self.options) + [self.name + '.lth', '.'],
                               cwd=d, capture_output=True, env=environ)
         files = {f: read(os.path.join(d, f)) for f in sorted(os.listdir(d)) if f not in before}
@@ -113,13 +119,14 @@ def selfhost_module(work, name):
     return Module(work, name, os.path.join(support.SRC, name + '.lth'), options, lis)
 
 
-def generated_modules(work):
-    """The modules of a generated program (gen_program.py: four modules of 20 functions, and its
-    main), each with the interfaces of the modules before it, made by the host compiler."""
+def generated_modules(work, functions=20):
+    """The modules of a generated program (gen_program.py: four modules of `functions` functions,
+    and its main), each with the interfaces of the modules before it, made by the host
+    compiler."""
     import gen_program
-    out = os.path.join(work, 'generated')
+    out = os.path.join(work, 'generated-%d' % functions)
     os.makedirs(out)
-    gen_program.main([out, '4', '20'])
+    gen_program.main([out, '4', str(functions)])
     sys.path.insert(0, os.path.join(support.LATHE, 'host', 'driver'))
     import build
     modules = []
@@ -151,6 +158,15 @@ class SameObjects(unittest.TestCase):
                 self.assertEqual(sorted(files), sorted(expected))
                 for f in files:
                     self.assertTrue(files[f] == expected[f], f + ' differs')
+        for caps in CAPACITY_SETS:
+            with self.subTest(module=module.name, caps=caps):
+                status, said, files = module.compile(30000, tokens=768, caps=caps)
+                if status == 0:
+                    self.assertEqual(sorted(files), sorted(expected))
+                    for f in files:
+                        self.assertTrue(files[f] == expected[f], f + ' differs')
+                else:
+                    self.assertRegex(said, CAPACITY_ERROR)
         for heap, tokens in ((least, 768), (30000, 1120), (16128, 1312)):
             with self.subTest(module=module.name, heap=heap, tokens=tokens):
                 status, said, files = module.compile(heap, tokens=tokens)
@@ -182,6 +198,15 @@ class SameObjects(unittest.TestCase):
             print('\nthe least name heap of each module: ' + ', '.join('%s %d' % kv for kv in least.items()))
 
 
+# Capacities of the symbols (rows), the function buffer, the constant table and the string that
+# machines get: a module gives the same files with each, or is refused for a capacity (error 7,
+# a string too long, and 70 to 98).
+CAPACITY_SETS = ({'syms': 768, 'buffer': 4096, 'table': 2048, 'string': 2048},
+                 {'syms': 512, 'buffer': 4096, 'table': 2048, 'string': 2048},
+                 {'syms': 256, 'buffer': 1792, 'table': 768, 'string': 768},
+                 {'syms': 256, 'buffer': 1280, 'table': 512, 'string': 512})
+CAPACITY_ERROR = b'error (7|7[0-9]|8[0-9]|9[0-8]): '                 # 7: a string too long
+
 # Machines: (name, PAGE, HIMEM, the free sideways RAM, the emulator's options for it or None).
 MACHINES = (
     ('B+128, DFS', 0x1900, 0x7C00, (0, 1, 12, 13), ('1900', False, ())),
@@ -193,8 +218,8 @@ MACHINES = (
     ('three banks', 0x1900, 0x7C00, (8, 9, 10), ('1900', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10'))),
     ('two banks, DFS', 0x1900, 0x7C00, (8, 9), ('1900', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9'))),
     ('two banks, ADFS', 0x1F00, 0x7C00, (8, 9), ('1F00', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9'))),
-    ('one bank, DFS', 0x1900, 0x7C00, (8,), None),
-    ('one bank, ADFS', 0x1F00, 0x7C00, (8,), None),
+    ('one bank, DFS', 0x1900, 0x7C00, (8,), ('1900', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8'))),
+    ('one bank, ADFS', 0x1F00, 0x7C00, (8,), ('1F00', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8'))),
 )
 
 
@@ -231,53 +256,67 @@ class OnTheBBC(unittest.TestCase):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
     def test_what_the_compiler_gets_on_each_machine(self):
-        """By the model of the placer: with three banks or more the name heap has a slot to itself
-        (16,128 bytes, its block at $80E0); with two, 8,192 bytes, what the other regions leave of
-        the second slot; the saved tokens 1,312 bytes below $1F00 when PAGE is $1900, else the
-        main RAM the link leaves (1,120), at least their floor, 768; with one bank it is refused."""
-        lathe = self.tools[0]
+        """By the model of the placer: with three banks or more every table at its most (the name
+        heap a slot to itself, 16,128 bytes; the symbols 768 rows); with two the name heap 8,704
+        and the symbols 512 rows, the rest at its most but the saved tokens; with one bank the
+        tables between the 32K Model B's and the full ones, more under the DFS than ADFS."""
+        full = {'names': 16128, 'syms': 768, 'funcbuf': 4096, 'outtab': 2048, 'string': 2048, 'tokens': 2048}
+        expected = {3: full, 4: full,
+                    2: dict(full, names=8704, syms=512, tokens=1024),
+                    (1, 0x1900): dict(names=4096, syms=256, funcbuf=1792, outtab=768, string=768, tokens=768),
+                    (1, 0x1F00): dict(names=4096, syms=256, funcbuf=1280, outtab=512, string=512, tokens=768)}
         for m in MACHINES:
             with self.subTest(machine=m[0]):
-                got = capacities(lathe, m)
-                if len(m[3]) >= 3:
-                    self.assertEqual(got['names'][2], 0xBFE0 - 0x80E0)
-                elif len(m[3]) == 2:
-                    self.assertEqual(got['names'][2], 8192)
-                else:
-                    self.assertIsNone(got)
-                    continue
-                self.assertGreaterEqual(got['tokens'][2], 768)
-                if m[1] == 0x1900:
-                    self.assertEqual(got['tokens'][:3], (0x19E0, None, 0x1F00 - 0x19E0))
+                got = capacities(self.tools[0], m)
+                want = expected[len(m[3]) if len(m[3]) > 1 else (1, m[1])]
+                self.assertEqual({k: v[2] for k, v in got.items() if v[2] is not None}, want)
+
+    def host_compile(self, module, m):
+        """The host compiler on Module `module` with machine m's capacities."""
+        caps = capacities(self.tools[0], m)
+        return module.compile(caps['names'][2], tokens=caps['tokens'][2],
+                              caps={'syms': caps['syms'][2], 'buffer': caps['funcbuf'][2],
+                                    'table': caps['outtab'][2], 'string': caps['string'][2]})
+
+    def bbc_compile(self, module, m):
+        """Image A's compiler on Module `module` on machine m, as the emulator has it:
+        (status, output, what the MOS said, {file: bytes}, cycles)."""
+        import test_bbc_adapt
+        import test_bbc_selfhost as bbc_selfhost
+        at, shadow, model = m[4]
+        with test_bbc_adapt.machine(at, shadow, model):
+            disk = tempfile.mkdtemp(dir=self.dir, prefix='disk-')
+            os.rmdir(disk)
+            shutil.copytree(module.dir, disk, ignore=shutil.ignore_patterns('at-*', 'need'))
+            got = bbc_selfhost.report_run('rom', self.image, disk, list(module.options) + [module.name + '.lth', '.'])
+        return got[:4] + (got[4],)
+
+    def check_on(self, module, m):
+        """The BBC gives what the host gives with m's capacities; the status, and the cycles."""
+        status, said, expected = self.host_compile(module, m)
+        got = self.bbc_compile(module, m)
+        with self.subTest(machine=m[0], module=module.name):
+            self.assertEqual(got[:3], (status, said, b''))
+            self.assertEqual(sorted(got[3]), sorted(expected))
+            for f in expected:
+                self.assertTrue(got[3][f] == expected[f], f + ' differs')
+        return status, got[4]
 
     def test_a_module_of_more_names_than_the_heap_as_linked(self):
         """The module of long names, refused by the compiler with a fixed heap (error 70): on
         each machine the emulator has, the BBC's compiler gives what the host compiler gives with
-        that machine's capacities (by the model of the placer): its files with a slot for the name
-        heap, error 70 with two banks."""
-        import test_bbc_adapt
-        import test_bbc_selfhost as bbc_selfhost
+        that machine's capacities (by the model of the placer): its files with three banks or
+        more, error 70 with two, error 71 (its 330 symbols) with one."""
         status, said, files = self.big.compile(LINKED)
         self.assertEqual(status, 1)
         self.assertIn(b'error 70: too many names', said)
         for m in MACHINES:
-            name, page, himem, slots, run = m
-            if run is None:
+            if m[4] is None:
                 continue
-            caps = capacities(self.tools[0], m)
-            status, said, expected = self.big.compile(caps['names'][2], tokens=caps['tokens'][2])
-            self.assertEqual(status != 0, len(slots) < 3)
-            at, shadow, model = run
-            with self.subTest(machine=name), test_bbc_adapt.machine(at, shadow, model):
-                disk = os.path.join(self.dir, 'disk-' + name.replace(' ', '-').replace(',', ''))
-                shutil.copytree(self.big.dir, disk, ignore=shutil.ignore_patterns('at-*', 'need'))
-                got = bbc_selfhost.report_run('rom', self.image, disk, ['bignames.lth', '.'])
-                self.assertEqual(got[:3], (status, said, b''))
-                self.assertEqual(sorted(got[3]), sorted(expected))
-                for f in expected:
-                    self.assertTrue(got[3][f] == expected[f], f + ' differs')
-                if REPORT:
-                    print('\nbignames on %s: %d cycles' % (name, got[4]))
+            status, cycles = self.check_on(self.big, m)
+            self.assertEqual(status != 0, len(m[3]) < 3)
+            if REPORT:
+                print('\nbignames on %s: %d cycles' % (m[0], cycles))
 
     def test_the_compiler_compiles_itself_with_two_banks(self):
         """With two banks of sideways RAM, under the DFS and ADFS: the compiler's own modules (all
@@ -285,7 +324,6 @@ class OnTheBBC(unittest.TestCase):
         most of the heap), every file the host compiler's."""
         import test_bbc_adapt
         import test_bbc_rom128 as rom128
-        import test_src_selfhost
         modules = rom128.selfhost_modules() if SELFHOST else ('err', 'sys', 'decl')
         for name, page, himem, slots, run in MACHINES:
             if run is None or len(slots) != 2:
@@ -302,6 +340,28 @@ class OnTheBBC(unittest.TestCase):
             if REPORT or SELFHOST:
                 print('\nImage A on %s: %d compiles, %d cycles' % (name, len(cycles),
                                                                    sum(c['rom'] for c in cycles.values())))
+
+    def test_one_bank(self):
+        """With one bank of sideways RAM, under the DFS and ADFS: the compiler's own modules (all
+        of them with LATHE_BBC_ROOMS_SELFHOST=1; else five) and the modules of a generated
+        program each give what the host compiler gives with the machine's capacities, its files
+        or the same capacity's error; the modules that compile are printed."""
+        import test_src_selfhost
+        names = test_src_selfhost.MODULES if SELFHOST else ('err', 'sys', 'src', 'typetab', 'fold')
+        work = tempfile.mkdtemp(dir=self.dir, prefix='one-')
+        functions = ONE_BANK_LARGEST if SELFHOST else ONE_BANK_FUNCTIONS
+        modules = [selfhost_module(work, n) for n in names] + generated_modules(work, functions)
+        for m in MACHINES:
+            if m[4] is None or len(m[3]) != 1:
+                continue
+            compiled, refused, cycles = [], [], 0
+            for module in modules:
+                status, c = self.check_on(module, m)
+                (refused if status else compiled).append(module.name)
+                cycles += c
+            print('\nImage A on %s: compiles %s; refuses %s; %d cycles' % (m[0], ', '.join(compiled),
+                                                                       ', '.join(refused) or 'none', cycles))
+            self.assertTrue(compiled)
 
 
 if __name__ == '__main__':

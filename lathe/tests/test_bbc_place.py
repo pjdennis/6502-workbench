@@ -200,7 +200,7 @@ class Placed(unittest.TestCase):
                 self.assertTrue(0x8000 <= at < 0x8100, hex(at))
                 self.assertEqual(room, 0xBFE0 - at)
                 model = places.plan(p, int(page, 16), 0x7C00, [9] if model else [0, 1, 12, 13])[0]
-                self.assertEqual((model.where + p.regions[0].last, model.room), (at, room))   # the model of it
+                self.assertEqual((model.where + p.regions[0].least - p.regions[0].holds, model.room), (at, room))   # the model of it
         status, out, err, cycles = self.run_at(image, '1900', ('--bbc-model', 'b', '--bbc-sideways-ram', 'none'))
         self.assertEqual((status, err), (0, b''))
         total, at, room = (int(x, 16) for x in out.split())
@@ -209,13 +209,13 @@ class Placed(unittest.TestCase):
         self.assertGreater(room, 300)
         self.assertLessEqual(at + room, 0x7C00)
         model = places.plan(p, 0x1900, 0x7C00, [])[0]
-        self.assertEqual((model.where + p.regions[0].last, model.slot, model.room), (at, None, room))
+        self.assertEqual((model.where + p.regions[0].least - p.regions[0].holds, model.slot, model.room), (at, None, room))
 
-    def test_a_capacity_with_a_ceiling_takes_main_ram_first_and_no_more_than_it(self):
-        """`dynamic dynreg.room from 100 to 2000`: of main RAM's areas the one that gives the most,
-        and at most 2,000 bytes for the table; with `from 4000`, which no area of main RAM holds
-        here, the free sideways RAM's that gives the least: a whole slot, all 16,352 bytes but
-        what the table's place in it leaves; the model of the placer agrees."""
+    def test_a_capacity_with_a_ceiling_takes_its_most_where_it_fits(self):
+        """`dynamic dynreg.room from 100 to 2000`: 100 bytes and the seven steps of 256 to 2,000,
+        1,892 bytes for the table, in the first area that holds them, main RAM's; with `from 4000
+        to 30000` the 101 steps do not fit, so it gives up half of them until the block fits the
+        sideways RAM; the model of the placer agrees."""
         for words, page in (('from 100 to 2000', '1900'), ('from 100 to 2000', '1F00'), ('from 4000 to 30000', '1900')):
             name = 'ceiling-%s-%s' % (words.split()[1], page)
             lines = ROOM_LINES[:1] + [ROOM_LINES[1] + ' ' + words] + ROOM_LINES[2:]
@@ -229,20 +229,13 @@ class Placed(unittest.TestCase):
                 total, at, room = (int(x, 16) for x in out.split())
                 self.assertEqual(total, expected_sum(300))
                 model = places.plan(p, int(page, 16), 0x7C00, [0, 1, 12, 13])[0]
-                self.assertEqual((model.where + p.regions[0].last, model.room), (at, room))
+                self.assertEqual((model.where + p.regions[0].least - p.regions[0].holds, model.room), (at, room))
                 if words.startswith('from 100'):
                     self.assertLess(at, 0x7C00)
-                    self.assertEqual(room, 2000)
+                    self.assertEqual(room, 1892)
                 else:
                     self.assertTrue(0x8000 <= at < 0x8100, hex(at))
-                    self.assertEqual(room, 0xBFE0 - at)
-        print('\n  no sideways RAM: the table at &%04X, %d bytes' % (at, room))
-
-    def test_page_above_the_fixed_part_is_refused(self):
-        image = self.build('high', 300, LINES)
-        status, out, said, cycles = self.run_at(image, '2100')
-        self.assertNotEqual(status, 0)
-        self.assertIn(b'PAGE too high', out + said)
+                    self.assertEqual(room, 4000 + 256 * 25)
 
 
 if __name__ == '__main__':

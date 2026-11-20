@@ -31,12 +31,25 @@ to the placer module's `place` (the environment's `placer` entry) after FARCALL.
             byte    the bank's value it is linked with
             word    its block's first byte, as linked, and word its size (0: nothing to move)
             word    the address of its capacity variable (the `region` entry's word after
-                    `dynamic`), or 0; if not 0, then three words: where its last variable
-                    starts, from the block's first byte (the placer writes the bytes it gives
-                    the block, less this, there); the least bytes of the block (with the
-                    entry's `from`, or as linked); the most (with its `to`, or 0: no limit)
-            word    N, then N places: a high byte, to which the pages moved are added
+                    `dynamic`), or 0; if not 0, then:
+                    word  what the variable holds with the block at its least
+                    word  the least bytes of the block (with the entry's `from`, or as linked)
+                    word  the bytes the block grows by for each step of 256 (bytes, or rows)
+                    byte  the steps to the most (the entry's `to`), or 255: no most, the block
+                          takes all of the area that gives it the most
+                    byte  the steps to the want (`want`; 0 without one): the steps it gives up
+                          only when no region has more than its own want to give
+                    byte  1 if the region is planes (`rows`), else 0
+            word    N, then N places: a high byte, to which the pages moved are added; in
+                    a region of planes each place is followed by a byte, the plane its address
+                    is in (from 0, the first of the block), which moves by as many pages more
+                    as the steps the block grows by
             word    M, then M places: a block's `LDA #bank` byte, which is the bank's value
+
+A region of planes (`rows N`): each of its variables is planes of N bytes, one a row (a byte
+array of N, `sym_bytes`, seven columns of N, or a word array with `rows`, two planes a column),
+one after another; with R rows each plane is R bytes, so plane k of the block moves by k * (R -
+N) / 256 pages more than the block, and the capacity variable holds R.
 
 A place is a byte d, 1 to 255, for the place d bytes after the one before it in its list (the
 first after address 0), or a byte 0 and the address.
@@ -47,8 +60,8 @@ window as it was; nothing that runs inside a block reads the window. They cost w
 and unmap ("One image for every machine with sideways RAM", "The account").
 
 The places are held while the image is written, in the order they are written, which is the
-order of their addresses, two words each in the work area from W_SITES: an address, and its type
-and region.
+order of their addresses, three words each in the work area from W_SITES: an address, its type
+and region, and the address it names.
 """
 import lk_alloc
 import lk_boot
@@ -62,7 +75,7 @@ import lk_sym
 import lk_tab
 
 W_SITES = lk_tab.W_SNAME + 128      # after the slot names (lk_emit, lk_map): free while the
-MAX_SITES = (lk_tab.W_OWN - W_SITES) // 2   # image is written, before the map is
+MAX_SITES = (lk_tab.W_OWN - W_SITES) // 3   # image is written, before the map is
 
 T_ADD = 1                           # a high byte: the pages moved are added to it
 T_BANK = 2                          # a block's bank
@@ -115,12 +128,13 @@ def begin():
     site_count = 0
 
 
-def add(t, r, addr):
+def add(t, r, addr, target):
     global site_count
     if site_count == MAX_SITES:
         lk_err.fail(lk_err.E_SITES)
-    lk_tab.set_wk(W_SITES + 2 * site_count, addr)
-    lk_tab.set_wk(W_SITES + 2 * site_count + 1, (t << 8) | r)
+    lk_tab.set_wk(W_SITES + 3 * site_count, addr)
+    lk_tab.set_wk(W_SITES + 3 * site_count + 1, (t << 8) | r)
+    lk_tab.set_wk(W_SITES + 3 * site_count + 2, target)
     site_count += 1
 
 
@@ -137,12 +151,13 @@ def site(dest):
         return
     if dest != 0:
         lk_name.fail_in(lk_err.E_DYNAMIC, sym, lk_fix.cur_sym)
+    target = (lk_tab.def_a[lk_sym.row_of(sym)] + lk_fix.held(lk_fix.FX_ADD)) & 0xFFFF
     if kind == lk_fix.K_BANK:
-        add(T_BANK, r, addr)
+        add(T_BANK, r, addr, target)
     elif lk_fix.is_word(kind):
-        add(T_ADD, r, addr + 1)
+        add(T_ADD, r, addr + 1, target)
     elif kind == lk_fix.K_HIGH or kind == lk_fix.K_REACH_HIGH:
-        add(T_ADD, r, addr)
+        add(T_ADD, r, addr, target)
 
 
 def put_place(before, addr):
@@ -181,17 +196,30 @@ def put_areas():
         lk_out.put_word(lk_envf.more_hi)
 
 
-def put_sites(t, r):
-    """The places of type t of region r, their count first."""
+def put_sites(t, r, first, plane_rows):
+    """The places of type t of region r, their count first; with `plane_rows` (a region of planes of
+    that many bytes, from `first`), each followed by its plane."""
     n = 0
     for i in range(0, site_count):
-        if lk_tab.wk(W_SITES + 2 * i + 1) == (t << 8) | r:
+        if lk_tab.wk(W_SITES + 3 * i + 1) == (t << 8) | r:
             n += 1
     lk_out.put_word(n)
     before = 0
     for i in range(0, site_count):
-        if lk_tab.wk(W_SITES + 2 * i + 1) == (t << 8) | r:
-            before = put_place(before, lk_tab.wk(W_SITES + 2 * i))
+        if lk_tab.wk(W_SITES + 3 * i + 1) == (t << 8) | r:
+            before = put_place(before, lk_tab.wk(W_SITES + 3 * i))
+            if plane_rows != 0:
+                lk_out.put(plane_of(lk_tab.wk(W_SITES + 3 * i + 2) - first, plane_rows))
+
+
+def plane_of(offset, plane_rows):
+    """The plane of a region of planes of `plane_rows` bytes that byte `offset` of its block is in (the
+    end of the block is the plane after the last)."""
+    k = 0
+    while offset >= plane_rows:
+        offset -= plane_rows
+        k += 1
+    return k
 
 
 def room_of(r):
@@ -234,18 +262,51 @@ def put_region(r):
     lk_out.put_word(past - first)
     room = room_of(r)
     lk_out.put_word(room)
+    plane_rows = 0
     if room != 0:
-        lk_out.put_word(last - first)
-        if lk_envf.room_floor(r) != 0:
-            lk_out.put_word((last - first + lk_envf.room_floor(r)) & 0xFFFF)
-        else:
-            lk_out.put_word(past - first)
-        if lk_envf.room_ceiling(r) != 0:
-            lk_out.put_word((last - first + lk_envf.room_ceiling(r)) & 0xFFFF)
-        else:
-            lk_out.put_word(0)
-    put_sites(T_ADD, r)
-    put_sites(T_BANK, r)
+        plane_rows = put_room(r, first, past, last)
+    put_sites(T_ADD, r, first, plane_rows)
+    put_sites(T_BANK, r, first, 0)
+
+
+def put_room(r, first, past, last):
+    """Region r's capacity, its block from `first` to `past`, its last variable at `last`: what
+    the variable holds at the least, the least bytes of the block, what a step adds, the steps
+    to the most and whether it is planes. Returns the rows of a plane, or 0."""
+    plane_rows = lk_envf.room_rows(r)
+    floor = lk_envf.room_floor(r)
+    ceiling = lk_envf.room_ceiling(r)
+    want = lk_envf.room_want(r)
+    if plane_rows != 0:
+        if past == first or plane_of(past - first, plane_rows) * plane_rows != past - first:
+            lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
+        value = plane_rows
+        least = past - first
+        unit = plane_of(past - first, plane_rows) * 256
+    else:
+        if floor == 0:
+            floor = past - last
+        value = floor
+        least = last - first + floor
+        unit = 256
+    steps = 255
+    if ceiling != 0:
+        steps = (ceiling - value) >> 8
+        if steps > 254:
+            lk_envf.fail_text(lk_err.E_ENV_ENTRY, lk_envf.region_room[r])
+    lk_out.put_word(value)
+    lk_out.put_word(least & 0xFFFF)
+    lk_out.put_word(unit & 0xFFFF)
+    lk_out.put(steps)
+    if want != 0:
+        lk_out.put((want - value) >> 8)
+    else:
+        lk_out.put(0)
+    if plane_rows != 0:
+        lk_out.put(1)
+    else:
+        lk_out.put(0)
+    return plane_rows
 
 
 def write_list():

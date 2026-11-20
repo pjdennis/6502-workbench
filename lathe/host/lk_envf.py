@@ -25,6 +25,9 @@
     region    TOKENS WIN 4 dynamic kernel.token_room from 768 to 2048
                                     ; that room at least 768 bytes (else as linked) and at most
                                     ; 2048 (else as much as the placer finds)
+    region    SYMS WIN 4 dynamic kernel.sym_rows rows 256 to 768
+                                    ; every variable of the region is planes of 256 bytes, one a
+                                    ; row, and the capacity is rows: 256 as linked, to 768
     placer    rt_place              ; the module whose `place` the start-up calls for those
     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
@@ -121,7 +124,8 @@ more_hi = 0
 
 # Version 2. Names are held in `text`, each as its length and its characters; an entry names
 # one by where it is held, + 1 (0: none).
-TEXT_SIZE = 384
+TEXT_SIZE = 512                     # with dynamic regions the names of their capacity variables too
+                                    # (384 in the twin's builds without them, LKDYN 0)
 text = bytearray(TEXT_SIZE)
 text_top = 0
 farcall = 0                         # the far-call module's name + 1, or 0
@@ -161,7 +165,10 @@ region_name = [0] * MAX_REGIONS
 region_bank = bytearray(MAX_REGIONS)    # the bank + 1, or 0 for fixed memory
 region_dynamic = 0                  # bit i: region i is `dynamic`, placed again at the start (lk_dyn)
 region_room = [0] * MAX_REGIONS     # a dynamic region's capacity variable's name + 1, or 0 (lk_dyn);
-                                    # in the text after the name, two words: room_floor, room_ceiling
+                                    # in the text after the name, four words: room_rows,
+                                    # room_floor, room_want, room_ceiling
+ROWS_WORD = b"rows"
+WANT_WORD = b"want"
 FROM_WORD = b"from"
 TO_WORD = b"to"
 region_used = 0                     # lk_scan: a bank + 1 that a variable or constant is in, or 0
@@ -618,32 +625,55 @@ def held_word(pos):
 
 
 def room_entry(i):
-    """The rest of a dynamic region's entry, its capacity variable just read: `from N` and `to N`,
-    each optional, in that order. They are held after the variable's name."""
+    """The rest of a dynamic region's entry, its capacity variable just read: `rows N`, `from N`,
+    `want N` and `to N`, each optional, in that order. They are held after the variable's
+    name."""
     region_room[i] = hold_token()
+    plane_rows = 0
     floor = 0
+    want = 0
     ceiling = 0
     more = read_token()
+    if more and is_word(ROWS_WORD):
+        plane_rows = number()
+        more = read_token()
     if more and is_word(FROM_WORD):
         floor = number()
+        more = read_token()
+    if more and is_word(WANT_WORD):
+        want = number()
         more = read_token()
     if more and is_word(TO_WORD):
         ceiling = number()
         more = read_token()
-    if more or (ceiling != 0 and ceiling < floor):
+    if more or (ceiling != 0 and ceiling < floor) or (plane_rows & 0xFF) != 0 or (plane_rows != 0 and floor != 0) \
+            or (want != 0 and (ceiling == 0 or want > ceiling or want < floor)):
         bad()
+    hold_word(plane_rows)
     hold_word(floor)
+    hold_word(want)
     hold_word(ceiling)
+
+
+def room_rows(r):
+    """Region r's `rows`, the rows of each of its planes as linked, or 0 (it has no planes)."""
+    return held_word(region_room[r] + text[region_room[r] - 1])
 
 
 def room_floor(r):
     """Region r's `from`, the least room of its capacity variable, or 0 (as linked)."""
-    return held_word(region_room[r] + text[region_room[r] - 1])
+    return held_word(region_room[r] + text[region_room[r] - 1] + 2)
+
+
+def room_want(r):
+    """Region r's `want`, the room its capacity variable gives up last (other regions giving up
+    theirs first), or 0 (none)."""
+    return held_word(region_room[r] + text[region_room[r] - 1] + 4)
 
 
 def room_ceiling(r):
     """Region r's `to`, the most room of its capacity variable, or 0 (no limit)."""
-    return held_word(region_room[r] + text[region_room[r] - 1] + 2)
+    return held_word(region_room[r] + text[region_room[r] - 1] + 6)
 
 
 def more_entry():

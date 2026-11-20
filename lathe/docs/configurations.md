@@ -925,8 +925,23 @@ fixed size in the first area that holds it, main RAM's first; one with a capacit
 in the area that gives the most, all of it; one with a ceiling in main RAM's area that gives the
 most, else in the free sideways RAM's that gives the least, and no more than its ceiling; each
 at least its floor, or refused ([`bbc.md`](bbc.md), "Two banks: floors, ceilings and packing").
-Built for the compiler's name heap and INLINE's saved tokens; the other tables are linked and
-used at their full size.
+Built for the compiler's name heap and INLINE's saved tokens.
+
+Since (2026-11-20, later, [`bbc.md`](bbc.md), "One bank"): the entry is `dynamic VARIABLE [rows
+N] [from N] [want N] [to N]`. `rows N` (a whole number of pages, without `from`) makes the region
+**planes**: every variable of it is planes of N bytes, one a row, one after another, and the
+capacity variable holds rows; each high byte of the list is followed by the plane its address is
+in, and with R rows plane k moves k * (R - N) / 256 pages more than the block. `want N` is the
+room the region gives up last: no region gives up steps below its want while another has steps
+over its own. The list's entry for a region with a capacity is: what the variable holds at the
+least, the least bytes of the block, the bytes a step of 256 adds, the steps to the most (255 for
+none), the steps to the want, and 1 if it is planes. The placer starts every region at its most,
+places them in order, each in the first area that holds it (main RAM's first; one with no most
+in the area that gives the most, all of it), and when one does not fit has the last region with
+steps over its want give up half of them, then the one before, round and round, then below the
+wants the same way; then it writes. The linker's environment text is 512 bytes with `LKDYN 1`
+(384 without) for the capacity variables' names. Built for the compiler's name heap, symbol
+table (planes), function buffer, constant table, string and saved tokens.
 
 ## Decisions for the owner
 

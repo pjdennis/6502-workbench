@@ -213,6 +213,14 @@ pub var value: word
 pub var line: word              ; where the token's first character is
 pub var col: word
 var string: [MAX_STRING]byte in STRING
+#if ROOMS
+; The room for a string constant: in the image for every machine with sideways RAM, what the placer gives region STRING
+; as the tool starts (`region STRING WIN 33 dynamic lex.string_room from 512 to 2048`: lathe/docs/bbc.md, "Capacities set at start-up"); in every
+; other build MAX_STRING.
+var string_room: word
+#else
+const string_room = MAX_STRING
+#end
 pub var string_length: word
 pub var open_brackets: byte     ; how many ( and [ are open: no line ends inside them
 var end_line: word              ; where a line end is that the lexer passed over looking for a
@@ -429,7 +437,7 @@ func string_token()
         err.fatal(err.E_OPEN_STRING)
       end
       c = literal_char()
-      if string_length == MAX_STRING then
+      if string_length == string_room then
         err.fatal(err.E_STRING_LONG)
       end
       string[string_length] = c

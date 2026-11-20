@@ -22,6 +22,7 @@ import places  # noqa: E402
 DYNAMIC = (ENV + WINDOW + REGION_BANKS + 'region work WIN 4 dynamic\nregion text WIN 5\nfarcall fc\n'
            'placer p\n')
 STATIC = ENV + WINDOW + REGION_BANKS + 'region work WIN 4\nregion text WIN 5\nfarcall fc\n'
+PLANES = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic t.room rows 256 to 768\n')
 ROOM = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic t.room\n')
 CODE_LO = 0x0200
 
@@ -107,6 +108,33 @@ def one_byte_room():
     c.byte(0xA9, 6, t.v('v'))
     c.abs(0x20, t.f('rt_with.map'))
     c.abs(0x8D, t.v('v'))
+    c.abs(0x20, t.f('rt_with.unmap'))
+    c.raw(0x60)
+    t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)])
+    return t
+
+
+def planes_user():
+    """Module t: p (512 bytes, two planes of 256) and q (256, one) in region work, and a word room;
+    main names p, p's second plane, q, q + 5 and the end of q."""
+    t = Obj('t')
+    t.v('p')
+    t.v('q')
+    t.v('room')
+    t.var('room', 2, NEVER)
+    t.raw(16, string('work'))
+    t.var('q', 256, NEVER)
+    t.raw(16, string('work'))
+    t.var('p', 512, NEVER)
+    c = t.code()
+    c.abs(0xAD, t.v('room'))
+    c.byte(0xA9, 6, t.v('p'))
+    c.abs(0x20, t.f('rt_with.map'))
+    c.abs(0x8D, t.v('p'))
+    c.abs(0x8D, t.v('p'), add=0x107)
+    c.abs(0x8D, t.v('q'))
+    c.abs(0x8D, t.v('q'), add=5)
+    c.byte(0xA9, 3, t.v('q'), add=0x100)    # LDA #>(q+256), the end of the block
     c.abs(0x20, t.f('rt_with.unmap'))
     c.raw(0x60)
     t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)])
@@ -226,25 +254,26 @@ class Dynamic(unittest.TestCase):
         self.assertEqual((r.status, r.errors), (0, ''))
 
     def test_a_region_names_its_capacity_variable(self):
-        """`region work WIN 4 dynamic t.room`: the list gives room's address and where work's last
-        variable, v, starts in its block, so that the placer can write there the room it gives
-        v; a region that names none has 0."""
+        """`region work WIN 4 dynamic t.room`: the list gives room's address, what it holds at the
+        least (v's 300 bytes as linked), the least bytes of the block (as linked), a step of 256
+        bytes and no most (255); a region that names none has 0."""
         r = self.link([user(room=True), farcall_with(), placer()], ROOM)
         self.assertEqual((r.status, r.errors), (0, ''))
         p, at = places_of(r)
         v, w, room = r.addr('V', 't.v'), r.addr('V', 't.w'), r.addr('V', 't.room')
         self.assertFalse(0x8000 <= room <= 0xBFFF)                     # not in the window
         work = p.regions[0]
-        self.assertEqual((work.first, work.size, work.room, work.last), (w, v + 300 - w, room, v - w))
+        self.assertEqual((work.first, work.size, work.room, work.holds), (w, v + 300 - w, room, 300))
         self.assertEqual((p.regions[1].room, p.regions[1].size), (0, 0))
         plain = self.link([user(room=True), farcall_with(), placer()])
         self.assertEqual(places_of(plain)[0].regions[0].room, 0)
-        self.assertEqual((work.least, work.most), (v + 300 - w, 0))     # as linked, no limit
+        self.assertEqual((work.least, work.unit, work.steps, work.planed), (v + 300 - w, 256, 255, False))
 
     def test_a_capacity_may_have_a_floor_and_a_ceiling(self):
-        """`from N` and `to N`, each optional, in that order: the least and most bytes of the
-        block are where the last variable starts plus N; a ceiling below the floor, or any other
-        word after them, is a bad entry."""
+        """`from N` and `to N`, each optional, in that order: the variable holds the floor at the
+        least, and the block is then where the last variable starts plus the floor; the steps of
+        256 bytes to the ceiling; a ceiling below the floor, or any other word after them, is a
+        bad entry."""
         cases = (('from 200', 200, None), ('to 1000', None, 1000), ('from 100 to 400', 100, 400))
         for words, floor, ceiling in cases:
             with self.subTest(words=words):
@@ -252,8 +281,9 @@ class Dynamic(unittest.TestCase):
                               ROOM.replace('t.room\n', 't.room ' + words + '\n'))
                 self.assertEqual((r.status, r.errors), (0, ''))
                 work = places_of(r)[0].regions[0]
-                self.assertEqual(work.least, work.last + floor if floor else work.size)
-                self.assertEqual(work.most, work.last + ceiling if ceiling else 0)
+                self.assertEqual(work.holds, floor or 300)
+                self.assertEqual(work.least, work.size - 300 + (floor or 300))
+                self.assertEqual(work.steps, (ceiling - (floor or 300)) >> 8 if ceiling else 255)
         for words in ('to 100 from 50', 'from 400 to 100', 'from 100 more', 'from'):
             with self.subTest(words=words):
                 r = self.link([user(room=True), farcall_with(), placer()],
@@ -273,6 +303,42 @@ class Dynamic(unittest.TestCase):
                 self.assertIn('link error 3: environment file: bad entry: t.', r.errors)
         r = self.link([one_byte_room(), farcall_with(), placer()], ROOM)
         self.assertIn('link error 3: environment file: bad entry: t.room', r.errors)
+
+    def test_a_region_of_planes(self):
+        """`rows 256 to 768`: every variable of the region is planes of 256 bytes (p two, q one),
+        the variable holds rows (256 at the least), the block grows by its three planes' 768
+        bytes a step, two steps to 768 rows; each high byte has its address's plane, so that
+        with R rows a plane k moves k * (R - 256) / 256 pages more than the block, and every
+        address of p and q in main's code is then where the planes are (places.apply)."""
+        r = self.link([planes_user(), farcall_with(), placer()], PLANES)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        p, at = places_of(r)
+        work = p.regions[0]
+        pa, qa, main = r.addr('V', 't.p'), r.addr('V', 't.q'), r.addr('F', 't.main')
+        first = min(pa, qa)
+        self.assertEqual((work.holds, work.least, work.unit, work.steps, work.planed),
+                         (256, 768, 768, 2, True))
+        targets = [pa, pa + 0x100 + 7, qa, qa + 5, qa + 0x100]          # as main names them
+        self.assertEqual(work.planes, [(t - first) // 256 for t in targets])
+        to = 0xC000 | (first & 0xFF)
+        for steps in (0, 1, 2):
+            with self.subTest(steps=steps):
+                rows = 256 * (1 + steps)
+                moved = places.apply(r.image, CODE_LO, p, {0: to}, {}, steps={0: steps})
+                for k, t in enumerate(targets):
+                    plane, offset = divmod(t - first, 256)
+                    expect = to + plane * rows + offset
+                    at_ = work.highs[k]
+                    self.assertEqual(moved[at_ - CODE_LO], expect >> 8, hex(t))
+
+    def test_a_region_of_planes_must_be_whole_planes(self):
+        """`rows` a whole number of pages, the block whole planes of it, no `from` with it."""
+        for env in (PLANES.replace('rows 256', 'rows 200'), PLANES.replace('rows 256', 'rows 512'),
+                    PLANES.replace('rows 256', 'rows 256 from 256')):
+            with self.subTest(env=env.splitlines()[-4]):
+                r = self.link([planes_user(), farcall_with(), placer()], env)
+                self.assertEqual(r.status, 1)
+                self.assertIn('link error 3: environment file: bad entry', r.errors)
 
     def test_nothing_changes_without_a_dynamic_region(self):
         a = link([user(), farcall_with(), placer()], STATIC + 'placer p\n')
@@ -308,7 +374,10 @@ def cases():
              ROOM.replace('t.room\n', 't.room from 100 to 400\n')),
             ('a ceiling', [user(room=True), farcall_with(), placer()], ROOM.replace('t.room\n', 't.room to 1000\n')),
             ('a ceiling below the floor', [user(room=True), farcall_with(), placer()],
-             ROOM.replace('t.room\n', 't.room from 400 to 100\n'))]
+             ROOM.replace('t.room\n', 't.room from 400 to 100\n')),
+            ('planes', [planes_user(), farcall_with(), placer()], PLANES),
+            ('planes of a size the block is not', [planes_user(), farcall_with(), placer()],
+             PLANES.replace('rows 256', 'rows 512'))]
 
 
 class Twin(unittest.TestCase):

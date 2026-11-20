@@ -1853,41 +1853,81 @@ name heap's. A shadow mode's 1,024 bytes (`$7C00-$7FFF`) are an area the placer 
 region with a floor of 1,024 or less fits a gap that the others do not fill first; they are
 unused.
 
-### One bank: what it needs (for the owner)
+### One bank: planes, wants, and the tables set at start-up (2026-11-20, later)
 
-With one bank the compiler's regions must share 16,352 bytes and main RAM's free areas (the DFS's
-1,312, about 1,100 of the code range after the list, a shadow screen's 1,024). At full size the
-regions of fixed size alone are 23,152 bytes (`SYMS` 10,544 of them), so every table must shrink
-and most of them are columns: the symbols (seven byte columns in one array, five word columns
-in another, `rows`, each `MAX_SYMS` long, and the members' two), `WANTS` (six), `OUTTAB`'s fix-ups
-(five), `FUNCBUF`'s labels (two). The design evaluated, the coordinator's: the placer already
-moves every high byte that names a region; if the linker listed a region's places by **plane**
-(each `MAX_ROWS` bytes of a variable that is planes of one byte a row: `sym_bytes` is 7, a word
-array with `rows` 2 for each column), each plane could move by its own whole pages, so a column
-table shrinks or grows in steps of 256 rows with no change to its accessors; the compiler's
-tests of the tables' ends read a capacity variable, and the few places that use `MAX_SYMS` as a
-value (`thaw_top`, which counts down from it, and the offsets of the columns in `byte_base` and
-`word_base`, made at `$init`) read it too. What it needs, estimated (not built):
+(The evaluation that came before this, "what one bank needs", was decided by the coordinator:
+steps of 256 rows, and the symbol table's rows set by the machine, 768 where they fit, 512 where
+768 does not, 256 with one bank.) Built (host and twin byte for byte for the linker;
+`test_lk_dynamic.py`, `test_bbc_place.py`, `test_bbc_rooms.py`):
 
-- The environment: the plane size of each variable of such a region (`rows 512` after the
-  capacity variable, say), and `MAX_SYMS` a whole number of pages in Image A: 512 (the corpus's
-  peak is 475; 560 in every other build), or 768 at 4,352 bytes more.
-- The list: a header for each variable (its first plane and its plane count), the places grouped
-  by plane: about 150 bytes in the compiler's list; the placer laying out the variables of the
-  block at the rows given and adding each plane's pages: about 300 bytes; the compiler's code:
-  about 150 bytes. About 600 of the image's 1,005 free bytes.
-- What one bank would give, by estimate: under the DFS 256 symbols and members (4,864 bytes),
-  `WANTS`, the fix-ups and the labels at 128 rows (2,816), and about 11 KB for the name heap
-  (about 5,500), the function buffer (2,048), the constant table, the string and the saved
-  tokens: each about 1.5 to 2 times the 32K Model B's (names 3,072, symbols 264, buffer 1,536);
-  under ADFS about 1,300 bytes less.
-- The decision: `MAX_SYMS` 512 in Image A (the self-compile needs 475) or 768 (4,352 bytes more
-  of every machine's sideways RAM), and whether the coarse steps (256 symbols) are acceptable.
+- **Regions of planes.** `region SYMS WIN 34 dynamic kernel.sym_rows rows 256 want 512 to 768`:
+  every variable of the region is planes of 256 bytes, one a row, one after another (a byte
+  array of 256, `sym_bytes`'s seven columns, `sym_words`' ten planes with `rows`); with R rows
+  each plane is R bytes. The linker holds each place's target and lists after each high byte its
+  plane, (target - first) / 256; the placer adds to the high byte, besides the pages the block
+  moved, the block's steps for each plane before the byte's own. No accessor changes: the
+  columns' constant offsets (`KIND_AT` and the rest) are the planes the places name, and
+  `byte_base` and `word_base`, the offsets of `byte_of()` and its kin, are made at `init()` from
+  `sym_rows` under `#if ROOMS`; `thaw_top` starts at `sym_rows` and OUT walks to it. The members'
+  type and register are two planes of one array in Image A (`member_columns`: an array of 256
+  takes a byte index), so the members have the symbols' rows. Nothing of it is the compiler's in
+  the module: any region whose variables are planes can use it, the linker's in group 3 too.
+- **Capacities as steps above a least.** The list's entry for a region with a capacity is now
+  what the variable holds at the least, the least bytes of the block, what a step adds (256, or
+  the block's planes times 256), the steps to the most (255: no most), the steps to the want and
+  whether it is planes ([`configurations.md`](configurations.md), "Regions placed at run time").
+- **The placer tries and gives up steps.** Every region with a most starts at it, and all are
+  placed in the list's order, each in the first area that holds it, main RAM's first (one with
+  no most in the area that gives the most, all of it). If one does not fit, the last region with
+  steps over its `want` gives up half of them, then the one before it, round and round, and the
+  walk is tried again; when no region has steps over its want, they give up half of what they
+  have, the same way, to their least. When a walk fits, it is made once more, writing. Nothing
+  is written until then, so a walk can be tried again at no cost but time; the free areas and
+  the probe of the slots are made afresh for each walk.
+- **The compiler's tables** in Image A, under `#if ROOMS` (each a constant of the same value in
+  every other build, so that they compile to the same bytes): `kernel.name_room` from 3,072
+  want 7,680 to 16,128; `kernel.sym_rows` 256 to 768 want 512; `fbuf.buffer_room` from 1,024 to
+  4,096 (want 4,096); `out.table_room` and `lex.string_room` from 512 to 2,048 (want 2,048);
+  `kernel.token_room` from 768 want 1,024 to 2,048; in that order, the order of how much a table
+  matters when memory is short (the name heap first) and about that of their sizes. `WANTS`
+  stays at its size. The wants are what the machine with two banks had (the compiler's own
+  modules need the name heap 7,177, 475 symbols, a function buffer of 3,402 and a constant table
+  of 2,038).
+- **The linker's environment text** is 512 bytes with `LKDYN 1` (384 without): the six capacity
+  variables' names and words did not fit. So Wendy 2's banked linker has its code from `$5940`
+  (`$58C0`), and `test_lk_memory`'s ceiling is 128 bytes higher.
+
+**What each machine gets** (the model of the placer over Image A's list; the emulator ran every
+machine but the Master; `test_bbc_rooms.OnTheBBC.test_what_the_compiler_gets_on_each_machine`):
+
+| Machine | Name heap | Symbols and members | Function buffer | Constant table | String | Saved tokens |
+|---|---|---|---|---|---|---|
+| B+128, DFS, ADFS, shadow mode; Model B with 4 or 3 banks; Master (model) | 16,128 | **768** | 4,096 | 2,048 | 2,048 | 2,048 |
+| two banks, DFS or ADFS | **8,704** | 512 | 4,096 | 2,048 | 2,048 | 1,024 |
+| **one bank, DFS** | **4,096** | **256** | **1,792** | **768** | **768** | 768 |
+| **one bank, ADFS** | **4,096** | **256** | **1,280** | **512** | **512** | 768 |
+| the 32K Model B's build, for comparison | 3,072 | 264 | 1,536 | 264 | 264 | 384 |
+
+The labels (192), the fix-ups of a constant table (256) and the rows of what an import wants
+(160) are at their full sizes everywhere. A B+128 gains 768 symbols (560 before) and the saved
+tokens' 2,048 (1,312 since group 2), at no cost to the name heap's slot: the symbols take the
+fourth slot, idle before. A shadow mode's 1,024 bytes are an area the placer has, but no
+region fits it before the others do, so they are not used; nor can the name heap use main RAM
+as well as a slot (a region is one block): both are noted, not built.
+
+**What one bank compiles**: twelve of the compiler's eighteen modules under the DFS (`kernel`,
+`src`, `lex`, `typetab`, `fold`, `fbuf`, `out`, `cond`, `asmblock`, `parts`, `lathec`, `sys`),
+eleven under ADFS (not `kernel`); `err` is refused (its message table is a string of 2,038
+bytes: error 7), and `reg`, `gen`, `inlines`, `expr` and `decl` for their names, symbols or
+functions ([`spikes.md`](spikes.md), "One bank, measured"). Of a generated program
+(`gen_program.py`), modules of up to 82 functions (about 1,050 lines each), under
+both filing systems; at 84 the members are full (error 72). The 32K Model B's build compiles
+modules of about 30 functions.
 
 ### What is not done
 
-- Image A with one bank (above), the Master, and the linker's tables set at start-up (with fewer
-  than four banks `*LLINK` is refused): stage 2's next parts.
+- The linker's tables set at start-up (with fewer than four banks `*LLINK` is refused), the
+  Master, and the rest of the probing policy: stage 2's next parts.
 - Image B, the bare 32K Model B: stage 3.
 - The module's own check: it copies the resident part to `$1F00` before the tool's `PAGE too high`;
   with PAGE above `$1F00` that copy writes below PAGE. The module should refuse PAGE above a

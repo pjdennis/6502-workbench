@@ -17,10 +17,13 @@ class Region:
     first: int = 0                                  # its block as linked
     size: int = 0
     room: int = 0                                   # its capacity variable's address, or 0
-    last: int = 0                                   # with one: where its last variable starts,
-                                                    # from the block's first byte
-    least: int = 0                                  # and the least and most bytes of the block
-    most: int = 0                                   # (0: no limit)
+    holds: int = 0                                  # with one: what it holds at the least,
+    least: int = 0                                  # the least bytes of the block,
+    unit: int = 0                                   # what each step of 256 adds to the block,
+    steps: int = 0                                  # the steps to the most (255: no most)
+    want: int = 0                                   # the steps to the want
+    planed: bool = False                            # and whether the region is planes
+    planes: list = field(default_factory=list)      # then the plane of each high byte's address
     highs: list = field(default_factory=list)       # the places of high bytes
     banks: list = field(default_factory=list)       # the places of blocks' banks
 
@@ -47,13 +50,15 @@ def decode(image, code_lo, at):
         lo = byte()
         return lo | (byte() << 8)
 
-    def places():
+    def places(planes=None):
         before = 0
         out = []
         for _ in range(word()):
             d = byte()
             before = word() if d == 0 else before + d
             out.append(before)
+            if planes is not None:
+                planes.append(byte())
         return out
 
     p.code_lo, p.top = word(), word()
@@ -62,22 +67,25 @@ def decode(image, code_lo, at):
         r = Region(byte(), word(), word())
         r.room = word()
         if r.room:
-            r.last, r.least, r.most = word(), word(), word()
-        r.highs = places()
+            r.holds, r.least, r.unit = word(), word(), word()
+            r.steps, r.want, r.planed = byte(), byte(), byte() == 1
+        r.highs = places(r.planes if r.planed else None)
         r.banks = places()
         p.regions.append(r)
     p.size = pos - (at - code_lo)
     return p
 
 
-def apply(image, code_lo, places, where, slots, module_slot=4):
-    """The image as the placer leaves it (above)."""
+def apply(image, code_lo, places, where, slots, module_slot=4, steps=None):
+    """The image as the placer leaves it (above); with `steps`, a region of planes given that many
+    steps above its least moves each plane k by k pages a step more."""
     m = bytearray(image)
     for i, r in enumerate(places.regions):
         moved = (where.get(i, r.first) - r.first) & 0xFFFF
         assert moved & 0xFF == 0, 'a region moves by whole pages'
-        for a in r.highs:
-            m[a - code_lo] = (m[a - code_lo] + (moved >> 8)) & 0xFF
+        for n, a in enumerate(r.highs):
+            more = r.planes[n] * (steps or {}).get(i, 0) if r.planed else 0
+            m[a - code_lo] = (m[a - code_lo] + (moved >> 8) + more) & 0xFF
         value = slots.get(i, module_slot if i in where else r.value)
         for a in r.banks:
             m[a - code_lo] = value
@@ -119,13 +127,50 @@ class Placed:
                                 # its blocks map the module's slot
     grant: int = 0              # with a capacity variable: the bytes the block is given
     room: int = 0               # and what the placer writes in the variable
+    steps: int = 0              # the steps above its least it was given
 
 
 def plan(places, page, himem, slots):
     """What the module's placer (lathe/rt/bbc/module.asm, `place`) does with the list at PAGE
     `page`, HIMEM `himem` and free sideways RAM in `slots` (the slots p_find finds): a Placed for
     each region that has a block and is not in a bank of the module, by its number; None if it
-    is refused (`Too little sideways RAM`)."""
+    is refused (`Too little sideways RAM`).
+
+    Each region with a capacity and a most starts at its most; the regions are placed in the
+    list's order, each in the first area that holds it (main RAM's first), one with no most in
+    the area that gives it the most, all of it. If one does not fit, a region with steps left
+    gives up half of them, the last such region first and then each before it in turn (round
+    and round), but not below its want while any region is above its own; and all are placed
+    again."""
+    steps = {i: r.steps for i, r in enumerate(places.regions) if r.room and r.steps != 255}
+    wants = {i: places.regions[i].want for i in steps}
+    order = list(range(len(places.regions) - 1, -1, -1))
+    turn = 0
+    while True:
+        done = attempt(places, page, himem, slots, steps)
+        if done is not None:
+            return done
+        for tier in (0, 1):
+            for _ in range(len(order)):
+                i = order[turn % len(order)]
+                turn += 1
+                if i not in steps:
+                    continue
+                if tier == 0 and steps[i] > wants[i]:
+                    steps[i] = wants[i] + (steps[i] - wants[i]) // 2
+                    break
+                if tier == 1 and steps[i] > 0:
+                    steps[i] //= 2
+                    break
+            else:
+                continue
+            break
+        else:
+            return None
+
+
+def attempt(places, page, himem, slots, steps):
+    """One placing of every region with the steps given; None if one does not fit."""
     areas = [[page, places.code_lo - 1, None]] + [[a, b, None] for a, b in places.areas] + \
         [[places.top, himem - 1, None]]
     areas = [a for a in areas if a[1] >= a[0]]
@@ -139,50 +184,30 @@ def plan(places, page, himem, slots):
         return goes if goes + size - 1 <= area[1] else None
 
     done = {}
-
-    def given(a, goes):
-        return a[1] - goes + 1
-
-    def pick(r, size, which, fewest=False):
-        """The area of `which` that holds `size` bytes and gives the most (or the fewest)."""
-        best = None
-        for a in areas:
-            if not which(a):
-                continue
-            goes = fit(a, size, r)
-            if goes is None:
-                continue
-            if best is None or (given(a, goes) < given(best[1], best[0]) if fewest
-                                else given(a, goes) > given(best[1], best[0])):
-                best = (goes, a)
-        return best
-
     for i, r in enumerate(places.regions):
         if r.size == 0 or r.value >= 0x10:
             continue
-        if r.room and not r.most:
-            best = pick(r, r.least, lambda a: True)
-            if best is None:
-                return None
-            goes, a = best
-            grant = given(a, goes)
-            a[0] = a[1] + 1
-            done[i] = Placed(goes, a[2], grant, grant - r.last)
-        elif r.room:
-            best = pick(r, r.least, lambda a: a[2] is None) or pick(r, r.least, lambda a: a[2] is not None, True)
-            if best is None:
-                return None
-            goes, a = best
-            grant = min(given(a, goes), r.most)
-            a[0] = goes + grant
-            done[i] = Placed(goes, a[2], grant, grant - r.last)
-        else:
+        if r.room and r.steps == 255:
+            best = None
             for a in areas:
-                goes = fit(a, r.size, r)
-                if goes is not None:
-                    a[0] = goes + r.size
-                    done[i] = Placed(goes, a[2])
-                    break
-            else:
+                goes = fit(a, r.least, r)
+                if goes is not None and (best is None or a[1] - goes > best[1][1] - best[0]):
+                    best = (goes, a)
+            if best is None:
                 return None
+            goes, a = best
+            grant = a[1] - goes + 1
+            a[0] = a[1] + 1
+            done[i] = Placed(goes, a[2], grant, r.holds + grant - r.least)
+            continue
+        size = r.least + steps[i] * r.unit if r.room else r.size
+        for a in areas:
+            goes = fit(a, size, r)
+            if goes is not None:
+                a[0] = goes + size
+                done[i] = Placed(goes, a[2], size, r.holds + 256 * steps[i], steps[i]) if r.room \
+                    else Placed(goes, a[2])
+                break
+        else:
+            return None
     return done

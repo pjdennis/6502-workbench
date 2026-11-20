@@ -32,9 +32,9 @@ module out
 import err (E_CALLS_FULL, E_CLASS_MEMBERS_FULL, E_DATA_FULL, fatal)
 import fbuf (code_length, fix_count, NO_SLOT, put_code, put_fixups, weight_count, weight_slot,
              weight_symbol, weight_value)
-import kernel (byte_of, C_OBJ, C_WEIGHT, close, K_VAR, kind_of, MAX_SYMS, name_char, name_length,
-               NO_OBJ, NO_SYM, open_out, put, put_name, put_word, SCOPE_LOCAL, SCOPE_MODULE,
-               scope_of, sym_count, thaw_top, word_of)
+import kernel (byte_of, C_OBJ, C_WEIGHT, close, K_VAR, kind_of, name_char, name_length, NO_OBJ,
+               NO_SYM, open_out, put, put_name, put_word, SCOPE_LOCAL, SCOPE_MODULE, scope_of,
+               sym_count, sym_rows, thaw_top, word_of)
 
 const VERSION = 4
 
@@ -101,6 +101,14 @@ var member_count: byte = 0
 ; A constant table: its bytes, and its fix-ups, until it ends. In the region OUTTAB: used only
 ; inside the blocks of table_begin(), table_byte(), table_fix() and table_end().
 var table: [MAX_TABLE]byte nozp in OUTTAB
+#if ROOMS
+; The room for a constant table being made: in the image for every machine with sideways RAM, what the placer gives region OUTTAB
+; as the tool starts (`region OUTTAB WIN 35 dynamic out.table_room from 512 to 2048`: lathe/docs/bbc.md, "Capacities set at start-up"); in every
+; other build MAX_TABLE.
+var table_room: word
+#else
+const table_room = MAX_TABLE
+#end
 var table_fix_offset: [MAX_TABLE_FIXES]word in OUTTAB
 var table_fix_kind: [MAX_TABLE_FIXES]byte in OUTTAB
 var table_fix_symbol: [MAX_TABLE_FIXES]word in OUTTAB
@@ -220,7 +228,7 @@ end
 ; Start a constant table of `length` bytes, all 0 until they are given.
 pub func table_begin(length: word)
   var i: word
-  if length > MAX_TABLE then
+  if length > table_room then
     err.fatal(err.E_DATA_FULL)
   end
   with OUTTAB do
@@ -433,7 +441,7 @@ func foreign_weights()
       count += 1
     end
   end
-  for s = kernel.thaw_top until kernel.MAX_SYMS do
+  for s = kernel.thaw_top until kernel.sym_rows do
     if is_foreign_variable(s) then
       count += 1
     end
@@ -449,7 +457,7 @@ func foreign_weights()
   end
   loop
     best = kernel.NO_SYM
-    for s = kernel.thaw_top until kernel.MAX_SYMS do
+    for s = kernel.thaw_top until kernel.sym_rows do
       if is_foreign_variable(s) and kernel.word_of(s, kernel.C_OBJ) >= after and
           (best == kernel.NO_SYM or kernel.word_of(s, kernel.C_OBJ) < kernel.word_of(best, kernel.C_OBJ)) then
         best = s

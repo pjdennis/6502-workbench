@@ -1598,3 +1598,28 @@ floor and the ceiling, and the choice of main RAM's largest or sideways RAM's cl
 compiler's bank 4 12,190 as judged (12,186: INLINE's test); its other banks and the linker's three
 unchanged (13,759, 15,271, 14,007, 14,269; 16,245, 15,193, 15,884); the compiler's list 14 bytes
 longer (`TOKENS`' capacity, and the floor and ceiling words of both).
+
+## One bank, measured (2026-11-20)
+
+([`bbc.md`](bbc.md), "One bank: planes, wants, and the tables set at start-up".) `--bbc-strict` on
+filled memory, every file what the host compiler gives with the machine's capacities
+(`test_bbc_rooms.py`, `lathec_heap.py` giving the host those capacities):
+
+| | B+128, four banks | two banks | one bank, DFS | one bank, ADFS |
+|---|---|---|---|---|
+| the self-compile, 18 compiles | 881.4 million (877.5 before) | 905.3 (877.4 before) | | |
+| the compiler's own modules that compile | all 18 | all 18 | 12: `kernel`, `src`, `lex`, `typetab`, `fold`, `fbuf`, `out`, `cond`, `asmblock`, `parts`, `lathec`, `sys` (896 million with a generated program's five) | 11 (`kernel`'s names do not fit 4,096 with ADFS's tokens; 923 million) |
+| refused, and by what | | | `err` (a string of 2,038), `reg`, `gen`, `inlines`, `expr`, `decl` (names, symbols, the buffer) | the same and `kernel` |
+| generated modules (gen_program.py) | | | up to 82 functions a module (84: members full, error 72) | the same |
+| the module of long names | 24.3 million | 14.0 million to error 70 | 12.3 million to error 71 | 13.8 million to error 71 |
+
+The linker's link of the compiler 3,024.3 million and the rebuild loop 4,053.8 million on the
+B+128. The start-up: `*LATHE` 1,009,717 cycles, `*LLINK` 721,660 at `$1900` (940,836 and 690,694
+with two banks' placer): two walks at least, each with the slots probed afresh.
+
+The account, `BBCFS 3`, `ADFS 1`, as `bbcrom.image` lays it out: **696 bytes free** (1,005 before
+the planes): the module's code and tables 2,001 bytes (1,785: the walks, the giving up of steps,
+the planes); the compiler's banks as judged 13,763, 15,271, 14,007, 12,188, 14,269 (bank 1 and 4:
+the capacities' tests, and the symbols' columns made at `init()`); the linker's three unchanged
+(16,245, 15,193, 15,884); the compiler's list longer by the planes of `SYMS`' places and the new
+capacities' entries.

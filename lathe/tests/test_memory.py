@@ -16,10 +16,34 @@ TWIN_ONLY = {('kernel', 'text'): 'the text memory, which the host keeps in env.m
              ('kernel', 'tokens'): 'the token memory, which the host keeps in env.mem'}
 
 
+def without_rooms(lines):
+    """The lines of a twin as every build but Image A's reads them: what is under `#if ROOMS`
+    left out, what is under its `#else` kept (lathe/docs/bbc.md, "Capacities set at start-up")."""
+    out = []
+    stack = []                      # for each #if open: 'rooms' in ROOMS's own lines, 'else' in
+    for line in lines:              # its #else, 'other' for any other #if
+        words = line.split(';', 1)[0].split()
+        if words[:1] == ['#if']:
+            stack.append('rooms' if words[1:] == ['ROOMS'] else 'other')
+            if stack[-1] == 'rooms':
+                continue
+        elif words[:1] == ['#else'] and stack[-1] != 'other':
+            stack[-1] = 'else'
+            continue
+        elif words[:1] == ['#end'] and stack[-1] != 'other':
+            stack.pop()
+            continue
+        elif words[:1] == ['#end']:
+            stack.pop()
+        if 'rooms' not in stack:
+            out.append(line)
+    return out
+
+
 def twin_arrays(module):
     """{name: bytes per element} of the module-level arrays of lathe/src/MODULE.lth."""
     with open(os.path.join(report.LATHE, 'src', TWIN_FILE.get(module, module) + '.lth')) as f:
-        text = f.read()
+        text = '\n'.join(without_rooms(f.read().splitlines()))
     return {name: 1 if t in ('byte', 'sbyte', 'bool') else 2 for name, t in VAR.findall(text)}
 
 
@@ -31,7 +55,7 @@ def twin_capacities(module):
     under `#if SMALL`, `#else` and, inside `#if SMALL`, `#if RAM32` (the 32K Model B's: its
     `#else` is the small build's). A constant of no `#if RAM32` has the small build's size there."""
     with open(os.path.join(report.LATHE, 'src', TWIN_FILE.get(module, module) + '.lth')) as f:
-        lines = f.read().splitlines()
+        lines = without_rooms(f.read().splitlines())
     found = {}
     stack = []                      # the conditions of the #if lines open: [name, in the #else]
     for line in lines:
