@@ -38,12 +38,12 @@ PAGES = ('1900', '1F00')
 
 
 @contextlib.contextmanager
-def machine(page, shadow=False):
+def machine(page, shadow=False, model=()):
     """The BBC the helpers of the other tests run, at PAGE `page` (hex), in a shadow mode if
-    asked (HIMEM $8000)."""
+    asked (HIMEM $8000), with the emulator's options `model` (a Model B and its sideways RAM)."""
     import test_bbc_selfhost
     import test_bbc_toolchain
-    extra = ('--bbc-page', page) + (('--bbc-shadow',) if shadow else ())
+    extra = ('--bbc-page', page) + (('--bbc-shadow',) if shadow else ()) + tuple(model)
     board = dataclasses.replace(boards.BOARDS['bbc'], options=boards.BOARDS['bbc'].options + extra)
     saved = (test_bbc_selfhost.BOARD, test_bbc_toolchain.BOARD, rom128.BOARD)
     test_bbc_selfhost.BOARD = test_bbc_toolchain.BOARD = rom128.BOARD = board
@@ -124,6 +124,41 @@ class ImageA(unittest.TestCase):
                         self.assertEqual(sorted(written), sorted(files))
                         for f in files:
                             self.assertTrue(written[f] == files[f], f + ' differs')
+
+    def chain_on(self, page, model, programs=('hello',)):
+        import test_bbc_toolchain as chain
+        with machine(page, model=model), rom128.scheme():
+            for case in [c for c in chain.corpus() if c[0] in programs]:
+                name, source, _, _, banked = case
+                with self.subTest(model=model, program=name):
+                    disk, compiles, link, files, said, load = chain.prepare(
+                        case, os.path.join(self.dir, 'chain-%s-%s-%s' % (page, '-'.join(model), name)))
+                    lines = chain.bbc_lines(compiles, link, load, len(files[link[2]]))
+                    status, out, mos, written, cycles, traffic = chain.bbc_run(self.image, disk, lines)
+                    self.assertEqual((status, mos), (0, b''))
+                    with open(os.path.splitext(source)[0] + '.expected.out', 'rb') as f:
+                        self.assertEqual(out, f.read())
+                    for f in files:
+                        self.assertTrue(written[f] == files[f], f + ' differs')
+
+    def test_a_model_b_with_four_banks_elsewhere(self):
+        """A Model B (`--bbc-model b`) with four banks of sideways RAM in slots 8 to 11, not the
+        B+128's 0, 1, 12 and 13: the placer finds them (by the MOS's table and a write) and gives
+        each slot the tools are linked with one of them; every file the host tools'."""
+        self.need_image()
+        self.chain_on('1900', ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10,11'))
+        with machine('1900', model=('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10,11')):
+            rom128.compile_modules(self, self.image, ('rom',), ['err', 'src'])
+
+    def test_too_little_sideways_ram_is_refused(self):
+        """With two banks the regions do not fit at full size yet: `Too little sideways RAM`
+        (until the capacities are set at start-up)."""
+        self.need_image()
+        base = boards.BOARDS['bbc']
+        board = dataclasses.replace(base, options=base.options + ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9'))
+        with rom128.scheme(), tempfile.TemporaryDirectory() as d:
+            code, out, err, cycles = boards.run_module(board, self.image, d, 'LATHE', raw=True)
+        self.assertIn(b'Too little sideways RAM', out + err)
 
     def test_page_above_the_fixed_part_is_refused(self):
         """PAGE above $1F00: the tool refuses, `PAGE too high`. The module has copied the

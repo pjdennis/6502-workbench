@@ -1706,6 +1706,35 @@ calls (0.75 KB, of both tools: the linker's share is not measured) or the bank o
 lines of Lathe; an assembly version would be about 700, estimated), and about 200 bytes of the
 image.
 
+### Stage 2, first part: finding the sideways RAM (2026-11-20, later)
+
+The module's placer now finds the free sideways RAM before it places anything (`p_find`): every
+slot that is not the module's, that the MOS's table of ROM types (OSBYTE 170) does not mark, that
+holds no ROM header (one loaded since the last BREAK: `0`, `(C` at the copyright offset) and that
+keeps two patterns written at `$8008` (`$55` and `$AA`, neither of which an empty socket's open bus,
+the high byte of the address, gives), its own byte put back after. The probe runs from `$014F`,
+copied there, with interrupts off, since it selects each slot in the window. Then each region that
+stays in sideways RAM goes in the slot it is linked in if that is free RAM, else in the first free
+slot, one slot for all regions linked in one; its blocks' banks are changed to it. If there are
+fewer free slots than the tool is linked with: `Too little sideways RAM`.
+
+So Image A runs on a machine with four banks wherever they are: tested on a Model B
+(`--bbc-model b`) with sideways RAM in slots 8 to 11 (`test_bbc_adapt.ImageA.test_a_model_b_with_four_banks_elsewhere`:
+hello compiled, linked and run, and two of the compiler's modules compiled, every file the host
+tools'); with two banks it is refused (`test_too_little_sideways_ram_is_refused`). The policy's
+other rules are not built: no special case for the B+ or the Master by OSBYTE 0 (the probe finds
+the B+128's slots 0, 1, 12 and 13 as well), no guard against a board that writes into another bank
+than the one selected (Solidisk's and some Watford boards, from memory), and no way for the user
+to name the slots. The module's code and tables are now 1,464 bytes (804 of them the placer and
+the probe); the image has **1,386 bytes free** with `BBCFS 3` (the same image without `ADAPT`
+2,837).
+
+**Not built yet: the capacities set at start-up**, which a machine with one or two banks needs
+(and which is how the DFS's 1,536 bytes would be used: on a B+ no region fits main RAM whole). The
+design, from the study and this work: each table's limit a variable under `#if DYNAMIC` in the
+twins (the compiler's name heap first), the placer giving each region the bytes its slot or area
+has, and the tool reading its share at `$init`.
+
 ### What is not done
 
 - Image A with fewer banks (one or two), the Master, finding the sideways RAM (the probe), and the

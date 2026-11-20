@@ -124,6 +124,11 @@ p_last_hi: = $0123
 p_regions: = $0129
 p_pages: = $012A
 p_number: = $012B
+p_value: = $012D               ; the region's bank's value as linked, and where it goes
+p_new: = $012E
+p_maps: = $012F                ; for each slot a region is linked in, the slot it goes in, or $FF
+p_free: = $013F                ; for each slot, not 0 if it is free sideways RAM not yet given out
+p_probe_ram: = $014F           ; the probe of a slot, copied there from probe_code (below)
 
 ; ---- every bank: the header and the service code ----
 * = $8000
@@ -252,7 +257,7 @@ bank0:
   LDA w1
   SBC commands+6,X
   BCS .room
-  LDX #too_low_end-errors-$01  ; below: the error, from $0100
+  LDX #too_low-errors          ; below: the error, from $0100
   JMP refuse
 .room:
   LDA #$83                     ; OSBYTE 131: PAGE, in X and Y
@@ -265,7 +270,7 @@ bank0:
   LDA commands+4,X
   SBC w1
   BCS .page
-  LDX #too_high_end-errors-$01 ; below PAGE: the error, before anything is copied over the
+  LDX #too_high-errors         ; below PAGE: the error, before anything is copied over the
   JMP refuse                   ; filing system's workspace
 .page:
   LDY w2
@@ -425,8 +430,9 @@ help:
   JMP back
 
   .ifdef check_himem
-; The errors when HIMEM is below the program's memory and when PAGE is above where it starts:
-; BRK, its number, its text, 0; sixteen bytes each.
+; The errors when HIMEM is below the program's memory and when PAGE is above where it starts, and
+; the placer's when a tool's regions need more sideways RAM than there is: BRK, the number, the
+; text, 0.
 errors:
 too_low:
   .byte $00, $00
@@ -436,16 +442,30 @@ too_high:
   .byte $00, $00
   .asciiz "PAGE too high"
 too_high_end:
+  .ifdef placer
+too_few:
+  .byte $00, $00
+  .asciiz "Too little sideways RAM"
+  .endif
 
-; Raise the error whose last byte is at errors + X, copied to $0100, as a sideways ROM must.
+; Raise the error that starts at errors + X, copied to $0100, as a sideways ROM must: its BRK and
+; number, then its text to the 0.
 refuse:
-  LDY #$0F
+  LDA errors,X
+  STA $0100
+  INX
+  LDA errors,X
+  STA $0101
+  INX
+  LDY #$02
 .copy:
   LDA errors,X
   STA $0100,Y
-  DEX
-  DEY
-  BPL .copy
+  BEQ .raise
+  INX
+  INY
+  BNE .copy
+.raise:
   JMP $0100
   .endif
 
@@ -478,7 +498,7 @@ place:
   LDA p_code_lo+1
   SBC p_page+1
   BCS .page_low
-  LDX #too_high_end-errors-$01
+  LDX #too_high-errors
   JMP refuse
 .page_low:
   LDA #$84                     ; OSBYTE 132: HIMEM
@@ -489,7 +509,7 @@ place:
   TYA
   SBC p_top+1
   BCS .himem_high
-  LDX #too_low_end-errors-$01
+  LDX #too_low-errors
   JMP refuse
 .himem_high:
   LDA #$00                     ; the free areas: PAGE to the fixed part, the list's, HIMEM's
@@ -533,8 +553,9 @@ place:
   SBC #$00
   STA w5
   JSR p_add_area
-  JSR p_byte                   ; each region: its bank's value (not used yet), its block, its high
-  STA p_regions                ; bytes and its blocks' banks
+  JSR p_find                   ; the free sideways RAM
+  JSR p_byte                   ; each region: its bank's value, its block, its high bytes and its
+  STA p_regions                ; blocks' banks
 .region:
   LDA p_regions
   BNE .more
@@ -542,6 +563,8 @@ place:
 .more:
   DEC p_regions
   JSR p_byte                   ; the bank's value
+  STA p_value
+  STA p_new
   JSR p_word
   STA p_linked
   STX p_linked+1
@@ -560,6 +583,21 @@ place:
   SBC p_linked+1
   STA p_pages
 .moved:
+  LDA p_pages
+  BNE .placed                  ; in main RAM: no slot
+  LDA w4
+  ORA w5
+  BEQ .placed                  ; nothing in a slot
+  LDA p_value
+  CMP #$10
+  BCS .placed                  ; a bank of the module: not sideways RAM
+  JSR p_map                    ; its slot: the one it is linked in if that is free RAM, else another
+  BCC .mapped
+  LDX #too_few-errors
+  JMP refuse
+.mapped:
+  STA p_new
+.placed:
   JSR p_count
 .high:
   JSR p_count_down
@@ -579,11 +617,132 @@ place:
   BEQ .region
   JSR p_place
   LDA p_pages
+  BNE .main_slot
+  LDA p_new                    ; in a slot: the one found, if it is not the one linked
+  CMP p_value
   BEQ .bank
+  BNE .bank_value
+.main_slot:
   LDA romcopy                  ; in main RAM: the module's own slot
+.bank_value:
   LDY #$00
   STA (w2),Y
   JMP .bank
+
+; The free sideways RAM, in p_free: each slot that is not the module's, that the MOS's table of ROM
+; types (OSBYTE 170) does not mark, that holds no ROM header (one loaded since the last BREAK) and
+; that keeps what is written to it, two patterns (neither of which an empty socket's open bus
+; gives) and then its own byte again (p_probe_ram, from probe_code). And p_maps all $FF.
+p_find:
+  LDX #probe_code_end-probe_code-$01
+.copy:
+  LDA probe_code,X
+  STA p_probe_ram,X
+  DEX
+  BPL .copy
+  LDA #$AA                     ; OSBYTE 170: the table of ROM types, in X and Y
+  LDX #$00
+  LDY #$FF
+  JSR osbyte
+  STX w6
+  STY w7
+  LDX #$0F
+.slot:
+  LDA #$FF
+  STA p_maps,X
+  LDA #$00
+  STA p_free,X
+  CPX romcopy
+  BEQ .next                    ; the module's own
+  TXA
+  TAY
+  LDA (w6),Y
+  BNE .next                    ; a ROM the MOS found
+  JSR p_probe_ram              ; Y not 0: RAM
+  TYA
+  STA p_free,X
+.next:
+  DEX
+  BPL .slot
+  RTS
+
+; Copied to p_probe_ram and run there, with interrupts off, since it selects slot X in the window:
+; Y = 1 if the slot holds no ROM header and keeps what is written at $8008 (put back after), else
+; 0. Only relative branches, so that it runs where it is copied to. X is kept.
+probe_code:
+  PHP
+  SEI
+  LDA romcopy
+  PHA
+  STX romcopy
+  STX romsel
+  LDY $8007                    ; a header's copyright offset: 0, "(C"
+  LDA $8000,Y
+  BNE .unmarked
+  LDA $8001,Y
+  CMP #$28
+  BNE .unmarked
+  LDA $8002,Y
+  CMP #$43
+  BNE .unmarked
+  LDY #$00                     ; a ROM image
+  BEQ .back
+.unmarked:
+  LDA $8008
+  PHA
+  LDY #$00
+  LDA #$55
+  STA $8008
+  CMP $8008
+  BNE .restore
+  LDA #$AA
+  STA $8008
+  CMP $8008
+  BNE .restore
+  INY                          ; RAM
+.restore:
+  PLA
+  STA $8008
+.back:
+  PLA
+  STA romcopy
+  STA romsel
+  PLP
+  RTS
+probe_code_end:
+
+; Region value A (a slot) goes in: the slot it is linked in if that is free RAM, else the first
+; free slot, the same for every region of that value; the slot in A and the carry clear, or the
+; carry set if there is none.
+p_map:
+  TAX
+  LDA p_maps,X
+  BPL .done                    ; given already
+  LDA p_free,X
+  BEQ .other
+  TXA                          ; its own
+  JMP .take
+.other:
+  LDY #$00
+.find:
+  LDA p_free,Y
+  BNE .found
+  INY
+  CPY #$10
+  BCC .find
+  SEC
+  RTS
+.found:
+  TYA
+.take:
+  STA p_maps,X
+  TAY
+  LDA #$00
+  STA p_free,Y
+  LDA p_maps,X
+.done:
+  CLC
+  RTS
 
 ; The next byte of the list, in A, the Z flag as it; Y is lost.
 p_byte:
