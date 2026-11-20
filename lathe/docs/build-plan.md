@@ -158,6 +158,8 @@ Runs after stage 9, on the host only.
 - **Spike first:** L8 (disk traffic).
 - **Work:** An environment module and description for the first period machine, with its file interface and output format. A way to test it, which the emulator here does not yet provide.
 - **Gate:** The compiler runs on that machine and compiles a program there.
+- **Image B, the linker's half (2026-11-20):** the 128 KB image for machines with no sideways RAM: `linker-bbc.env` with `RAM32 1` and `ADAPT 1`, linked from `$1F00`, its symbols, slots and calls placed in main RAM alone as it starts by the module's placer without its probe (`main_only`); on a DFS Model B 512 symbols, 768 slots and 768 calls, on ADFS 512 of each; the compiler's half (the name heap begun at PAGE) measured, not built ([`bbc.md`](bbc.md), "The image for machines with no sideways RAM").
+- **Image B's linker on a DFS machine (2026-11-20, later):** the environment's `top WIN N ADDR` (a bank's variables below ADDR) puts each of its dynamic regions' blocks on a page, and `region NAME WIN N dynamic main` (a region the placer keeps in main RAM, told fixed, named without a block) its slots and calls in main RAM alone, host and twin byte for byte, the twin's under `LKDYN`: on a DFS Model B 512 symbols, 1,024 slots and 768 calls (the 32K build's 640, 848, 768), on ADFS 512 of each; the generated 25 KB program compiled, linked and run on the emulated DFS machine, the largest at ADFS's PAGE (15.5 KB) linked and run under its ADFS, every file the host tools'; the resident part 438 bytes smaller ([`bbc.md`](bbc.md), "Every block on a page"; [`configurations.md`](configurations.md), "Regions placed at run time").
 
 ### Later, in no fixed order
 

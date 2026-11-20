@@ -24,6 +24,7 @@
 ;     placer    rt_place              ; the module whose `place` the start-up calls for those
 ;     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
 ;     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
+;     top       WIN 4 $BEFF           ; bank 4's variables go down from $BEFF (with LKDYN)
 ;
 ;     define    NAME 1                ; for the compiler (`#if NAME`) and for `when` and `unless`
 ;     when      NAME ENTRY            ; ENTRY, if NAME is defined above and not 0; else nothing
@@ -65,11 +66,11 @@ import sys (close, read)
 
 ; The words the linker knows, each followed by a space; a word's number is its place, from 1.
 #if LKDYN
-const WORDS: [187]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
+const WORDS: [191]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
   "window switch bank overlay place region more farcall fixed rom define when unless "
-  "dynamic placer "
+  "dynamic placer top "
 #else
-; Without dynamic regions (LKDYN 0) the last two words are not known: their entries are skipped,
+; Without dynamic regions (LKDYN 0) the last three words are not known: their entries are skipped,
 ; as any entry this build does not know is, and `dynamic` after a region is a bad entry.
 const WORDS: [172]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
   "window switch bank overlay place region more farcall fixed rom define when unless "
@@ -105,6 +106,7 @@ const W_WHEN = 28
 const W_UNLESS = 29
 const W_DYNAMIC = 30
 const W_PLACER = 31
+const W_TOP = 32
 
 const HAVE_ZEROPAGE = 1
 const HAVE_CODE = 2
@@ -173,6 +175,7 @@ pub var bank_n: [MAX_BANKS]byte         ; its number in its window, 1 to 255
 pub var bank_value: [MAX_BANKS]byte     ; the register value; for an overlay its number
 pub var bank_file: [MAX_BANKS]word      ; its file's name + 1, or 0
 pub var rom_banks: word = 0     ; bit b set: bank b is read-only (`rom`; MAX_BANKS bits)
+pub var bank_top: [MAX_BANKS]word       ; the last address of its variables (`top`, LKDYN), or 0: the window's
 
 pub const MAX_PLACES = 32
 pub var place_count: byte = 0
@@ -186,6 +189,8 @@ pub var region_count: byte = 0
 pub var region_name: [MAX_REGIONS]word
 pub var region_bank: [MAX_REGIONS]byte  ; the bank + 1, or 0 for fixed memory
 pub var region_dynamic: word        ; bit i: region i is `dynamic`, placed again at the start (lk_dyn;
+                                    ; read() sets it)
+pub var region_main: word           ; bit i: region i is `dynamic main`, in main RAM alone (lk_dyn;
                                     ; read() sets it)
 pub var region_room: [MAX_REGIONS]word  ; a dynamic region's capacity variable's name + 1, or 0 (lk_dyn;
                                         ; with LKDYN 0 nothing uses it, so it is not linked); in the
@@ -613,6 +618,9 @@ func bank_entry(kind: byte)
     bank_value[b] = byte(value)
   end
   bank_file[b] = 0
+#if LKDYN
+  bank_top[b] = 0
+#end
   if read_word(false) then
     bank_file[b] = hold_token()
   elif kind == SWITCH_OVERLAY then
@@ -639,6 +647,43 @@ func rom_entry()
   end
   rom_banks |= word(1) << b
   end_of_line()
+end
+
+#if LKDYN
+; `top WIN N ADDR`: the variables of bank N of WIN go down from ADDR, which is in the window, and
+; not from the window's last address; code and constant data still go up from its first. With
+; ADDR the last byte of a page, the variables of whole pages there start on a page: for a region
+; that the placer puts in main RAM, whose free areas are pages (lk_dyn; lathe/docs/bbc.md, "The
+; image for machines with no sideways RAM").
+func top_entry()
+  var b: byte
+  var w: byte
+  var top: word
+  b = window_and_bank()
+  w = bank_win[b]
+  if win_switch[w] != SWITCH_BANK then
+    bad()
+  end
+  if bank_top[b] != 0 then
+    fail_bank(lk_err.E_ENV_TWICE, b)
+  end
+  top = number()
+  if top < win_lo[w] or top > win_hi[w] then
+    bad()
+  end
+  bank_top[b] = top
+  end_of_line()
+end
+#end
+
+; The last address of bank b's variables: its `top`, or its window's last. (Outside `#if LKDYN`,
+; as lk_place names it in every build; with LKDYN 0 nothing calls it, so it is not linked, nor
+; bank_top.)
+pub func bank_end(b: byte): word
+  if bank_top[b] != 0 then
+    return bank_top[b]
+  end
+  return win_hi[bank_win[b]]
 end
 
 func place_entry()
@@ -668,6 +713,7 @@ end
 const FROM_WORD: [4]byte = "from"
 const TO_WORD: [2]byte = "to"
 const ROWS_WORD: [4]byte = "rows"
+const MAIN_WORD: [4]byte = "main"
 const WANT_WORD: [4]byte = "want"
 const PLANES_WORD: [6]byte = "planes"
 
@@ -785,6 +831,9 @@ func region_entry()
   var w: byte
   var n: byte
   var b: byte
+#if LKDYN
+  var more: bool
+#end
   name_token()
   for i = 0 until region_count do
     if is_token(region_name[i]) then
@@ -822,7 +871,12 @@ func region_entry()
         bad()
       end
       region_dynamic |= word(1) << i
-      if read_word(false) then
+      more = read_word(false)
+      if more and is_word(@MAIN_WORD, len(MAIN_WORD)) then
+        region_main |= word(1) << i
+        more = read_word(false)
+      end
+      if more then
         room_entry(i)
       end
     end
@@ -1102,6 +1156,8 @@ func entry()
 #if LKDYN
   of W_PLACER
     placer_entry()
+  of W_TOP
+    top_entry()
 #end
   of W_ROM
     rom_entry()
@@ -1151,6 +1207,7 @@ pub func read()
 #if LKDYN
   placer = 0
   region_dynamic = 0
+  region_main = 0
 #end
   handle = lk_file.open_in(lk_file.ARG_ENV)
   next_char()

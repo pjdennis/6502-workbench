@@ -140,7 +140,7 @@ def place_bank_vars():
     such variable counts, in zero page or not, with a byte for the page: whether it fits cannot
     depend on what zero page took."""
     for b in range(0, lk_envf.bank_count):
-        top = lk_envf.win_hi[lk_envf.bank_win[b]] + 1
+        top = lk_envf.bank_end(b) + 1
         for d in range(0, lk_tab.def_count):
             if lk_tab.is_kept_var(d) and lk_win.bank_def(d) == b + 1:
                 if lk_envf.is_rom(b):
@@ -178,7 +178,7 @@ def place():
         lk_err.finish()
     for b in range(0, lk_envf.bank_count):
         w = lk_envf.bank_win[b]
-        room = lk_envf.win_hi[w] - lk_envf.win_lo[w] + 1
+        room = lk_envf.bank_end(b) - lk_envf.win_lo[w] + 1
         if bank_judged[b] > room:
             lk_err.begin(lk_err.E_BANK_FULL)
             lk_err.colon()

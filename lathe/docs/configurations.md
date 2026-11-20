@@ -957,6 +957,34 @@ calls (`lk_tab.edge_rows rows 768 planes 2`) and the functions' first calls at t
 `LKSLOTS` the slots' two columns (`lk_tab.slot_rows rows 1024 planes 2`) and the large slots at
 theirs.
 
+Since (2026-11-20, later, [`bbc.md`](bbc.md), "The image for machines with no sideways RAM"): in an
+environment with `define FIXED_REGIONS 1` and dynamic regions, the regions are main RAM's alone:
+`bbcrom.py` assembles the module's placer with `main_only`, which probes no slot of sideways RAM and
+gives the regions main RAM's free areas only (`Too little memory` when their floors do not fit),
+for Image B's linker. No new entry: a dynamic region is linked in a bank as before and its blocks
+are not compiled to their bodies (`-f` for a region in a bank is link error 62), so they map the
+module's own slot. Every program of an image with dynamic regions must be of one kind or the other.
+
+Since (2026-11-20, later, [`bbc.md`](bbc.md), "Every block on a page"): two forms for such regions,
+host and twin byte for byte (`test_lk_dynamic.py`; in the twin under `LKDYN`, so the ROM forms are
+as they were and skip them as entries they do not know):
+
+- `top WIN N ADDR`, after bank N's entry: the bank's variables go down from ADDR, which is in the
+  window (else a bad entry), not from the window's end, and its fit check counts to ADDR; a second
+  one is link error 43, an unknown bank 42. With ADDR the last byte of a page, a region of whole
+  pages there starts on a page, as main RAM's free areas do: Image B's linker gives `$BEFF` for its
+  three banks of dynamic regions, which gives a DFS machine nine blocks of 512 bytes, not eight.
+- `region NAME WIN N dynamic main [VARIABLE ...]`: the placer puts the region in main RAM alone,
+  never in sideways RAM. Code may name it without mapping its bank: the linker refuses no such use
+  with link error 62 (lk_dyn.in_main, which lk_emit asks before lk_fix.check_mapped), and with
+  `define FIXED_REGIONS 1` `build.py` tells the compiler `-fNAME` for it, as for a fixed region, so
+  its blocks are their bodies and a function with one is not kept fixed for it. Its places are listed
+  as any dynamic region's; it has no block's bank to list. `bbcrom.py` refuses a program with one
+  whose image's placer is not the one for main RAM alone. A place in a bank's code still cannot
+  move (link error 64), so a region named from a bank cannot be `main` usefully: Image B's
+  `LKLOCAL`, which `lk_name` names in bank 2, is not; its slots and calls, which only `lk_tab`
+  names, are (391 bytes of its resident part).
+
 ## Decisions for the owner
 
 | Decision | Recommendation |

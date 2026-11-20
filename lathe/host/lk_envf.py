@@ -28,9 +28,13 @@
     region    SYMS WIN 4 dynamic kernel.sym_rows rows 256 to 768
                                     ; every variable of the region is planes of 256 bytes, one a
                                     ; row, and the capacity is rows: 256 as linked, to 768
+    region    SLOTS WIN 4 dynamic main kernel.slot_rows rows 256 to 768
+                                    ; and the placer puts it in main RAM alone: code compiled
+                                    ; with -fSLOTS may name it without a block (lk_dyn.in_main)
     placer    rt_place              ; the module whose `place` the start-up calls for those
     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
+    top       WIN 4 $BEFF           ; bank 4's variables go down from $BEFF, not the window's end
 
     define    NAME 1                ; for the compiler (`#if NAME`) and for `when` and `unless`
     when      NAME ENTRY            ; ENTRY, if NAME is defined above and not 0; else nothing
@@ -54,7 +58,7 @@ import lk_op
 # The words the linker knows, each followed by a space; a word's number is its place, from 1.
 WORDS = (b"cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
          b"window switch bank overlay place region more farcall fixed rom define when unless "
-         b"dynamic placer ")
+         b"dynamic placer top ")
 W_CPU = 1
 W_ZEROPAGE = 2
 W_CODE = 3
@@ -86,6 +90,7 @@ W_WHEN = 28
 W_UNLESS = 29
 W_DYNAMIC = 30
 W_PLACER = 31
+W_TOP = 32
 
 HAVE_ZEROPAGE = 1
 HAVE_CODE = 2
@@ -151,6 +156,7 @@ bank_n = bytearray(MAX_BANKS)       # its number in its window, 1 to 255
 bank_value = bytearray(MAX_BANKS)   # the register value; for an overlay its number
 bank_file = [0] * MAX_BANKS         # its file's name + 1, or 0
 rom_banks = 0                       # bit b set: bank b is read-only (`rom`; MAX_BANKS bits)
+bank_top = [0] * MAX_BANKS          # the last address of its variables (`top`), or 0: the window's
 
 MAX_PLACES = 32
 place_count = 0
@@ -164,10 +170,12 @@ region_count = 0
 region_name = [0] * MAX_REGIONS
 region_bank = bytearray(MAX_REGIONS)    # the bank + 1, or 0 for fixed memory
 region_dynamic = 0                  # bit i: region i is `dynamic`, placed again at the start (lk_dyn)
+region_main = 0                     # bit i: region i is `dynamic main`, in main RAM alone (lk_dyn)
 region_room = [0] * MAX_REGIONS     # a dynamic region's capacity variable's name + 1, or 0 (lk_dyn);
                                     # in the text after the name, five words: room_rows,
                                     # room_floor, room_want, room_ceiling, room_planes
 ROWS_WORD = b"rows"
+MAIN_WORD = b"main"
 PLANES_WORD = b"planes"
 WANT_WORD = b"want"
 FROM_WORD = b"from"
@@ -522,6 +530,7 @@ def bank_entry(kind):
             bad()
         bank_value[b] = value
     bank_file[b] = 0
+    bank_top[b] = 0
     if read_word(False):
         bank_file[b] = hold_token()
     elif kind == SWITCH_OVERLAY:
@@ -547,6 +556,32 @@ def is_rom(b):
     return ((rom_banks >> b) & 1) != 0
 
 
+def top_entry():
+    """`top WIN N ADDR`: the variables of bank N of WIN go down from ADDR, which is in the window,
+    and not from the window's last address; code and constant data still go up from its first.
+    With ADDR the last byte of a page, the variables of whole pages there start on a page: for a
+    region that the placer puts in main RAM, whose free areas are pages (lk_dyn; lathe/docs/bbc.md,
+    "The image for machines with no sideways RAM")."""
+    b = window_and_bank()
+    w = bank_win[b]
+    if win_switch[w] != SWITCH_BANK:
+        bad()
+    if bank_top[b] != 0:
+        fail_bank(lk_err.E_ENV_TWICE, b)
+    top = number()
+    if top < win_lo[w] or top > win_hi[w]:
+        bad()
+    bank_top[b] = top
+    end_of_line()
+
+
+def bank_end(b):
+    """The last address of bank b's variables: its `top`, or its window's last."""
+    if bank_top[b] != 0:
+        return bank_top[b]
+    return win_hi[bank_win[b]]
+
+
 def place_entry():
     global place_count
     name_token()
@@ -566,7 +601,7 @@ def place_entry():
 
 
 def region_entry():
-    global region_count, region_dynamic
+    global region_count, region_dynamic, region_main
     name_token()
     for i in range(0, region_count):
         if is_token(region_name[i]):
@@ -596,7 +631,11 @@ def region_entry():
             if keyword() != W_DYNAMIC:
                 bad()
             region_dynamic |= 1 << i
-            if read_word(False):
+            more = read_word(False)
+            if more and is_word(MAIN_WORD):
+                region_main |= 1 << i
+                more = read_word(False)
+            if more:
                 room_entry(i)
     end_of_line()
 
@@ -908,6 +947,8 @@ def entry():
         placer_entry()
     elif which == W_ROM:
         rom_entry()
+    elif which == W_TOP:
+        top_entry()
     elif which == W_DEFINE:
         define_entry()
 

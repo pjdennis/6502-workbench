@@ -30,8 +30,8 @@ module lk_place
 
 import lk_alloc (straddles)
 import lk_boot (places_addr, plan)
-import lk_envf (bank_count, bank_file, bank_win, code_hi, code_lo, is_rom, MAX_BANKS, put_bank,
-                region_bank, win_hi, win_lo)
+import lk_envf (bank_count, bank_end, bank_file, bank_win, code_hi, code_lo, is_rom, MAX_BANKS,
+                put_bank, region_bank, win_hi, win_lo)
 import lk_err (begin, colon, E_BANK_FULL, E_CODE_FULL, E_REGION_NO_FILE, E_REGION_ROM, E_WITH_IRQ,
                finish, over)
 import lk_fix (begin, count_shrinks, shrink_count)
@@ -202,7 +202,11 @@ func place_bank_vars()
   var size: word
   var extra: word
   for b = 0 until lk_envf.bank_count do
+#if LKDYN
+    top = lk_envf.bank_end(b) + 1
+#else
     top = lk_envf.win_hi[lk_envf.bank_win[b]] + 1
+#end
     for d = 0 until lk_tab.def_count do
       if lk_tab.is_kept_var(d) and lk_win.bank_def(d) == b + 1 then
         if lk_envf.is_rom(b) then
@@ -255,7 +259,11 @@ pub func place()
   end
   for b = 0 until lk_envf.bank_count do
     w = lk_envf.bank_win[b]
+#if LKDYN
+    room = lk_envf.bank_end(b) - lk_envf.win_lo[w] + 1
+#else
     room = lk_envf.win_hi[w] - lk_envf.win_lo[w] + 1
+#end
     if bank_judged[b] > room then
       lk_err.begin(lk_err.E_BANK_FULL)
       lk_err.colon()

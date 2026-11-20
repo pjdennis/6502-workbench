@@ -468,7 +468,12 @@ too_high_end:
   .ifdef placer
 too_few:
   .byte $00, $00
+  .ifdef probe
   .asciiz "Too little sideways RAM"
+  .endif
+  .ifdef main_only
+  .asciiz "Too little memory"     ; no sideways RAM is probed or used (bbcrom.py, `main_only`)
+  .endif
   .endif
 
 ; Raise the error that starts at errors + X, copied to $0100, as a sideways ROM must: its BRK and
@@ -899,6 +904,10 @@ p_find:
   SBC #$00
   STA w5
   JSR p_add_main
+  .ifdef main_only
+  RTS                          ; an image for machines with no sideways RAM: main RAM's areas alone
+  .endif
+  .ifdef probe
   LDA p_mode
   CMP #$02
   BNE .probe
@@ -989,6 +998,7 @@ probe_code:
   PLP
   RTS
 probe_code_end:
+  .endif
 
 ; The next byte of the list, in A, the Z flag as it; Y is lost.
 p_byte:

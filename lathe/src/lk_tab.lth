@@ -115,8 +115,13 @@ const MAX_MEMBERS = 128
 ; of pages each, and given edge_rows and slot_rows rows, which the placer writes and the tests of
 ; their capacity read. The work area's columns of calls and functions keep MAX_EDGES and MAX_FUNCS
 ; rows, the most edge_rows can be. In every other build the tables have MAX_EDGES and MAX_SLOTS rows.
+#if LKSMALL == 2   ; (not a capacity of lk_small.py's: the rows the region is linked with)
+const LINKED_EDGES = 512        ; the image for machines with no sideways RAM (linker-bbc.env with
+const LINKED_SLOTS = 512        ; RAM32 1 and ADAPT 1): from 512 rows, as main RAM allows
+#else
 const LINKED_EDGES = 768
 const LINKED_SLOTS = 1024
+#end
 pub var edge_rows: word
 pub var slot_rows: word
 #else
@@ -164,13 +169,36 @@ pub var fn_flags: [MAX_FUNCS]byte
 pub var fn_ctx: [MAX_FUNCS]byte         ; one bit per context that reaches the function; 0 = dropped
 pub var fn_slot: [MAX_FUNCS]word rows   ; first row in slot_
 pub var fn_class: [MAX_FUNCS]byte       ; a class the function is a member of + 1, or 0
+#if LKROOMS
+#if LKSMALL == 2   ; (the variables' placement, not a capacity of lk_small.py's)
+; In the image for machines with no sideways RAM (linker-bbc.env with RAM32 1 and ADAPT 1) the
+; calls' and the slots' regions are their planes alone, in main RAM: each block then ends where a
+; bank's variables end, so that each starts at the same low byte and the placer packs them with
+; nothing between (lathe/docs/bbc.md, "The image for machines with no sideways RAM"). The tables
+; of a fixed size are in main RAM with the rest.
+pub var fn_edge: [MAX_FUNCS]word rows nozp              ; where its calls start
+#else
 pub var fn_edge: [MAX_FUNCS]word rows nozp in LKCALLS  ; where its calls start
+#end
+#else
+pub var fn_edge: [MAX_FUNCS]word rows nozp in LKCALLS  ; where its calls start
+#end
 
 pub var slot_count: word = 0
 pub var slot_sz: [LINKED_SLOTS]byte nozp in LKSLOTS ; SL_ bits: size, class, parameter, in zero page
 pub var big_count: byte = 0
+#if LKROOMS
+#if LKSMALL == 2   ; (as above)
+pub var big_slot: [MAX_BIG_SLOTS]word nozp              ; (no sideways RAM: in main RAM, above)
+pub var big_size: [MAX_BIG_SLOTS]word nozp
+#else
 pub var big_slot: [MAX_BIG_SLOTS]word nozp in LKSLOTS  ; slots of 15 bytes or more, in slot order
 pub var big_size: [MAX_BIG_SLOTS]word nozp in LKSLOTS
+#end
+#else
+pub var big_slot: [MAX_BIG_SLOTS]word nozp in LKSLOTS  ; slots of 15 bytes or more, in slot order
+pub var big_size: [MAX_BIG_SLOTS]word nozp in LKSLOTS
+#end
 pub var slot_weight: [LINKED_SLOTS]byte nozp in LKSLOTS
 
 pub var cls_count: byte = 0

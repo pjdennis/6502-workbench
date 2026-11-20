@@ -26,6 +26,9 @@ PLANES = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynam
 FIXED = DYNAMIC.replace('region work WIN 4 dynamic\n',
                         'region work WIN 4 dynamic t.room rows 256 planes 3 to 768\n')
 ROOM = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic t.room\n')
+MAIN = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic main\n')
+MAIN_ROOM = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic main t.room\n')
+TOP = DYNAMIC.replace('region work WIN 4 dynamic\n', 'top WIN 4 $9EFF\nregion work WIN 4 dynamic\n')
 CODE_LO = 0x0200
 
 
@@ -79,6 +82,38 @@ def user(other=True, room=False):
         c.abs(0x20, t.f('rt_with.unmap'))
         c.abs(0x4C, t.f('rt_with.unmap'))   # the block's end as a tail call
         t.func('other', c, calls=[(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)] * 2)
+    return t
+
+
+def unmapped_user(room=False):
+    """Module t as compiled with -fwork (lathe/host/README.md, "Command lines"): v (300 bytes) and w
+    (4) in region work, k (2) in text; main stores into v and w with no block, as their region were
+    fixed memory, and into k in a block of text's. With `room`, a word room in fixed memory too."""
+    t = Obj('t')
+    t.v('v')
+    t.v('w')
+    t.v('k')
+    if room:
+        t.v('room')
+        t.var('room', 2, NEVER)
+    t.raw(16, string('work'))
+    t.var('v', 300, NEVER)
+    t.raw(16, string('work'))
+    t.var('w', 4, NEVER)
+    t.raw(16, string('text'))
+    t.var('k', 2, NEVER)
+    c = t.code()
+    c.abs(0x8D, t.v('v'), add=5)            # STA v+5
+    c.abs(0x8D, t.v('w'))                   # STA w
+    c.byte(0xA9, 3, t.v('v'), add=0x1F0)    # LDA #>(v+$1F0)
+    if room:
+        c.abs(0xAD, t.v('room'))
+    c.byte(0xA9, 6, t.v('k'))               # LDA #bank(text)
+    c.abs(0x20, t.f('rt_with.map'))
+    c.abs(0x8D, t.v('k'))
+    c.abs(0x20, t.f('rt_with.unmap'))
+    c.raw(0x60)
+    t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)])
     return t
 
 
@@ -418,6 +453,62 @@ class Dynamic(unittest.TestCase):
         r = self.link([planes_user(), farcall_with(), placer()], PLANES.replace('rows 256', 'rows 256 planes 3'))
         self.assertEqual((r.status, r.errors), (0, ''))
 
+    def test_a_region_in_main_ram_may_be_named_without_a_block(self):
+        """`dynamic main`: the placer puts the region in main RAM alone, never in a slot of sideways
+        RAM, so code compiled with the region told fixed (-fwork: its blocks their bodies alone)
+        names it without mapping its bank, which is link error 62 for any other region in a bank;
+        its places are listed as any dynamic region's, and it has no block's bank to list. A
+        region in a bank that is not `main` is still refused so."""
+        from test_lk_unmapped import ERROR
+        r = self.link([unmapped_user(), farcall_with(), placer()])
+        self.assertEqual((r.status, r.errors.strip()), (1, ERROR + 't.v, t.main'))
+        r = self.link([unmapped_user(), farcall_with(), placer()], MAIN)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        p, at = places_of(r)
+        v, w, main = r.addr('V', 't.v'), r.addr('V', 't.w'), r.addr('F', 't.main')
+        self.assertEqual(p.regions[0].highs, [main + 2, main + 5, main + 7])
+        self.assertEqual([r.image[a - CODE_LO] for a in p.regions[0].highs],
+                         [(v + 5) >> 8, w >> 8, (v + 0x1F0) >> 8])
+        self.assertEqual(p.regions[0].banks, [])
+        r = self.link([unmapped_user(room=True), farcall_with(), placer()], MAIN_ROOM)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertEqual(places_of(r)[0].regions[0].room, r.addr('V', 't.room'))
+        r = self.link([unmapped_user(), farcall_with(), placer()],
+                      MAIN.replace('region text WIN 5', 'region text WIN 5 dynamic main'))
+        self.assertEqual((r.status, r.errors), (0, ''))     # text's block maps it all the same
+
+    def test_a_banks_variables_may_end_below_the_window(self):
+        """`top WIN 4 $9EFF`: bank 4's variables go down from $9EFF and not from the window's end,
+        so that a block of whole pages there starts on a page (for a region the placer puts in
+        main RAM, whose areas are pages: lathe/docs/bbc.md, "The image for machines with no
+        sideways RAM"). The image is the other's moved by the list a page down."""
+        a = self.link([user(other=False), farcall_with(), placer()])
+        b = self.link([user(other=False), farcall_with(), placer()], TOP)
+        self.assertEqual((a.status, a.errors, b.status, b.errors), (0, '', 0, ''))
+        (pa, at), (pb, _) = places_of(a), places_of(b)
+        self.assertEqual(pa.regions[0].first + pa.regions[0].size - 1, 0x9FFF)
+        self.assertEqual(pb.regions[0].first + pb.regions[0].size - 1, 0x9EFF)
+        self.assertEqual(pb.regions[0].size, pa.regions[0].size)
+        moved = places.apply(a.image, CODE_LO, pa, {0: pb.regions[0].first}, {0: 0x14})
+        self.assertEqual(moved[:at - CODE_LO], b.image[:at - CODE_LO])
+
+    def test_a_banks_top_is_in_its_window_and_counts_for_its_fit(self):
+        from test_lk_errors import ErrorTest
+        check = ErrorTest.assertError
+        for extra, n, text in (('top WIN 9 $9EFF\n', 42, 'environment file: no such'),
+                               ('top OTHER 4 $9EFF\n', 42, 'environment file: no such'),
+                               ('top WIN 4 $9EFF\ntop WIN 4 $9EFF\n', 43, 'environment file'),
+                               ('top WIN 4 $A000\n', 3, 'environment file: bad entry'),
+                               ('top WIN 4 $7FFF\n', 3, 'environment file: bad entry'),
+                               ('top WIN 4\n', 3, 'environment file: bad entry'),
+                               ('top WIN 4 $9EFF X\n', 3, 'environment file: bad entry')):
+            with self.subTest(extra=extra):
+                check(self, link([user(other=False), farcall_with(), placer()],
+                                 DYNAMIC.replace('region work', extra + 'region work', 1)), n, text)
+        r = link([user(other=False), farcall_with(), placer()],
+                 DYNAMIC.replace('region work', 'top WIN 4 $8100\nregion work', 1))
+        check(self, r, 45, 'code and data do not fit in a bank: win 4, 47 bytes over')
+
     def test_nothing_changes_without_a_dynamic_region(self):
         a = link([user(), farcall_with(), placer()], STATIC + 'placer p\n')
         b = link([user(), farcall_with(), placer()], STATIC)
@@ -460,7 +551,20 @@ def cases():
             ('planes and a fixed variable', [planes_and_fixed_user(), farcall_with(), placer()], FIXED),
             ('planes miscounted', [planes_and_fixed_user(), farcall_with(), placer()],
              FIXED.replace('planes 3', 'planes 2')),
-            ('a fixed variable without planes', [planes_and_fixed_user(), farcall_with(), placer()], PLANES)]
+            ('a fixed variable without planes', [planes_and_fixed_user(), farcall_with(), placer()], PLANES),
+            ('a region in main RAM unmapped, not main', [unmapped_user(), farcall_with(), placer()], DYNAMIC),
+            ('a region in main RAM', [unmapped_user(), farcall_with(), placer()], MAIN),
+            ('a region in main RAM with a capacity', [unmapped_user(room=True), farcall_with(), placer()],
+             MAIN_ROOM),
+            ('a bank\'s top', [user(other=False), farcall_with(), placer()], TOP),
+            ('a bank\'s top twice', [user(other=False), farcall_with(), placer()],
+             TOP.replace('top WIN 4 $9EFF\n', 'top WIN 4 $9EFF\ntop WIN 4 $9EFF\n')),
+            ('a bank\'s top outside its window', [user(other=False), farcall_with(), placer()],
+             TOP.replace('$9EFF', '$A000')),
+            ('a bank\'s top of an unknown bank', [user(other=False), farcall_with(), placer()],
+             TOP.replace('WIN 4 $9EFF', 'WIN 9 $9EFF')),
+            ('a bank too full for its top', [user(other=False), farcall_with(), placer()],
+             TOP.replace('$9EFF', '$8100'))]
 
 
 class Twin(unittest.TestCase):

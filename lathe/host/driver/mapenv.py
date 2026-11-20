@@ -82,6 +82,8 @@ class Env:
     fixed_regions: list = field(default_factory=list)  # `region NAME fixed`: the regions said to be
                                                        # in fixed memory (build.compiler_options)
     dynamic_regions: list = field(default_factory=list)  # `region NAME WIN N dynamic` (also in regions)
+    main_regions: list = field(default_factory=list)  # `region NAME WIN N dynamic main` (also in
+                                                      # dynamic_regions): in main RAM alone
     placer: Optional[str] = None                 # `placer MODULE` (lathe/host/lk_dyn.py)
     rooms: dict = field(default_factory=dict)    # `region NAME WIN N dynamic VARIABLE`: NAME's
                                                  # capacity variable
@@ -155,8 +157,12 @@ def parse_env(text, path='<env>'):
         elif key == 'region' and len(args) >= 4 and args[3].lower() == 'dynamic':
             env.regions.append(args[0].lower())
             env.dynamic_regions.append(args[0].lower())
-            if len(args) >= 5:
-                env.rooms[args[0].lower()] = args[4]
+            room = args[4:]
+            if room and room[0].lower() == 'main':
+                env.main_regions.append(args[0].lower())
+                room = room[1:]
+            if room:
+                env.rooms[args[0].lower()] = room[0]
         elif key == 'region' and len(args) == 2 and args[1].lower() == 'fixed':
             env.fixed_regions.append(args[0].lower())
         elif key == 'farcall' and len(args) == 1:

@@ -6,7 +6,8 @@ for test_bbc_rooms.py and test_gen_program.py:
 
 `locals` is lk_name.MAX_LOCALS (the rows of lk_name.local), `slots` lk_tab.MAX_SLOTS (of slot_sz
 and slot_weight) and `calls` lk_tab.MAX_EDGES (of edge_word): what the twins call local_rows,
-slot_rows and edge_rows. Every other capacity is the full build's.
+slot_rows and edge_rows. Every other capacity is the full build's, or with LATHE_LK_SMALL=2 the
+32K build's (LKSMALL 2), as the image for machines with no sideways RAM has them (test_bbc_image_b.py).
 """
 import os
 import sys
@@ -35,7 +36,13 @@ def setting(capacities):
 
 if __name__ == '__main__':
     import lk_small
-    lk_small.load_values(values(os.environ['LATHE_LK_CAPACITIES']))
+    given = values(os.environ['LATHE_LK_CAPACITIES'])
+    if os.environ.get('LATHE_LK_SMALL') == '2':     # the 32K build's other capacities (Image B)
+        base = lk_small.capacities(2)
+        for module, names in given.items():
+            base.setdefault(module, {}).update(names)
+        given = base
+    lk_small.load_values(given)
     import env
     env.start(sys.argv[1:])
     import link

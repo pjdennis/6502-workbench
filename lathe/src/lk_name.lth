@@ -74,7 +74,11 @@ pub const MAX_LOCALS = 4000     ; SYM records in all object files together
 ; lk_name.local_rows rows 768 want 4096 to 4096`: lathe/docs/bbc.md, "The linker's tables on two
 ; banks"): linked with LINKED_LOCALS rows and given local_rows, which the placer writes and the
 ; test of its capacity reads. In every other build it has MAX_LOCALS rows.
+#if LKSMALL == 2   ; (not a capacity of lk_small.py's: the rows the region is linked with)
+const LINKED_LOCALS = 512       ; the image for machines with no sideways RAM: from 512 rows
+#else
 const LINKED_LOCALS = 768
+#end
 pub var local_rows: word
 #else
 const LINKED_LOCALS = MAX_LOCALS

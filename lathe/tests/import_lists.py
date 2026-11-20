@@ -71,8 +71,10 @@ def rom_form(name, settings=None):
 
 
 _ROM_DIR = None
-# The modules that compile differently in a tool's ROM form, and its environment there.
-ROM_FORMS = {'err.lth': 'lathec-bbc', 'lk_err.lth': 'linker-bbc'}
+# The modules that compile differently in a tool's ROM form, and its environment there (lk_place:
+# the window's end for a bank's variables under `#if LKDYN`'s `#else`, which only the ROM forms,
+# LKDYN 0, build).
+ROM_FORMS = {'err.lth': 'lathec-bbc', 'lk_err.lth': 'linker-bbc', 'lk_place.lth': 'linker-bbc'}
 # The modules that compile differently in Image A, the image for every machine with sideways RAM
 # (`#if ROOMS`: the capacities its placer sets), and the settings of its ROM form.
 ADAPT_MODULES = ('kernel.lth', 'inlines.lth')

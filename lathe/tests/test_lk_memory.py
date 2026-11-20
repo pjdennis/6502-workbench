@@ -27,8 +27,11 @@ class Memory(unittest.TestCase):
         # that no function is refused for its number of fix-ups; and 64 for each region's capacity
         # variable (lk_envf.region_room, lk_name.room_def, a word each of 16 regions, 2026-11-20),
         # with which a placer sets a table's size as the program starts; and 128 for the
-        # environment's text that holds their names (lk_envf.TEXT_SIZE, 384 to 512, with LKDYN 1).
-        self.assertLessEqual(lk_memory_report.CEILING, 54144 + 96 * 7 + 512 + 16 * 3 + 2 * 8 + 2 * 2 * 16 + 128)
+        # environment's text that holds their names (lk_envf.TEXT_SIZE, 384 to 512, with LKDYN 1);
+        # and 32 for each bank's `top`, the last address of its variables (lk_envf.bank_top, a word
+        # each of 16 banks, 2026-11-20), which puts a dynamic region's block on a page.
+        self.assertLessEqual(lk_memory_report.CEILING,
+                             54144 + 96 * 7 + 512 + 16 * 3 + 2 * 8 + 2 * 2 * 16 + 128 + 2 * 16)
         self.assertGreaterEqual(lk_memory_report.CEILING, lk_memory_report.BUDGET)
 
     def test_the_compiler_has_room_for_more_functions(self):

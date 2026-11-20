@@ -151,14 +151,15 @@ def compiler_options(env=None, defines=()):
     """lathec's options (lathe/host/README.md, "Command lines") for an environment (a
     mapenv.Env, or None for none) and further defines, each NAME or NAME=NUMBER. An environment
     with `define FIXED_REGIONS 1` also gives -fNAME for each of its `region NAME fixed` entries,
-    so that the blocks of those regions map nothing (lathe/docs/language.md, "Banked data")."""
+    so that the blocks of those regions map nothing (lathe/docs/language.md, "Banked data"), and
+    for each `region NAME WIN N dynamic main`, which the placer puts in main RAM alone."""
     options = []
     if env is not None:
         options.append('-c65c02' if env.cpu else '-c6502')
         options += ['-d' + name + ('' if value is None else f'={value}') for name, value in env.defines]
         told = [value for name, value in env.defines if name.upper() == 'FIXED_REGIONS']
         if told and told[-1] != 0:           # the last define counts; `define FIXED_REGIONS` is true
-            options += ['-f' + name for name in env.fixed_regions]
+            options += ['-f' + name for name in env.fixed_regions + env.main_regions]
     return options + ['-d' + d for d in defines]
 
 

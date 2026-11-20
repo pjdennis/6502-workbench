@@ -125,6 +125,16 @@ def dynamic_of(sym, bank):
     return lk_scan.rdef_region[i]
 
 
+def in_main(sym):
+    """True if sym is a variable or constant data of a region that is `dynamic main`: the placer
+    puts it in main RAM alone, never in sideways RAM, so code may name it without mapping its
+    bank, as code compiled with the region told fixed (-fREGION) does (lk_fix.check_mapped)."""
+    if lk_envf.region_main == 0:
+        return False
+    r = dynamic_of(sym, True)
+    return r != NO_REGION and ((lk_envf.region_main >> r) & 1) != 0
+
+
 def begin():
     """Before the image is written: no place held."""
     global site_count

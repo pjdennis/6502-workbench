@@ -115,6 +115,8 @@ class Program:
     banks: list = field(default_factory=list)
     top: int = 0                # the address after its memory below $8000 (check_himem)
     dynamic: bool = False       # it has dynamic regions: the module's placer serves it (module.asm)
+    main_only: bool = False     # and they are in main RAM alone (`define FIXED_REGIONS 1`: the image
+                                # for machines with no sideways RAM), so the placer probes no slot
 
 
 def memory_top(path):
@@ -167,6 +169,11 @@ def load_program(p, size=BANKS, whole=False):
         p.resident = fh.read()
     p.load = env.code[0]
     p.dynamic = bool(env.dynamic_regions)
+    told = [value for name, value in env.defines if name.upper() == 'FIXED_REGIONS']
+    p.main_only = p.dynamic and bool(told) and told[-1] != 0
+    if env.main_regions and not p.main_only:
+        raise ImageError(f'{where}: a region `dynamic main` needs the placer for main RAM alone '
+                         '(`define FIXED_REGIONS 1`)')
     if not p.resident or p.load < 0x0800 or p.load + len(p.resident) > env.code[1] + 1:
         raise ImageError(f'{where}: the resident image must lie in the code range, from $0800')
     for name, (lo, hi) in (('code', env.code), ('data', env.data)):
@@ -298,6 +305,14 @@ def module_code(programs, lists, home=0, at=FIRST, parts=((0, 0, FIRST),)):
             raise ImageError('a program with dynamic regions needs the image to check HIMEM: the placer '
                              'shares its errors')
         head += 'placer: = $01\n'         # the placer for the programs' dynamic regions (module.asm)
+        dynamic = [p for p in programs if p.dynamic]
+        if all(p.main_only for p in dynamic):
+            head += 'main_only: = $01\n'  # their regions in main RAM alone: no slot probed or used
+        elif any(p.main_only for p in dynamic):
+            raise ImageError('the programs with dynamic regions must all be in main RAM alone (FIXED_REGIONS) '
+                             'or none')
+        else:
+            head += 'probe: = $01\n'      # main RAM's areas, then the free sideways RAM's
     at_home = len(parts) == 1 and parts[0][1] == home
     if at_home:
         head += f'part_at_home: = ${parts[0][2]:04X}\n'     # the one part is in the home bank: no table

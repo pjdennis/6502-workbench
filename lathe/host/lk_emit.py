@@ -38,7 +38,8 @@ def value(n, op):
     """The address the fix-up at lk_fix's cursor stands for in the copy that is node n, addend
     included. op is the opcode of the instruction it is in."""
     ctx = lk_tab.ctx_of(n)
-    lk_fix.check_mapped(lk_fix.held(lk_fix.FX_SYM))
+    if not lk_dyn.in_main(lk_fix.held(lk_fix.FX_SYM)):
+        lk_fix.check_mapped(lk_fix.held(lk_fix.FX_SYM))
     kind = lk_fix.held(lk_fix.FX_KIND)
     add = lk_fix.held(lk_fix.FX_ADD)
     own = lk_fix.held(lk_fix.FX_SLOT) == 0xFF and lk_fix.held(lk_fix.FX_SYM) == lk_fix.cur_sym

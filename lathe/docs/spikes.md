@@ -1230,7 +1230,6 @@ The owner's count from the source (69 and 25 functions, about 490 lines; 44 and 
 
 Every function, with the calls and the cycles of its own code (not its callees') in the self-compile and in the compiler's link. *Region* is the region of its own blocks, or for a function kept only for running inside blocks, every region of the blocks it is reached inside (the error path, `err`, is reached inside four). *Loops (all of it inside)*: kept only for running inside a block, and loops. A count of 0: never entered in that run.
 
-
 **The compiler** (the self-compile, 18 compiles):
 
 | Function | Bytes | Region | Kept for | Loop | Calls | Own cycles |
@@ -1717,3 +1716,36 @@ two banks would get a work area of 644 rows and symbols 2,304, slots 2,304, call
 1,536, 2,304, 1,280); with a third tier, regions that give up steps only when no other can, four,
 three and two banks keep theirs and one bank gets 420 nodes (byte capacities; 388 with planes of
 256 rows), symbols 768, slots 1,024, calls 768.
+
+## Image B, measured (2026-11-20)
+
+What of each tool's main RAM can move as it starts, with every table's code in the ROM banks
+(`FIXED_REGIONS`): a place in a bank cannot be changed (link error 64). From the 32K build's objects
+and map, the banked functions that name a table: the compiler's 64 functions, 4,553 bytes; the
+linker's 3 (`lk_name`'s accessors of `local`), 142 bytes, its other namers being `lk_tab`'s, fixed.
+Variables named by fixed code alone: the compiler's 750 bytes (`rt_frame.stack`, `bbc`'s buffers),
+the linker's 10,392. So the linker's tables move (built: [`bbc.md`](bbc.md), "The image for
+machines with no sideways RAM") and the compiler's cannot; its name heap can start late instead:
+every module of the self-compile compiles to the same files with the heap begun at 2, 1,537 and
+3,001 (the host compiler, the same room above the start). No other of the linker's tables can
+start late: the work area's columns are offsets from 0, the calls' table is 1,536 bytes (all of
+it), the slots are two parallel columns, `local` is indexed by each file's symbol numbers.
+Measured too: the 32K linker with `BBCFS 3` is 19 bytes over its first bank (16,291 judged), and
+fits with `link` in its second (16,091, 16,086, 15,428); Image B's linker compiled with `-f` for its
+slots and calls would be 391 bytes smaller in main RAM, but the linker refuses it (error 62).
+
+**Later the same day: blocks on a page, and the slots and calls in main RAM alone.** On the model of
+the placer (`places.plan`) over Image B's list, each block moved to a page (its low byte `$00`
+instead of `$E0`) and the data range ended at a page: a DFS Model B goes from eight blocks of 512
+bytes to nine (three below `$1F00`, where `$19E0` left room for two), an ADFS machine stays at six.
+Built with `top WIN N $BEFF` (host and twin, the twin's under `LKDYN`): on the DFS machine 512
+symbols, 1,024 slots and 768 calls (wanted so: of nine blocks, 768 and 768 would leave the slots
+below the 32K build's 848), and the generated 25 KB program (502, 807, 726) compiles, links and
+runs there. `dynamic main` for the slots and calls (no error 62 for a region the placer keeps in
+main RAM; told `-f`) took 391 bytes off the resident part and 47 off the list: a tenth block would
+need the data range to end at `$6DFF`, and the data then lack 4 bytes, since `more` takes only the
+variables after the last that fits `data` (the run-time modules' 610 bytes, after `lk_tab`'s work
+area and nodes), and 157 of its bytes stay free. What it gave: `*LLINK`'s start-up 577,353 cycles
+at `$1900` (646,312), 678,564 at `$1F00` (733,069), the `calls` link 20.4 million (21.1, −3 %), and
+434 bytes of the image (3,207 free). The largest generated program on the ADFS machine (512 each):
+6 modules of 21 functions, 15.5 KB, 507 slots; 22 functions a module need 528 and are refused there.

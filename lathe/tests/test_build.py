@@ -192,6 +192,21 @@ class TestBuild(Sources):
             'region SYMS fixed', 'when R region SYMS fixed'))
         self.assertEqual(skipped.fixed_regions, ['names'])
 
+    def test_a_region_in_main_ram_alone_is_told_fixed_too(self):
+        """`region NAME WIN N dynamic main` (lathe/host/README.md, "The environment file"): the
+        placer puts it in main RAM alone, so with FIXED_REGIONS it is told as a fixed region is."""
+        import mapenv
+        text = ('define FIXED_REGIONS 1\ncode $0200 $7FFF\nexit return\nwindow W $8000 $BFFF\n'
+                'switch W bank $FE00 $07\nbank W 1 1\nbank W 2 2\nbank W 3 3\nregion A W 1 dynamic main\n'
+                'region B W 2 dynamic main t.rows rows 256 to 512\nregion C W 3 dynamic t.room\n'
+                'region D fixed\n')
+        env = mapenv.parse_env(text)
+        self.assertEqual((env.dynamic_regions, env.main_regions), (['a', 'b', 'c'], ['a', 'b']))
+        self.assertEqual(env.rooms, {'b': 't.rows', 'c': 't.room'})
+        self.assertEqual(build.compiler_options(env), ['-c6502', '-dFIXED_REGIONS=1', '-fd', '-fa', '-fb'])
+        self.assertEqual(build.compiler_options(mapenv.parse_env(text.replace('FIXED_REGIONS 1', 'FIXED_REGIONS 0'))),
+                         ['-c6502', '-dFIXED_REGIONS=0'])
+
     def test_cli_defines(self):
         main = self.source('hi.lth', '; prints HI\nmodule hi\n')
         keep = os.path.join(self.dir, 'keep')

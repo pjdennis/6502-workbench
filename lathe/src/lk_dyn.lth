@@ -26,8 +26,8 @@ module lk_dyn
 import lk_alloc (data_end, more_end)
 import lk_boot (places_addr)
 import lk_envf (bank_value, code_hi, code_lo, data_hi, data_lo, fail_text, has_more, more_hi,
-                more_lo, region_bank, region_count, region_dynamic, region_room, room_ceiling,
-                room_floor, room_planes, room_rows, room_want)
+                more_lo, region_bank, region_count, region_dynamic, region_main, region_room,
+                room_ceiling, room_floor, room_planes, room_rows, room_want)
 import lk_err (begin, E_CODE_FULL, E_DYNAMIC, E_ENV_ENTRY, E_SITES, fail, finish, over)
 import lk_fix (cur_sym, FX_ADD, FX_KIND, FX_SYM, held, is_word, K_BANK, K_HIGH, K_REACH_HIGH)
 import lk_name (fail, fail_in, room_def)
@@ -89,6 +89,18 @@ func dynamic_of(sym: word, bank: bool): byte
     return NO_REGION
   end
   return lk_scan.rdef_region[i]
+end
+
+; True if sym is a variable or constant data of a region that is `dynamic main`: the placer puts
+; it in main RAM alone, never in sideways RAM, so code may name it without mapping its bank, as
+; code compiled with the region told fixed (-fREGION) does (lk_fix.check_mapped).
+pub func in_main(sym: word): bool
+  var r: byte
+  if lk_envf.region_main == 0 then
+    return false
+  end
+  r = dynamic_of(sym, true)
+  return r != NO_REGION and ((lk_envf.region_main >> r) & 1) != 0
 end
 
 ; Before the image is written: no place held.

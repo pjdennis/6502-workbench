@@ -67,7 +67,13 @@ func value(n: word, op: byte): word
   var moved: word
   var is_call: bool
     ctx = lk_tab.ctx_of(n)
+#if LKDYN
+  if not lk_dyn.in_main(lk_fix.held(lk_fix.FX_SYM)) then
+    lk_fix.check_mapped(lk_fix.held(lk_fix.FX_SYM))
+  end
+#else
   lk_fix.check_mapped(lk_fix.held(lk_fix.FX_SYM))
+#end
   kind = lo(lk_fix.held(lk_fix.FX_KIND))
   add = lk_fix.held(lk_fix.FX_ADD)
   own = lk_fix.held(lk_fix.FX_SLOT) == $FF and lk_fix.held(lk_fix.FX_SYM) == lk_fix.cur_sym
