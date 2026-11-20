@@ -1924,10 +1924,58 @@ functions ([`spikes.md`](spikes.md), "One bank, measured"). Of a generated progr
 both filing systems; at 84 the members are full (error 72). The 32K Model B's build compiles
 modules of about 30 functions.
 
+### The linker's tables (2026-11-20, later): three banks, and what fewer need
+
+**Built.** Image A's linker regions are in an order that packs them into three slots
+(`linker-bbc.env`, `ADAPT`): `LKWORK` (14,400 bytes) alone, `LKLOCAL` (8,000, from `$8060`) and
+`LKSLOTS` (8,256, from `$9FA0` to `$BFDF` exactly) together, `LKCALLS` (8,992) and `LKNODES`
+(3,600) together. So a Model B with three banks runs `*LLINK` at full capacities and links the
+compiler, every file the host linker's, in 3,024.3 million cycles, as on the B+128
+(`test_bbc_rooms.TheLinkerOnThreeBanks`). No code changed for it.
+
+And the placer finds the region that gives up steps in one walk (the last before the one that
+gave up last that can, else the last of all that can) and probes no slots for that walk: the
+start-up with two banks 1.55 million cycles (2.34 million before), with one bank 2.6 million (7.8).
+That is what had made the self-compile with two banks 905.3 million cycles: each of its 18
+commands started in 1.33 million cycles more than with four banks, the halvings of the name
+heap's 51 steps each costing up to eight walks of the list. Now 891.1 million (877.4 with group
+2's placer, which tried far less: the rest is the walks that remain, about 0.54 million a command,
+and 512 symbols' rows against 560).
+
+**Not built: fewer than three banks** (`*LLINK` refused, `Too little sideways RAM`). What it needs:
+
+- The linker's tables are not planes of one size a region. `LKWORK` and `LKNODES` are one word
+  array, the work area, split at `W_SPLIT`, whose columns are at offsets in its index made of
+  `MAX_NODES`, `MAX_FIXES`, `MAX_EDGES` and `MAX_FUNCS` (`W_ADDR = 6 * MAX_FIXES`, `W_OWN = 7 *
+  MAX_NODES`, `W_WCALL`, `W_START`...): constants in the index arithmetic of `wk()` and its
+  callers, not addends of fix-ups, so the placer's planes cannot move them. Its 18,000 bytes stay
+  whole, and one bank (16,352 bytes and little main RAM: the linker's variables take main RAM
+  to `$7B23`) cannot hold them. One bank needs the work area's offsets made at start-up from
+  capacity variables: about 115 uses of the `W_` offsets in the linker's code (51 of them in
+  `lk_tab`), an estimated 300 to 500 bytes of its banks, which have 27, 1,079 and 388 free as
+  judged.
+- With two banks (32,704 bytes) the regions must give up about 10.5 KB of their 43,248. The work
+  area cannot; the others could: `lk_name.local` (8,000, a word array with `rows`: two planes),
+  `LKCALLS` (`edge_word`, 3,600 rows of a word, and `fn_edge`, 896 rows), `LKSLOTS`
+  (`slot_sz` and `slot_weight`, 4,000 rows of a byte, and `big_slot` and `big_size`, 64 rows of
+  a word). Two of these regions hold variables of different row counts, which the planes as built
+  (one row count a region) cannot shrink. The options: (a) the planes per variable, each variable
+  of a region its own plane size and steps (the list a header a variable, the placer's layout of
+  the block a variable at a time: an estimated 100 to 150 bytes of the module's code, of the 636
+  free); (b) more regions in the linker's source (`fn_edge` and the big slots each a region of
+  their own), which changes every linker build's environment and layout; (c) half the rows of
+  each table in Image A as linked, so that two banks hold them without shrinking (a loss for four
+  banks: the compiler's link needs 799 functions of 896). With (a) or (b) the capacity tests of
+  `MAX_LOCALS`, `MAX_EDGES`, `MAX_FUNCS` and `MAX_SLOTS` read variables, an estimated 30 to 40
+  bytes of the linker's banks, in `lk_scan` and `lk_name` (bank 6, 1,079 free) and `lk_alloc` and
+  `lk_graph` (bank 7, 388). With half of those tables two banks would link programs of about the
+  32K build's size or more (functions about 448, slots 2,000, calls 1,800), not the compiler
+  (799 functions).
+
 ### What is not done
 
-- The linker's tables set at start-up (with fewer than four banks `*LLINK` is refused), the
-  Master, and the rest of the probing policy: stage 2's next parts.
+- The linker with fewer than three banks (above: options for the owner), the Master, and the
+  rest of the probing policy: stage 2's next parts.
 - Image B, the bare 32K Model B: stage 3.
 - The module's own check: it copies the resident part to `$1F00` before the tool's `PAGE too high`;
   with PAGE above `$1F00` that copy writes below PAGE. The module should refuse PAGE above a

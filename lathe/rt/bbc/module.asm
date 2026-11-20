@@ -138,15 +138,20 @@ p_planed: = $0155
 p_grant: = $0156               ; the bytes the block is given
 p_most: = $0158                ; the most an area gives so far (p_take_most)
 p_best: = $015A
-p_mode: = $015B                ; what a walk does: 0 tries, 1 places, 2 halves p_target's steps
-p_target: = $015C
+p_mode: = $015B                ; what a walk does: 0 tries, 1 places, 2 has a region give up steps
+p_found: = $015C               ; mode 2: not 0 once a region before p_turn can give up steps
 p_turn: = $015D                ; the region whose steps were halved last
-p_halved: = $015E              ; not 0 once p_target gave up steps
+p_any_idx: = $015E             ; mode 2: the last region that can give up steps, or $FF
 p_list: = $015F                ; the list after its first two words
 p_total: = $0161               ; the regions of the list
 p_want: = $0162                ; with a capacity: the steps it gives up last
 p_tier: = $0163                ; 0: regions give up steps down to their wants; 1: below them
-p_probe_ram: = $0164           ; the probe of a slot, copied there from probe_code (below)
+p_cand_at: = $0164             ; mode 2: where the steps are of the last region before p_turn
+p_cand_val: = $0166            ; that can give up some, what they become, and its number
+p_cand_idx: = $0167
+p_any_at: = $0168              ; and the same of the last region of all that can
+p_any_val: = $016A
+p_probe_ram: = $016B           ; the probe of a slot, copied there from probe_code (below)
 
 ; ---- every bank: the header and the service code ----
 * = $8000
@@ -511,7 +516,7 @@ refuse:
 ; writing: each capacity variable (what it holds at the least and 256 a step, or the bytes over
 ; the least), the pages moved added to each high byte the list names (in a region of planes, and
 ; the steps again for each plane before the byte's own), and each of its blocks' banks the slot
-; it is in, or the module's own slot ($F4 now) in main RAM. Its variables are at $0100-$0160 and
+; it is in, or the module's own slot ($F4 now) in main RAM. Its variables are at $0100-$016A and
 ; the probe after them, the bottom of the stack's page, which nothing uses while a tool starts
 ; (an error copied to $0100 ends it). It ends through `claim`.
 place:
@@ -555,29 +560,13 @@ place:
   STA p_mode
   JSR p_walk
   BCC .fits
-  LDA #$00                     ; a region gives up half its steps over its want, each in turn,
-  STA p_tier                   ; at most once; if none has steps over its want, half its steps
-.tier:
-  LDX p_total
-.halve:
-  TXA
-  PHA
-  LDA p_turn                   ; the region before the last one asked, or the last
-  BNE .before
-  LDA p_total
-.before:
-  SEC
-  SBC #$01
-  STA p_turn
-  STA p_target
+  LDA #$00                     ; a region gives up half its steps over its want, the one before
+  STA p_tier                   ; the last that did, round and round; if none has steps over its
+.tier:                         ; want, half its steps
   LDA #$02
   STA p_mode
   JSR p_walk
-  PLA
-  TAX
   BCC .try
-  DEX
-  BNE .halve
   LDA p_tier
   BNE .none
   INC p_tier
@@ -591,21 +580,24 @@ place:
   JSR p_walk
   JMP claim
 
-; One walk of the regions of the list (p_mode: 0 tries, 1 places and writes, 2 halves the steps of
-; region p_target): the carry clear if every region was placed (modes 0 and 1) or p_target gave
-; up steps (mode 2), else set.
+; One walk of the regions of the list (p_mode: 0 tries, 1 places and writes, 2 has the last region
+; before p_turn that can give up steps give up half of them, or if none can the last of all that
+; can, and makes it p_turn): the carry clear if every region was placed (modes 0 and 1) or a
+; region gave up steps (mode 2), else set.
 p_walk:
   LDA p_list
   STA w0
   LDA p_list+1
   STA w1
-  JSR p_find                   ; the free areas
+  JSR p_find                   ; the free areas (in mode 2 the list's are only read past)
   JSR p_byte                   ; each region: its bank's value, its block, its capacity variable,
   STA p_regions                ; its high bytes and its blocks' banks
   STA p_total
   LDA #$00
   STA p_index
-  STA p_halved
+  STA p_found
+  LDA #$FF
+  STA p_any_idx
 .region:
   LDA p_regions
   BEQ .end
@@ -619,9 +611,29 @@ p_walk:
   CMP #$02
   CLC
   BNE .done                    ; every region placed
-  LDA p_halved
-  BNE .done                    ; the carry clear: it gave up steps
-  SEC
+  LDA p_found                  ; mode 2: the region before p_turn, or the last of all
+  BNE .give
+  LDA p_any_idx
+  CMP #$FF
+  BEQ .done                    ; none can: the carry set
+  STA p_cand_idx
+  LDA p_any_at
+  STA p_cand_at
+  LDA p_any_at+1
+  STA p_cand_at+1
+  LDA p_any_val
+  STA p_cand_val
+.give:
+  LDA p_cand_at
+  STA w2
+  LDA p_cand_at+1
+  STA w3
+  LDA p_cand_val
+  LDY #$00
+  STA (w2),Y
+  LDA p_cand_idx
+  STA p_turn
+  CLC
 .done:
   RTS
 
@@ -670,10 +682,7 @@ p_region:
   LDA p_mode
   CMP #$02
   BNE .placing
-  LDA p_index                  ; mode 2: the target gives up half its steps, if it has some
-  CMP p_target
-  BNE .skip
-  LDA p_steps
+  LDA p_steps                  ; mode 2: what its steps would become, if it can give some
   CMP #$FF
   BEQ .skip                    ; no most
   LDX p_tier
@@ -691,15 +700,23 @@ p_region:
   BEQ .skip
   LSR
 .halved:
-  TAX
-  LDA p_steps_at
-  STA w2
-  LDA p_steps_at+1
-  STA w3
-  TXA
-  LDY #$00
-  STA (w2),Y
-  INC p_halved
+  STA p_any_val                ; the last of all that can, so far
+  LDX p_steps_at
+  STX p_any_at
+  LDX p_steps_at+1
+  STX p_any_at+1
+  LDX p_index
+  STX p_any_idx
+  CPX p_turn
+  BCS .skip                    ; not before p_turn
+  STA p_cand_val               ; the last before p_turn that can, so far
+  LDX p_steps_at
+  STX p_cand_at
+  LDX p_steps_at+1
+  STX p_cand_at+1
+  LDX p_index
+  STX p_cand_idx
+  INC p_found
 .skip:
   JMP .places
 .placing:
@@ -882,6 +899,11 @@ p_find:
   SBC #$00
   STA w5
   JSR p_add_main
+  LDA p_mode
+  CMP #$02
+  BNE .probe
+  RTS                          ; mode 2 places nothing
+.probe:
   LDX #probe_code_end-probe_code-$01
 .copy:
   LDA probe_code,X

@@ -364,5 +364,59 @@ class OnTheBBC(unittest.TestCase):
             self.assertTrue(compiled)
 
 
+@unittest.skipUnless(os.path.isfile(support.EMULATOR), 'emulator missing')
+class TheLinkerOnThreeBanks(unittest.TestCase):
+    """The linker's five regions packed into three slots (lathe/src/linker-bbc.env's order):
+    *LLINK starts on a Model B with three banks of sideways RAM and is refused with two; with
+    LATHE_BBC_ROOMS_SELFHOST=1 it links the compiler there, every file the host linker's."""
+
+    @classmethod
+    def setUpClass(cls):
+        import test_bbc_adapt
+        cls.dir = tempfile.mkdtemp(prefix='lathe-bbc-rooms-link-')
+        cls.tools, cls.account, cls.image, cls.listing = test_bbc_adapt.build_image(cls.dir)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_three_banks_are_enough(self):
+        import dataclasses
+        import boards
+        import test_bbc_rom128 as rom128
+        base = boards.BOARDS['bbc']
+        for ram, starts in (('8,9,10', True), ('8,9', False)):
+            board = dataclasses.replace(base, options=base.options + ('--bbc-model', 'b', '--bbc-sideways-ram', ram))
+            with self.subTest(ram=ram), rom128.scheme(), tempfile.TemporaryDirectory() as d:
+                code, out, err, cycles = boards.run_module(board, self.image, d, 'LLINK', raw=True)
+                self.assertEqual(b'usage: link' in out, starts)
+                self.assertEqual(b'Too little sideways RAM' in out + err, not starts)
+
+    @unittest.skipUnless(SELFHOST, 'LATHE_BBC_ROOMS_SELFHOST=1 has the linker link the compiler on three banks')
+    def test_the_linker_links_the_compiler_on_three_banks(self):
+        import boards
+        import test_bbc_adapt
+        import test_bbc_rom128 as rom128
+        import test_bbc_selflink as selflink
+        import test_bbc_toolchain as chain
+        for page in ('1900', '1F00'):
+            with test_bbc_adapt.machine(page, model=('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10')), \
+                    rom128.scheme():
+                name, source, env = selflink.TOOLS[0]
+                work = os.path.join(self.dir, 'link-%s' % page)
+                disk, compiles, link, files = selflink.prepare(name, source, env, work)
+                for f in files:
+                    if f.endswith('.lo'):
+                        shutil.copy(os.path.join(work, 'host', f), disk)
+                lines = [boards.module_command('LLINK', ['@' + selflink.COMMAND_FILE])]
+                status, out, mos, written, cycles, traffic = chain.bbc_run(self.image, disk, lines)
+                self.assertEqual((status, out, mos), (0, b'', b''))
+                print('\nImage A, three banks, PAGE &%s: the linker links the compiler in %d cycles' % (page, cycles))
+                expected = selflink.link_outputs(files)
+                self.assertEqual(sorted(written), sorted(expected))
+                for f in expected:
+                    self.assertTrue(written[f] == expected[f], f + ' differs')
+
+
 if __name__ == '__main__':
     unittest.main()
