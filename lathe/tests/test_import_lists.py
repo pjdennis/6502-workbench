@@ -156,6 +156,17 @@ def listed_files():
 
 
 class ListsTest(unittest.TestCase):
+    def test_the_linkers_modules_are_compiled_in_image_as_form_too(self):
+        """Each of the linker's twins is compiled in Image A's ROM form (linker-bbc with ADAPT 1,
+        ADFS 1), as kernel and inlines are in the compiler's, so that a name it uses only under
+        `#if LKROOMS` (the capacities set as that image's linker starts) is in its lists."""
+        src = os.path.join(support.LATHE, 'src')
+        twins = sorted(glob.glob(os.path.join(src, 'lk_*.lth'))) + [os.path.join(src, 'link.lth')]
+        form = os.path.basename(import_lists.rom_form(*import_lists.ADAPT_LINKER_FORM))
+        for path in twins:
+            with self.subTest(module=os.path.basename(path)):
+                self.assertIn(form, [os.path.basename(e) for e in import_lists.configs(path)])
+
     def test_the_twins_test_programs_and_run_time_modules_have_the_lists_the_tool_writes(self):
         """`import_lists.py --check` on them: a list that is not what the compiler finds used is
         out of date (lathe/docs/language.md, "Modules")."""

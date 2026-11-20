@@ -77,6 +77,9 @@ ROM_FORMS = {'err.lth': 'lathec-bbc', 'lk_err.lth': 'linker-bbc'}
 # (`#if ROOMS`: the capacities its placer sets), and the settings of its ROM form.
 ADAPT_MODULES = ('kernel.lth', 'inlines.lth')
 ADAPT_FORM = ('lathec-bbc', {'ADFS': 1, 'ADAPT': 1})
+# The settings of the linker's ROM form there, in which every one of the linker's modules is
+# compiled too (`#if LKROOMS`: the capacities its placer sets).
+ADAPT_LINKER_FORM = ('linker-bbc', {'ADFS': 1, 'ADAPT': 1})
 BOARD_ENVS = [os.path.join(LATHE, 'env', e + '.env')
               for e in ('host', 'michael', 'wendy2', 'wendy2disk', 'bbc', 'bbc-bank', 'bbc-rom', 'bbc-dfs')]
 IMPORT = re.compile(r'^(\s*)import\s+([A-Za-z][A-Za-z0-9_]*)\s*(\(?)', re.I)
@@ -128,12 +131,14 @@ def configs(path):
     if os.path.dirname(os.path.abspath(path)) == RT_BBC:
         return [e for e in BOARD_ENVS + COMPILER_ENVS + LINKER_ENVS if is_bbc(e)]
     if os.path.dirname(os.path.abspath(path)) == SRC:
+        linker = name.startswith('lk') or name == 'link.lth'
+        adapt = [rom_form(*ADAPT_LINKER_FORM)] if linker else []
         if name in ROM_FORMS:
-            return (LINKER_ENVS if name.startswith('lk') else COMPILER_ENVS) + [rom_form(ROM_FORMS[name])]
+            return (LINKER_ENVS if linker else COMPILER_ENVS) + [rom_form(ROM_FORMS[name])] + adapt
         if name in ADAPT_MODULES:
             return COMPILER_ENVS + [rom_form(*ADAPT_FORM)]
-        if name.startswith('lk') or name == 'link.lth':
-            return LINKER_ENVS
+        if linker:
+            return LINKER_ENVS + adapt
         if name == 'sys.lth':
             return COMPILER_ENVS + LINKER_ENVS
         if name in ('modload.lth', 'txtpack.lth'):

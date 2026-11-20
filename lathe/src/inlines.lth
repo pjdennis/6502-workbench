@@ -74,9 +74,9 @@ import kernel (byte_of, C_KIND, C_LINK, C_MEMBERS, C_NAME, C_RESULTS, C_TYPE, C_
                word_of)
 import src (name, open_saved)                      ; before lex, whose interface imports it too
 import lex (col, line, MAX_COLUMN, next, SAVED_LINE, string_byte, string_length, T_ADDRESS, T_ARROW,
-            T_ASM, T_ASSIGN, T_CASE, T_COMMA, T_CRITICAL, T_DOT, T_END, T_EOF, T_FOR, T_HASH_IF,
-            T_IF, T_LBRACKET, T_LOOP, T_LPAREN, T_NAME, T_NL, T_NUMBER, T_RBRACKET, T_RETURN,
-            T_SHR_ASSIGN, T_STATIC, T_STRING, T_UNTIL, T_VAR, T_WHILE, T_WITH, tok, value)
+            T_ASM, T_ASSIGN, T_CASE, T_COMMA, T_CRITICAL, T_DO, T_DOT, T_END, T_EOF, T_FOR,
+            T_HASH_IF, T_IF, T_LBRACKET, T_LOOP, T_LPAREN, T_NAME, T_NL, T_NUMBER, T_RBRACKET,
+            T_RETURN, T_SHR_ASSIGN, T_STATIC, T_STRING, T_UNTIL, T_VAR, T_WHILE, T_WITH, tok, value)
 import reg (depth, F_DATA, F_TEMP, INDEX, M_DIRECT, O_CONST, O_VAR, op_flags, op_kind, op_mode,
             op_slot, op_symbol, op_type, op_value, op_var, own, pop, slot_busy, swap, temp)
 import typetab (is_pointer, size)
@@ -350,6 +350,7 @@ pub func save(f: word)
   var i: byte
   var at_line: word
   var blocks: sbyte             ; how many blocks are open
+  var heading: bool             ; in a `for`'s heading, whose `until` closes no block
   var last: byte                ; the first token of the last statement at the outermost level
   var before: byte              ; the token before the current one, and its value
   var before_value: word
@@ -371,6 +372,7 @@ pub func save(f: word)
   scan_index = 0
   at_line = lex.line
   blocks = 0
+  heading = false
   last = lex.T_NL
   before = lex.T_NL
   before_value = 0
@@ -432,7 +434,10 @@ pub func save(f: word)
       end
     elif opens_block(token) then
       blocks += 1
-    elif token == lex.T_END or token == lex.T_UNTIL then
+      heading = token == lex.T_FOR
+    elif token == lex.T_DO then
+      heading = false
+    elif token == lex.T_END or (token == lex.T_UNTIL and not heading) then
       blocks -= 1
     end
     dotted = kernel.NO_SYM

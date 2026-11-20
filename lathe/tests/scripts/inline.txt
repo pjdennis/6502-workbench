@@ -188,6 +188,32 @@ begin 0
 tokens
 leave
 
+== loops in a body: the until of a for closes no block, the until of a loop does; each inside the other, in an if, and for ... to and while
+func g 0 16 2 1 1 0 1 0 1 0     ; 0: g(a: byte, b: byte): byte
+params 0 a b
+line   loop
+line     for b = 0 until a do
+line       loop
+line         a += 1
+line       until a > 3
+line     end
+line   until a == 9
+line   if a > 2 then
+line     for b = a until 9 do
+line       while a < b do
+line         for a = 1 to b do
+line         end
+line       end
+line     end
+line   end
+line   return a
+line end
+line   return 0
+line end
+open
+save 0
+next
+istate
 == what a body assigns to, and whether it is pure (1): a parameter assigned alone; one variable of the program, twice; two variables of the program; an element of a variable of the program; an element of a pointer; a parameter as the variable of for
 sym 4 0 0 1 0 total             ; 0
 sym 4 0 0 1 0 count             ; 1

@@ -275,6 +275,7 @@ def save(f):
     scan_index = 0
     at_line = lex.line
     blocks = 0                  # how many blocks are open
+    heading = False             # in a `for`'s heading, whose `until` closes no block
     last = lex.T_NL             # the first token of the last statement at the outermost level
     before = lex.T_NL           # the token before the current one, and its value
     before_value = 0
@@ -327,7 +328,10 @@ def save(f):
                 scan_close = scan_index
         elif opens_block(token):
             blocks += 1
-        elif token == lex.T_END or token == lex.T_UNTIL:
+            heading = token == lex.T_FOR
+        elif token == lex.T_DO:
+            heading = False
+        elif token == lex.T_END or (token == lex.T_UNTIL and not heading):
             blocks -= 1
         dotted = kernel.NO_SYM
         if token == lex.T_DOT:

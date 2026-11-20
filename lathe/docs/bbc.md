@@ -2070,10 +2070,101 @@ image's bytes changed by them: **1,218 bytes free** with `BBCFS 3`; the linker's
 16,054, 15,060 and 15,423, the compiler's 13,710, 15,202, 13,934, 12,104 and 14,395; with `LKDYN 1`
 the linker 2,595 bytes over ([`spikes.md`](spikes.md), "The linker's ROM space, measured").
 
+### The linker on one bank: measured, not built (2026-11-20, later)
+
+With one bank `*LLINK` still stops with `Too little sideways RAM`: the work area (`LKWORK` and
+`LKNODES`, 18,000 bytes) has one size, and with the other tables at their floors (10,768 bytes
+with `LKNODES`) it does not fit 16,352 bytes and the little main RAM the linker leaves. One bank
+needs fewer rows in the node columns, so the work area's offsets set as the tool starts. That was
+designed, built as a prototype and measured; it needs about twice the ROM it was given (about 600
+bytes, with a stop at 800) and would make the link of the compiler on four banks slower by more
+than 1 %, so it was not built out. The prototype is kept outside the repository. The choice is
+the owner's (below).
+
+**The design measured.** Under `#if LKROOMS` every offset of the work area that depends on the
+node rows is a variable of the same name, which every other build has as the constant it is
+(those builds compile to the same bytes): in `lk_tab` `W_SCC` to `WORK_SIZE`, `W_SPLIT`, `W_SNAME`
+and the chains' `W_WCALL`, `W_START`, `W_NEXT` (from `edge_rows`); `lk_graph`'s `STACK_EDGE`,
+`FOUND`, `SEEN`, `LOW`, `NAMED`, `NOW`, `LATER`; `lk_alloc`'s `LAY_END`, `LAY_SIZE`, `LAY_DOWN`,
+`CHAIN`, `WEIGHT_COUNT`, `CAND`, `LIST` and `MAX_TAKEN` (what the column of main memory bases leaves
+after `LIST`); `lk_name`'s heap end. `lk_tab.size_work`, called first by `link.main`, and a
+`size_columns` at the start of `lk_graph.build` and `lk_alloc.allocate`, make them from the bytes the
+placer gives the two tables (`region LKWORK WIN 22 dynamic lk_tab.work_room from 4928 to 14400`,
+`LKNODES` likewise): node rows the smaller of `work_room / 16` and `nodes_room / 4`, and the
+functions no more than the nodes (node f is function f's first copy). `MAX_FIXES` is a constant
+366 in Image A, what the least work area leaves below `W_OWN` for the fix-ups, `W_ADDR`'s column
+and the slot's name, so the fix-ups' columns and `W_ADDR` stay constants (making them vary too cost
+about 370 bytes more); no function of the compiler has more than 258 fix-ups and the compiler
+writes at most 256 in a table, so it changes no output and no run of the corpus, but it is a
+capacity of four banks (512) made smaller, and the names of an object file for the map's F, D and
+V lines have 2,196 words (3,072). The S lines' names are held below `W_ADDR`, as in the 32K build
+(`SLOTS_LOW` 1).
+
+**What it costs** (the code of each module as compiled, against the tree before; `BBCFS 0`):
+
+| Module | More bytes | Of them, the offsets made at start-up |
+|---|---|---|
+| `lk_tab` (resident) | 462 | 357 (`size_work`) |
+| `lk_alloc` | 304 | 168 |
+| `lk_graph` | 236 | 94 |
+| `lk_name` | 50 | |
+| `lk_map`, `lk_fix`, `lk_boot`, `lk_emit`, `lk_place`, `lk_scan`, `link` | 66 | |
+| **in all** | **1,118** | **619** |
+
+The banks as judged 15,182, 15,139 and 15,886 (15,145, 15,060, 15,423: bank 3 386 left); the
+resident part does not fit main RAM (link error 27, the code range 159 bytes over), and with
+`BBCFS 3` the first bank is 5 bytes over. Each offset made at start-up compiles to about 19 bytes;
+each use of one costs 2 bytes more as a number (`ADC abs` for `ADC #`), about 11 more where a
+column was reached directly (`work[W_SCC + n]` folds a constant offset into the address, a variable
+one is added at run time), and branches lengthen.
+
+**What it would cost in time** (an estimate, not run): the host linker linking the compiler calls
+`wk` 4.73 million times (0.98 million of them in the node columns) and `set_wk` 0.73 million; 1 %
+of the link (3,006 million cycles) is about 5 cycles a call. The split compared with a variable
+alone is 4 cycles more a call (about 22 million), the node columns' index taken from a variable
+about 12 million, the offsets added from variables about 20 million, and the direct readers
+(`scc_of`, `order_at`, `end_of` and their kin) more: about 2 to 3 % in all.
+
+**The placer needs a third tier** whatever the design. With today's rule a capacity on `LKWORK`
+and `LKNODES` changes what two banks get: in the model their work area gives up steps while the
+others are halved below their wants (work 644 rows, symbols 2,304, slots 2,304, calls 2,048). With
+regions marked to give up last (a new word in the entry, the want byte `$FF` in the list; about 15
+bytes of `module.asm`, estimated, and `places.py`), which give up steps only when no other region
+can, four, three and two banks keep what they have, and one bank (under the DFS and ADFS alike)
+would get, by the model:
+
+| | Nodes and functions | Symbols of the object files | Slots | Calls |
+|---|---|---|---|---|
+| one bank (byte capacities) | **420** | 768 | 1,024 | 768 |
+| one bank (planes of 256 rows) | 388 | 768 | 1,024 | 768 |
+| the 32K Model B's build | 300 and 296 | 640 | 848 | 768 |
+
+About 1.4 KB of the bank stays unused there; main RAM below `$1F00` holds no table at those sizes.
+
+**The options, for the owner:**
+
+- **A, as measured:** about 1,100 bytes and 2 to 3 % slower (estimated). `size_work` in a bank
+  would bring the resident part's growth to about 105 bytes, not the whole.
+- **B, A with `LKWORK` and `LKNODES` as planes** linked at their least (388 rows): the columns
+  reached directly keep constant offsets, which the placer moves with the planes. It needs `rows N`
+  allowed when N is not a whole number of pages (`lk_envf`, host and twin, under `LKDYN`), and the
+  nodes then come in steps of 256 (388, 644, 900). About 950 bytes and 1.5 % slower (estimated).
+- **C, B with the node columns at a constant index** (7,200) whatever the rows, so that `wk`,
+  `set_wk` and the node columns' functions do not change: the index then has a gap below 7,200 on
+  a machine with fewer rows, and the name heap must end with `work` there, which the host linker
+  must be told by a constant of its own. 750 to 800 bytes and about 0.7 % slower (estimated); the
+  only one near both limits, and the most intricate.
+- **Room found elsewhere first**: the bank on the stack in `with` blocks (0.5 KB, estimated), or
+  the candidates not built of [`spikes.md`](spikes.md), "The linker's ROM space, measured" (about
+  440 bytes estimated outside `lk_dyn`, which the ROM forms do not link; `BRK n` for the error calls
+  was counted there at 87 bytes and rejected), would pay for A or B in bytes, not in time.
+- **One bank compiles, does not link**: Image A's `*LLINK` stays refused with one bank, and a
+  program is linked elsewhere (or with the 32K image, a separate EPROM).
+
 ### What is not done
 
-- The linker with one bank (the work area's column offsets set at start-up: for the owner,
-  "The linker's tables"), the Master, and the rest of the probing policy: stage 2's next parts.
+- The linker with one bank: measured, not built, the choice the owner's ("The linker on one bank:
+  measured, not built"). The Master, and the rest of the probing policy: stage 2's next parts.
 - Image B, the bare 32K Model B: stage 3.
 - The module's own check: it copies the resident part to `$1F00` before the tool's `PAGE too high`;
   with PAGE above `$1F00` that copy writes below PAGE. The module should refuse PAGE above a

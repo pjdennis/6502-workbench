@@ -1,0 +1,87 @@
+; Loops inside the body of an inline function, which is saved as tokens until its `end`: a
+; `for ... until` (whose `until` closes no block, unlike a `loop ... until`'s), alone, inside a
+; `loop ... until` and an `if`, and with a `loop ... until` inside it; and `for ... to`, `while`
+; and `loop ... until` directly inside one another (2026-11-20: a `for ... until` ended the body
+; early, error 33 at the next statement).
+module inline_loops
+
+import libout
+
+; 0 + 1 + ... + (n - 1)
+inline func sum_until(n: byte): word
+  var i: byte
+  var s: word = 0
+  for i = 0 until n do
+    s += i
+  end
+  return s
+end
+
+; n at least 1
+inline func nested(n: byte): word
+  var i: byte
+  var j: byte
+  var s: word = 0
+  j = 0
+  loop
+    for i = 0 until j do
+      s += 1
+    end
+    j += 1
+  until j == n
+  if n > 2 then
+    for i = 0 until n do
+      s += 10
+    end
+  end
+  for i = 0 until n do
+    j = 0
+    loop
+      j += 1
+      s += 100
+    until j >= i
+  end
+  return s
+end
+
+inline func siblings(n: byte): word
+  var i: byte
+  var k: byte
+  var s: word = 0
+  k = 0
+  while k < n do
+    for i = 1 to k do
+      s += 1
+    end
+    k += 1
+  end
+  for i = 0 to 2 do
+    k = 0
+    while k < i do
+      s += 10
+      k += 1
+    end
+  end
+  loop
+    k += 1
+    loop
+      s += 100
+    until true
+  until k >= 5
+  return s
+end
+
+pub func main()
+  libout.dec(sum_until(5))                      ; 10
+  libout.space()
+  libout.dec(nested(4))                         ; 6 + 40 + 700
+  libout.space()
+  libout.dec(nested(2))                         ; 1 + 200
+  libout.space()
+  libout.dec(siblings(4))                       ; 6 + 30 + 300
+  libout.space()
+  libout.dec(siblings(2))                       ; 1 + 30 + 300
+  libout.space()
+  libout.dec(sum_until(3) + nested(4))          ; 3 + 746
+  libout.nl()
+end

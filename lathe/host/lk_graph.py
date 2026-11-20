@@ -421,6 +421,8 @@ def fit_members():
 def make_nodes():
     """A node per copy of a kept function: node f the first copy of f, and the further copies
     after the functions, in function then context order; then one per live class."""
+    # No test of capacity here: every build has no more functions than nodes, MAX_FUNCS <= MAX_NODES
+    # (lathe/tests/test_lk_capacities.py).
     lk_tab.node_count = lk_tab.fn_count
     for f in range(0, lk_tab.fn_count):
         for ctx in range(lk_tab.ctx_count - 1, -1, -1):

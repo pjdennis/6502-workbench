@@ -1693,3 +1693,27 @@ readings of the region definitions), 100 to 200.
 
 **Rejected**: a `JSR` and the `RTS` after it joined, 27 bytes measured; `BRK n` for the error
 calls, 87 bytes counted; repacking the banks, no gain.
+
+## The linker on one bank, measured (2026-11-20)
+
+([`bbc.md`](bbc.md), "The linker on one bank: measured, not built".) The work area's offsets made
+variables under `LKROOMS`, set as the tool starts from the bytes the placer gives `LKWORK` and
+`LKNODES` (a prototype, kept outside the repository; `MAX_FIXES` a constant 366 in Image A, the S
+lines' names held below `W_ADDR`): **about 1,100 bytes** of the linker's code more, as compiled
+(`lk_tab` 462, of which 357 its `size_work`; `lk_alloc` 304, `lk_graph` 236, `lk_name` 50, the rest
+66); 619 of them make the offsets at start-up (about 19 bytes an offset), the rest are their uses
+(2 bytes a use as a number, about 11 where a column was reached directly). With the fix-ups'
+columns made to vary too: 1,521. The banks as judged (`BBCFS 0`) 15,182, 15,139, 15,886 (15,145,
+15,060, 15,423); the resident part 159 bytes over the code range; with `BBCFS 3` bank 1 5 bytes
+over. Not built: the budget was about 600 bytes, with a stop at 800.
+
+Time, estimated from counts of the host linker linking the compiler: `wk` 4.73 million calls (0.98
+million in the node columns), `set_wk` 0.73 million; the split compared with a variable about 22
+million cycles, the node columns' index about 12 million, the offsets from variables about 20
+million, the direct readers more: 2 to 3 % of the 3,006 million, against a limit of 1 %.
+
+The placer's model (`places.plan`) with a capacity on `LKWORK` and `LKNODES`: as the placer is,
+two banks would get a work area of 644 rows and symbols 2,304, slots 2,304, calls 2,048 (now 900,
+1,536, 2,304, 1,280); with a third tier, regions that give up steps only when no other can, four,
+three and two banks keep theirs and one bank gets 420 nodes (byte capacities; 388 with planes of
+256 rows), symbols 768, slots 1,024, calls 768.
