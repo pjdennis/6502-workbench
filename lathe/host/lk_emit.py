@@ -34,15 +34,6 @@ import lk_win
 writing = 0                         # the file being written: 0 the image, or a bank + 1
 
 
-def site(kind, sym, addr):
-    """With a dynamic region: the fix-up just applied, at address `addr`, of this kind and naming
-    sym, as lk_dyn holds or refuses it."""
-    if writing == 0:
-        lk_dyn.note(kind, sym, addr)
-    else:
-        lk_dyn.refuse(kind, sym, lk_fix.cur_sym)
-
-
 def value(n, op):
     """The address the fix-up at lk_fix's cursor stands for in the copy that is node n, addend
     included. op is the opcode of the instruction it is in."""
@@ -94,8 +85,7 @@ def instruction(obj, n, pos):
         else:
             lk_out.put(op)
             if lk_dyn.active():
-                site(lk_fix.held(lk_fix.FX_KIND), lk_fix.held(lk_fix.FX_SYM),
-                     (lk_out.base + lk_out.written) & 0xFFFF)
+                lk_dyn.site(writing)
             lk_out.put_word(address)
         lk_fix.next_fix()
         return pos + size
@@ -113,7 +103,7 @@ def instruction(obj, n, pos):
             else:
                 b = lk_fix.part(value(n, op), kind)
             if lk_dyn.active():
-                site(kind, lk_fix.held(lk_fix.FX_SYM), (lk_out.base + lk_out.written) & 0xFFFF)
+                lk_dyn.site(writing)
             lk_fix.next_fix()
         elif k == size - 1 and lk_op.is_branch(op, lk_scan.cpu_of(obj)):
             b = branch(pos + size, b, ctx)
@@ -169,8 +159,7 @@ def emit_data(obj, dest):
                 lk_fix.bad()            # the bank of a region is for `with` blocks, and an
                                         # address only reached is formed by code
             if lk_dyn.active():
-                site(lk_fix.held(lk_fix.FX_KIND), lk_fix.held(lk_fix.FX_SYM),
-                     (lk_out.base + lk_out.written) & 0xFFFF)
+                lk_dyn.site(writing)
             if lk_fix.held(lk_fix.FX_KIND) == lk_fix.K_WORD:
                 if lk_rec.left() == 0:
                     lk_fix.bad()

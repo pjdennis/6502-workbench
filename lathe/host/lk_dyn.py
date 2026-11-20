@@ -21,12 +21,13 @@ to the placer module's `place` (the environment's `placer` entry) after FARCALL.
 `$init`:
 
     word    the code range's first address (the RAM from PAGE up to it is free)
-    word    the end of the highest of `code`, `data` and `more`, + 1 (the RAM from it to HIMEM is
-            free)
+    word    the end of `data`, + 1 (the RAM from it to HIMEM is free: the BBC's environments end
+            their memory there)
     byte    A, then A times: word first, word last
             what the link left free of main memory: the code range from this list on (the list
             is not needed once it has been read), `data` and `more` after their variables
-    byte    R, then for each dynamic region, in the order of the entries:
+    byte    R, then for each region of the environment, in the order of the entries (one that
+            is not dynamic has no block and no places):
             byte    the bank's value it is linked with
             word    its block's first byte, as linked, and word its size (0: nothing to move)
             word    N, then N places: a high byte, to which the pages moved are added
@@ -74,15 +75,6 @@ def is_dynamic(r):
     return (lk_envf.region_dynamic & (1 << r)) != 0
 
 
-def region_index(r):
-    """Region r's number among the dynamic regions."""
-    n = 0
-    for i in range(0, r):
-        if is_dynamic(i):
-            n += 1
-    return n
-
-
 def rdef_of(d):
     """The entry of variable or constant d among lk_scan's region definitions, or MAX_REGION_DEFS."""
     for i in range(0, lk_scan.rdef_count):
@@ -98,8 +90,8 @@ def movable(i):
 
 
 def dynamic_of(sym, bank):
-    """The number among the dynamic regions of the region of the variable or constant sym, if that
-    region is dynamic and, unless `bank` (a kind 6 fix-up, which names the region's bank), sym is
+    """The region (its entry in lk_envf) of the variable or constant sym, if that region is dynamic
+    and, unless `bank` (a kind 6 fix-up, which names the region's bank), sym is
     one of its variables not in zero page; else NO_REGION."""
     k = lk_sym.kind_of(sym)
     if (k != lk_sym.VARIABLE and k != lk_sym.CONSTANT) or not lk_sym.is_defined(sym):
@@ -109,7 +101,7 @@ def dynamic_of(sym, bank):
         return NO_REGION
     if not bank and not movable(i):
         return NO_REGION
-    return region_index(lk_scan.rdef_region[i])
+    return lk_scan.rdef_region[i]
 
 
 def begin():
@@ -127,45 +119,25 @@ def add(t, r, addr):
     site_count += 1
 
 
-def note(kind, sym, addr):
-    """The image's byte at `addr` (a word's first byte) is a fix-up of this kind naming sym: hold
-    it if it is the high byte of a dynamic region's variable's address (or the word of one) or a
-    block's bank of a dynamic region."""
+def site(dest):
+    """The fix-up at lk_fix's cursor is applied in the file `dest` (0 the image, or a bank + 1) at
+    the place lk_out is at (a word's first byte). In the image: hold it if it is the high byte of a
+    dynamic region's variable's address (or the word of one) or a block's bank of a dynamic region.
+    Outside it: it may not name either."""
+    kind = lk_fix.held(lk_fix.FX_KIND)
+    sym = lk_fix.held(lk_fix.FX_SYM)
+    addr = (lk_out.base + lk_out.written) & 0xFFFF
     r = dynamic_of(sym, kind == lk_fix.K_BANK)
     if r == NO_REGION:
         return
+    if dest != 0:
+        lk_name.fail_in(lk_err.E_DYNAMIC, sym, lk_fix.cur_sym)
     if kind == lk_fix.K_BANK:
         add(T_BANK, r, addr)
     elif lk_fix.is_word(kind):
         add(T_ADD, r, addr + 1)
     elif kind == lk_fix.K_HIGH or kind == lk_fix.K_REACH_HIGH:
         add(T_ADD, r, addr)
-
-
-def refuse(kind, sym, user):
-    """A fix-up naming sym of this kind is written outside the image (in a bank's file): it may not
-    name a dynamic region's variable or map its bank. user is the function or constant it is in."""
-    if dynamic_of(sym, kind == lk_fix.K_BANK) != NO_REGION:
-        lk_name.fail_in(lk_err.E_DYNAMIC, sym, user)
-
-
-def check_constants():
-    """A dynamic region holds no constant data: it would have to be copied where it goes."""
-    for i in range(0, lk_scan.rdef_count):
-        d = lk_scan.rdef_def[i]
-        if is_dynamic(lk_scan.rdef_region[i]) and lk_tab.is_kept_def(d) \
-                and (lk_tab.def_f[d] & lk_tab.D_CONST) != 0:
-            lk_name.fail(lk_err.E_DYNAMIC, lk_tab.def_ref(d))
-
-
-def top():
-    """The end of the highest of the ranges of main memory, + 1."""
-    t = lk_envf.code_hi
-    if lk_envf.data_hi > t:
-        t = lk_envf.data_hi
-    if lk_envf.has_more and lk_envf.more_hi > t:
-        t = lk_envf.more_hi
-    return (t + 1) & 0xFFFF
 
 
 def put_place(before, addr):
@@ -179,36 +151,27 @@ def put_place(before, addr):
     return addr
 
 
-def has_code_area():
-    return lk_boot.places_addr <= lk_envf.code_hi
-
-
-def has_data_area():
-    return lk_alloc.data_end <= lk_envf.data_hi - lk_envf.data_lo
-
-
-def has_more_area():
-    return lk_envf.has_more and lk_alloc.more_end <= lk_envf.more_hi - lk_envf.more_lo
-
-
 def put_areas():
     """The free parts of the code range (from the list on), of `data` and of `more`, each if it is
-    not empty."""
+    not empty: written after their count."""
+    code_free = lk_boot.places_addr <= lk_envf.code_hi
+    data_free = lk_alloc.data_end <= lk_envf.data_hi - lk_envf.data_lo
+    more_free = lk_envf.has_more and lk_alloc.more_end <= lk_envf.more_hi - lk_envf.more_lo
     n = 0
-    if has_code_area():
+    if code_free:
         n += 1
-    if has_data_area():
+    if data_free:
         n += 1
-    if has_more_area():
+    if more_free:
         n += 1
     lk_out.put(n)
-    if has_code_area():
+    if code_free:
         lk_out.put_word(lk_boot.places_addr)
         lk_out.put_word(lk_envf.code_hi)
-    if has_data_area():
+    if data_free:
         lk_out.put_word((lk_envf.data_lo + lk_alloc.data_end) & 0xFFFF)
         lk_out.put_word(lk_envf.data_hi)
-    if has_more_area():
+    if more_free:
         lk_out.put_word((lk_envf.more_lo + lk_alloc.more_end) & 0xFFFF)
         lk_out.put_word(lk_envf.more_hi)
 
@@ -226,14 +189,18 @@ def put_sites(t, r):
             before = put_place(before, lk_tab.wk(W_SITES + 2 * i))
 
 
-def put_region(r, n):
-    """Dynamic region r (its entry in lk_envf), number n among them."""
+def put_region(r):
+    """Region r (its entry in lk_envf): its bank's value, its block and its places; constant data
+    in a dynamic region is refused, as it would have to be copied where the block goes."""
     lk_out.put(lk_envf.bank_value[lk_envf.region_bank[r] - 1])
     first = 0xFFFF
     past = 0
     for i in range(0, lk_scan.rdef_count):
+        d = lk_scan.rdef_def[i]
+        if lk_scan.rdef_region[i] == r and is_dynamic(r) and lk_tab.is_kept_def(d) \
+                and (lk_tab.def_f[d] & lk_tab.D_CONST) != 0:
+            lk_name.fail(lk_err.E_DYNAMIC, lk_tab.def_ref(d))
         if lk_scan.rdef_region[i] == r and movable(i):
-            d = lk_scan.rdef_def[i]
             if lk_tab.def_a[d] < first:
                 first = lk_tab.def_a[d]
             if lk_tab.def_a[d] + lk_tab.def_b[d] > past:
@@ -242,27 +209,19 @@ def put_region(r, n):
         first = 0
     lk_out.put_word(first)
     lk_out.put_word(past - first)
-    put_sites(T_ADD, n)
-    put_sites(T_BANK, n)
+    put_sites(T_ADD, r)
+    put_sites(T_BANK, r)
 
 
 def write_list():
     """After the code in the image: the list ($places)."""
-    check_constants()
     lk_out.seek(lk_boot.places_addr)
     lk_out.put_word(lk_envf.code_lo)
-    lk_out.put_word(top())
+    lk_out.put_word((lk_envf.data_hi + 1) & 0xFFFF)
     put_areas()
-    n = 0
+    lk_out.put(lk_envf.region_count)
     for r in range(0, lk_envf.region_count):
-        if is_dynamic(r):
-            n += 1
-    lk_out.put(n)
-    n = 0
-    for r in range(0, lk_envf.region_count):
-        if is_dynamic(r):
-            put_region(r, n)
-            n += 1
+        put_region(r)
     after = (lk_out.base + lk_out.written) & 0xFFFF     # after the list
     if after - 1 > lk_envf.code_hi:
         lk_err.begin(lk_err.E_CODE_FULL)

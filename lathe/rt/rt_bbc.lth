@@ -69,7 +69,7 @@ var save_x: byte
 var save_y: byte
 var now: byte                       ; the value of what is in the window (below)
 var mos_copy: byte at COPY
-pub var mslot: byte                 ; the module's slot (above), set by start(); rt_place reads it
+var mslot: byte                     ; the module's slot (above), set by start()
 var stub_slot: byte at bbc.ROM_SLOT
 
 ; `now` is the value of what is in the window, kept up to date by every switch here, before the

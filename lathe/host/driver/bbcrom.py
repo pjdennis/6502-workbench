@@ -114,6 +114,7 @@ class Program:
     resident: bytes = b''
     banks: list = field(default_factory=list)
     top: int = 0                # the address after its memory below $8000 (check_himem)
+    dynamic: bool = False       # it has dynamic regions: the module's placer serves it (module.asm)
 
 
 def memory_top(path):
@@ -165,6 +166,7 @@ def load_program(p, size=BANKS, whole=False):
     with open(p.image, 'rb') as fh:
         p.resident = fh.read()
     p.load = env.code[0]
+    p.dynamic = bool(env.dynamic_regions)
     if not p.resident or p.load < 0x0800 or p.load + len(p.resident) > env.code[1] + 1:
         raise ImageError(f'{where}: the resident image must lie in the code range, from $0800')
     for name, (lo, hi) in (('code', env.code), ('data', env.data)):
@@ -291,6 +293,11 @@ def module_code(programs, lists, home=0, at=FIRST, parts=((0, 0, FIRST),)):
     check_himem = any(p.top for p in programs)
     head = f'home: = ${home:02X}\nhome_at: = ${at:04X}\n'
     head += 'check_himem: = $01\nentry_rest: = $07\n' if check_himem else 'entry_rest: = $05\n'
+    if any(p.dynamic for p in programs):
+        if not check_himem:
+            raise ImageError('a program with dynamic regions needs the image to check HIMEM: the placer '
+                             'shares its errors')
+        head += 'placer: = $01\n'         # the placer for the programs' dynamic regions (module.asm)
     at_home = len(parts) == 1 and parts[0][1] == home
     if at_home:
         head += f'part_at_home: = ${parts[0][2]:04X}\n'     # the one part is in the home bank: no table

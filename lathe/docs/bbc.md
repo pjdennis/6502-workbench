@@ -1660,6 +1660,52 @@ compiler's banks), and Image B (1,900 free, its linker's first bank 198 short wi
 the placer and the lists for main RAM only, without `lk_dyn` in its linker unless the owner wants
 the 32K machine to rebuild its own image.
 
+### One placer in the module, and the PAGE check (2026-11-20, later)
+
+- **The placer is the module's** (`module.asm`, `place`, under `.ifdef placer`, which `bbcrom.py`
+  defines when a program of the image has dynamic regions: 536 bytes of the home bank, once for
+  both tools). A tool's `rt_place.place` is 13 bytes of fixed code: the list's address to
+  `$A8/$A9` and OSBYTE 143 for the module's service call `$4C` with Y = 255, a text no error has,
+  so the reserved bytes did not grow. The placer's variables are at `$0100-$012C`, which nothing
+  uses while a tool starts. A program not started from such an image is not claimed and keeps its
+  regions where they are linked. `MODLOAD`'s whole layout carries the module's code as built by
+  `module_code`, so its HOME has the placer too.
+- **The module refuses PAGE above a command's start address** (step 0 of a command, with the
+  HIMEM check: `PAGE too high`, raised from `$0100` before anything is copied), in every image
+  that checks HIMEM: about 50 bytes more in each (the B+128's `BBCFS 3` image without `ADAPT`
+  2,903 to 2,853 free). `test_bbc_place.py` runs its program as the command of a module image of
+  its own, so the placer is the module's there too, and PAGE `$2100` is refused with
+  `--bbc-strict` on.
+- **`lk_dyn` smaller**: a region numbered by its entry (the list has every region, one that is
+  not dynamic with no block and no places), one call from `lk_emit` reading the fix-up itself, the
+  constants refused as the list is written, the end of `data` as the top: 1,799 bytes as judged
+  (1,938), the linker's other changes for it 477 (743).
+
+**The account, `BBCFS 3`, `ADFS 1`** (bank by bank as the linker judges them, of 16,272; free as
+`bbcrom.image` lays the image out):
+
+| Bank | Tool | Today, no `ADAPT` | Image A, `LKDYN 0` | Image A, `LKDYN 1` |
+|---|---|---|---|---|
+| 0 | LATHE | 13,759 | 13,759 | 13,759 |
+| 1 | LATHE | 15,271 | 15,271 | 15,271 |
+| 2 | LATHE | 14,007 | 14,007 | 14,007 |
+| 3 | LATHE | 12,173 | 12,173 | 12,173 |
+| 4 | LATHE | 14,269 | 14,269 | 14,269 |
+| 5 | LLINK | 16,245 | 16,245 | **16,537 (265 over)** |
+| 6 | LLINK | 15,193 | 15,193 | **17,101 (829 over)** |
+| 7 | LLINK | 15,884 | 15,884 | 15,959 |
+| free in the image | | 2,853 | **1,654** | does not link |
+
+With `LKDYN 1` the linker's three banks hold 49,597 bytes as judged where they have 48,816: **781
+bytes over** however its modules are arranged (bank 7 has 313 to give), and the image would have
+about 200 bytes too few besides. So Image A cannot yet link itself on the BBC: its `*LLINK` has no
+`lk_dyn`, and the developer's cycle and the rebuild loop with Image A's own ROM-form environment are
+not run. What remains, for the owner: 781 bytes of the linker's banks, from `BRK n` for the error
+calls (0.75 KB, of both tools: the linker's share is not measured) or the bank on the stack in
+`with` blocks (0.5 KB), or `lk_dyn` written in assembly in the twin (its 1,799 bytes are about 230
+lines of Lathe; an assembly version would be about 700, estimated), and about 200 bytes of the
+image.
+
 ### What is not done
 
 - Image A with fewer banks (one or two), the Master, finding the sideways RAM (the probe), and the

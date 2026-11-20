@@ -1,13 +1,16 @@
-"""The placer on the emulated BBC (lathe/rt/rt_place.lth; lathe/docs/bbc.md, "One image for every
-machine with sideways RAM"): a program whose region is `dynamic` (lathe/host/lk_dyn.py), its code
-linked from $1F00, run with *RUN at PAGE $1900 and $1F00, in the developer's form (the module's
-RAM, as test_bbc_bank.py runs banked programs), every run --bbc-strict on filled memory, so that
-a write below PAGE or into the screen is a fault.
+"""The placer on the emulated BBC (lathe/rt/bbc/module.asm, `place`; lathe/rt/rt_place.lth;
+lathe/docs/bbc.md, "One image for every machine with sideways RAM"): a program whose region is
+`dynamic` (lathe/host/lk_dyn.py), its code linked from $1F00, as the command of an eight-bank
+module image of its own, run at PAGE $1900 and $1F00, every run --bbc-strict on filled memory,
+so that a write below PAGE or into the screen is a fault.
 
 The program fills a table of its region, sums it, and writes the sum and where the table is; the
 same program linked with the region in its sideways slot as before is what it is compared with:
-the same sum (its blocks still map a slot: the module's own; lk_dyn.py). A region too large for the main RAM there is stays in its slot.
+the same sum (its blocks still map a slot: the module's own; lk_dyn.py). A region too large for
+the main RAM there is stays in its slot. PAGE above $1F00 is refused by the module before it
+copies anything.
 """
+import dataclasses
 import os
 import re
 import shutil
@@ -19,6 +22,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import test_bbc_bank as bank  # noqa: E402
 import boards  # noqa: E402
+import bbcrom  # noqa: E402
+import test_bbc_rom128 as rom128  # noqa: E402
 import build  # noqa: E402
 import mapenv  # noqa: E402
 
@@ -91,6 +96,8 @@ class Placed(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
 
     def build(self, name, size, lines, code_hi=None):
+        """The program's ROM form (bbcrom.rom_env), command DYN of an eight-bank module image of its
+        own, whose module code holds the placer: the image's path."""
         work = os.path.join(self.dir, name)
         os.makedirs(work)
         source = os.path.join(work, 'dynreg.lth')
@@ -104,29 +111,34 @@ class Placed(unittest.TestCase):
             text = text.replace('when      ADFS code $1F00 $6BFF', 'when      ADFS code $1F00 $%04X' % code_hi)
         with open(env, 'w') as f:
             f.write(text)
-        image = os.path.join(work, 'dynreg.bin')
-        build.build(source, image, env, keep=os.path.join(work, 'work'))
-        return image, env
+        rom = os.path.join(work, 'dynreg-rom.env')
+        bbcrom.rom_env(env, rom, 0, 8)
+        resident = os.path.join(work, 'DYN')
+        build.build(source, resident, rom, keep=os.path.join(work, 'work'))
+        image = os.path.join(work, 'MODULE')
+        bbcrom.image([('DYN', resident, rom, os.path.join(work, 'work', 'dynreg.map'))], image, banks=8)
+        return image
 
-    def run_at(self, image, env, page):
-        described = mapenv.read_env(env)
-        disk = tempfile.mkdtemp(dir=self.dir)
-        build.window_files(described, os.path.dirname(image), disk)
-        module = boards.module_options(described) + ('--bbc-page', page)
-        status, out, err, cycles = boards.run_mos(boards.BOARDS['bbc'], image, disk, module=module)
-        return status, out, err, cycles
+    def run_at(self, image, page):
+        """*DYN at PAGE `page`: (status, output, what the MOS said, CPU cycles)."""
+        base = boards.BOARDS['bbc']
+        board = dataclasses.replace(base, options=base.options + ('--bbc-page', page))
+        with rom128.scheme(), tempfile.TemporaryDirectory(dir=self.dir) as disk:
+            code, out, err, cycles = boards.run_module(board, image, disk, 'DYN', raw=True)
+        status, said, cycles = boards.bbc_status(code, err.decode('latin-1'))
+        return status, boards.bbc_output(out), said, cycles
 
     def test_a_small_region_goes_to_main_ram_at_either_page(self):
-        image, env = self.build('small', 300, LINES)
-        static, senv = self.build('static', 300, STATIC)
-        s_status, s_out, s_err, s_cycles = self.run_at(static, senv, '1F00')
+        image = self.build('small', 300, LINES)
+        static = self.build('static', 300, STATIC)
+        s_status, s_out, s_err, s_cycles = self.run_at(static, '1F00')
         self.assertEqual((s_status, s_err), (0, b''))
         total, at = s_out.split()
         self.assertEqual(int(total, 16), expected_sum(300))
         self.assertGreaterEqual(int(at, 16), 0x8000)                            # in its slot
         for page in ('1900', '1F00'):
             with self.subTest(page=page):
-                status, out, err, cycles = self.run_at(image, env, page)
+                status, out, err, cycles = self.run_at(image, page)
                 self.assertEqual((status, err), (0, b''))
                 total, at = out.split()
                 self.assertEqual(int(total, 16), expected_sum(300))
@@ -138,28 +150,28 @@ class Placed(unittest.TestCase):
     def test_below_the_fixed_part_at_page_1900(self):
         """A region that fits only below $1F00: the code range ends at the code, so only the gap,
         `data` and `more` are free."""
-        image, env = self.build('gap', 1400, LINES, code_hi=0x2C00)
-        status, out, err, cycles = self.run_at(image, env, '1900')
+        image = self.build('gap', 1400, LINES, code_hi=0x2C00)
+        status, out, err, cycles = self.run_at(image, '1900')
         self.assertEqual((status, err), (0, b''))
         total, at = out.split()
         self.assertEqual(int(total, 16), expected_sum(1400))
         self.assertTrue(0x1900 <= int(at, 16) < 0x1F00, at)
 
     def test_a_region_too_large_for_main_ram_stays_in_its_slot(self):
-        image, env = self.build('large', 9000, LINES, code_hi=0x2C00)
+        image = self.build('large', 9000, LINES, code_hi=0x2C00)
         for page in ('1900', '1F00'):
             with self.subTest(page=page):
-                status, out, err, cycles = self.run_at(image, env, page)
+                status, out, err, cycles = self.run_at(image, page)
                 self.assertEqual((status, err), (0, b''))
                 total, at = out.split()
                 self.assertEqual(int(total, 16), expected_sum(9000))
                 self.assertGreaterEqual(int(at, 16), 0x8000)
 
     def test_page_above_the_fixed_part_is_refused(self):
-        image, env = self.build('high', 300, LINES)
-        status, out, err, cycles = self.run_at(image, env, '2100')
+        image = self.build('high', 300, LINES)
+        status, out, said, cycles = self.run_at(image, '2100')
         self.assertNotEqual(status, 0)
-        self.assertIn(b'PAGE too high', out + err)
+        self.assertIn(b'PAGE too high', out + said)
 
 
 if __name__ == '__main__':

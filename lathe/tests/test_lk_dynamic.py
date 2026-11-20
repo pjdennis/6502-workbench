@@ -118,7 +118,9 @@ class Dynamic(unittest.TestCase):
         self.assertEqual((p.code_lo, p.top), (CODE_LO, 0xF000))
         self.assertEqual(p.areas, [(at, 0x7FFF), (0xC000, 0xEFFF)])
         v, w = r.addr('V', 't.v'), r.addr('V', 't.w')
-        self.assertEqual(len(p.regions), 1)
+        self.assertEqual(len(p.regions), 2)                             # work, and text, not dynamic
+        text = p.regions[1]
+        self.assertEqual((text.value, text.first, text.size, text.highs, text.banks), (0x15, 0, 0, [], []))
         self.assertEqual((p.regions[0].value, p.regions[0].first, p.regions[0].size),
                          (0x14, w, v + 300 - w))                        # w below v, at the top
 

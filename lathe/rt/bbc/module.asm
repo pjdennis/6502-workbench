@@ -9,7 +9,8 @@
 ; puts the reserved bytes in every bank. Written for the repository's own assembler: upper-case
 ; mnemonics, constants before their use. bbcrom.py also gives `entry_rest`, the bytes of a command's
 ; entry in the table after its name's zero (5, or 7 with the check below), and `check_himem` when
-; the image checks HIMEM.
+; the image checks HIMEM (and PAGE), and `placer` when a program of it has dynamic regions (the
+; shared placer, `place` below).
 ;
 ; Every bank begins with the same RESERVED bytes, $8000-$804F: the sideways ROM header, the
 ; service code and the bank's own number at $804F (the one byte that differs), so that the MOS
@@ -38,7 +39,9 @@
 ;      program's memory, the word after its entry's start address: the screen of the mode would be
 ;      in its tables, and the MOS's text would write over them. The error, `Mode 7 needed`, is
 ;      copied to $0100 and raised there, as a sideways ROM's errors must be (the language that
-;      prints it is in the window then), before anything is copied or written;
+;      prints it is in the window then), before anything is copied or written; and, the same
+;      way, `PAGE too high` if PAGE (OSBYTE 131) is above the program's start address, where its
+;      resident part is copied to, which would be over the filing system's workspace;
 ;   1. copies the command's tail, after the spaces, from ($F2),Y to $0700, ended by CR (at most
 ;      239 bytes; from the end down when the line is below $0700, so that it may overlap);
 ;   2. writes the stub, 16 bytes at $07F0-$07FF, with the program's start address and the slot
@@ -87,6 +90,7 @@ latch: = $BFF0
 osasci: = $FFE3
 oswrch: = $FFEE
 text_call: = $4C               ; the service call that asks for an error's text
+place_text: = $FF              ; text 255 (the linker's error 0, which is none): place a tool's regions
 osbyte: = $FFF4
 tail: = $0700
 stub_ram: = $07F0
@@ -102,6 +106,24 @@ w6: = $AE
 w7: = $AF
 list: = $8C
 count: = $8E
+; The placer's variables (`place`, below), at the bottom of the stack's page.
+p_code_lo: = $0100
+p_top: = $0102
+p_page: = $0104
+p_himem: = $0106
+p_before: = $0108
+p_linked: = $010A
+p_goes: = $010C
+p_end: = $010E
+p_areas: = $0110
+p_max_areas: = $06
+p_first_lo: = $0111
+p_first_hi: = $0117
+p_last_lo: = $011D
+p_last_hi: = $0123
+p_regions: = $0129
+p_pages: = $012A
+p_number: = $012B
 
 ; ---- every bank: the header and the service code ----
 * = $8000
@@ -167,6 +189,12 @@ bank0:
   LDA $0102,X                  ; the call
   CMP #text_call
   BNE .not_text
+  .ifdef placer
+  CPY #place_text
+  BNE .text
+  JMP place
+.text:
+  .endif
   JMP text
 .not_text:
   CMP #$09
@@ -224,14 +252,22 @@ bank0:
   LDA w1
   SBC commands+6,X
   BCS .room
-  LDX #too_low_end-too_low-$01 ; below: the error, from $0100
-.error:
-  LDA too_low,X
-  STA $0100,X
-  DEX
-  BPL .error
-  JMP $0100
+  LDX #too_low_end-errors-$01  ; below: the error, from $0100
+  JMP refuse
 .room:
+  LDA #$83                     ; OSBYTE 131: PAGE, in X and Y
+  JSR osbyte
+  STX w0
+  STY w1
+  LDX w3
+  LDA commands+3,X             ; the start address, where the program's memory starts, less PAGE
+  CMP w0
+  LDA commands+4,X
+  SBC w1
+  BCS .page
+  LDX #too_high_end-errors-$01 ; below PAGE: the error, before anything is copied over the
+  JMP refuse                   ; filing system's workspace
+.page:
   LDY w2
   .endif
   LDA commands+1,X
@@ -389,12 +425,307 @@ help:
   JMP back
 
   .ifdef check_himem
-; The error when HIMEM is below the program's memory: BRK, its number, its text, 0.
+; The errors when HIMEM is below the program's memory and when PAGE is above where it starts:
+; BRK, its number, its text, 0; sixteen bytes each.
+errors:
 too_low:
   .byte $00, $00
   .asciiz "Mode 7 needed"
 too_low_end:
+too_high:
+  .byte $00, $00
+  .asciiz "PAGE too high"
+too_high_end:
+
+; Raise the error whose last byte is at errors + X, copied to $0100, as a sideways ROM must.
+refuse:
+  LDY #$0F
+.copy:
+  LDA errors,X
+  STA $0100,Y
+  DEX
+  DEY
+  BPL .copy
+  JMP $0100
   .endif
+
+  .ifdef placer
+; The placer of a tool's dynamic regions (lathe/docs/bbc.md, "One image for every machine with
+; sideways RAM"; lathe/host/lk_dyn.py has the list's form), one for every tool of the image: a
+; tool's `$start` calls rt_place.place, which puts the list's address at $A8/$A9 and asks with
+; OSBYTE 143, X = text_call and Y = place_text (text 255, the linker's error 0, which is none),
+; before anything else of the tool runs. It reads PAGE and HIMEM, refuses PAGE above the fixed
+; part and HIMEM below the tool's ranges (MOS errors from $0100), knows the free main RAM (from
+; PAGE to the fixed part, the free areas the list gives, from the end of the ranges to HIMEM),
+; puts each region in main RAM if its block fits a free area at an address with the low byte it
+; is linked at, and for each region it moved adds the pages moved to each high byte the list
+; names and makes each of its blocks' banks the module's own slot ($F4 now). Its variables are
+; at $0100-$012C, the bottom of the stack's page, which nothing uses while a tool starts (an
+; error copied to $0100 ends it). It ends through `claim`.
+place:
+  LDA #$83                     ; OSBYTE 131: PAGE, in X and Y
+  JSR osbyte
+  STX p_page
+  STY p_page+1
+  JSR p_word
+  STA p_code_lo
+  STX p_code_lo+1
+  JSR p_word
+  STA p_top
+  STX p_top+1
+  LDA p_code_lo                ; PAGE above the fixed part: refused
+  CMP p_page
+  LDA p_code_lo+1
+  SBC p_page+1
+  BCS .page_low
+  LDX #too_high_end-errors-$01
+  JMP refuse
+.page_low:
+  LDA #$84                     ; OSBYTE 132: HIMEM
+  JSR osbyte
+  STX p_himem
+  STY p_himem+1
+  CPX p_top                    ; HIMEM below the end of the ranges: refused
+  TYA
+  SBC p_top+1
+  BCS .himem_high
+  LDX #too_low_end-errors-$01
+  JMP refuse
+.himem_high:
+  LDA #$00                     ; the free areas: PAGE to the fixed part, the list's, HIMEM's
+  STA p_areas
+  LDA p_page
+  STA w2
+  LDA p_page+1
+  STA w3
+  LDA p_code_lo
+  SEC
+  SBC #$01
+  STA w4
+  LDA p_code_lo+1
+  SBC #$00
+  STA w5
+  JSR p_add_area
+  JSR p_byte
+  STA p_regions
+.areas:
+  LDA p_regions
+  BEQ .areas_read
+  DEC p_regions
+  JSR p_word
+  STA w2
+  STX w3
+  JSR p_word
+  STA w4
+  STX w5
+  JSR p_add_area
+  JMP .areas
+.areas_read:
+  LDA p_top
+  STA w2
+  LDA p_top+1
+  STA w3
+  LDA p_himem
+  SEC
+  SBC #$01
+  STA w4
+  LDA p_himem+1
+  SBC #$00
+  STA w5
+  JSR p_add_area
+  JSR p_byte                   ; each region: its bank's value (not used yet), its block, its high
+  STA p_regions                ; bytes and its blocks' banks
+.region:
+  LDA p_regions
+  BNE .more
+  JMP claim
+.more:
+  DEC p_regions
+  JSR p_byte                   ; the bank's value
+  JSR p_word
+  STA p_linked
+  STX p_linked+1
+  JSR p_word
+  STA w4
+  STX w5
+  LDA #$00
+  STA p_pages
+  LDA w4
+  ORA w5
+  BEQ .moved                   ; nothing to move
+  JSR p_take
+  BCS .moved                   ; no room: it stays in its slot
+  LDA p_goes+1                 ; the pages it moves
+  SEC
+  SBC p_linked+1
+  STA p_pages
+.moved:
+  JSR p_count
+.high:
+  JSR p_count_down
+  BEQ .highs_done
+  JSR p_place
+  LDA p_pages
+  BEQ .high
+  CLC
+  LDY #$00
+  ADC (w2),Y
+  STA (w2),Y
+  JMP .high
+.highs_done:
+  JSR p_count
+.bank:
+  JSR p_count_down
+  BEQ .region
+  JSR p_place
+  LDA p_pages
+  BEQ .bank
+  LDA romcopy                  ; in main RAM: the module's own slot
+  LDY #$00
+  STA (w2),Y
+  JMP .bank
+
+; The next byte of the list, in A, the Z flag as it; Y is lost.
+p_byte:
+  LDY #$00
+  LDA (w0),Y
+  INC w0
+  BNE .done
+  INC w1
+.done:
+  CMP #$00
+  RTS
+
+; The next word of the list, in A (low) and X (high).
+p_word:
+  JSR p_byte
+  PHA
+  JSR p_byte
+  TAX
+  PLA
+  RTS
+
+; The next place: p_before the distance in the byte, or the word after a byte 0; in w2/w3.
+p_place:
+  JSR p_byte
+  BEQ .word
+  CLC
+  ADC p_before
+  STA p_before
+  BCC .set
+  INC p_before+1
+  JMP .set
+.word:
+  JSR p_word
+  STA p_before
+  STX p_before+1
+.set:
+  LDA p_before
+  STA w2
+  LDA p_before+1
+  STA w3
+  RTS
+
+; The next list of places: their count in p_number, and p_before 0.
+p_count:
+  JSR p_word
+  STA p_number
+  STX p_number+1
+  LDA #$00
+  STA p_before
+  STA p_before+1
+  RTS
+
+; One place fewer in p_number: Z set when none was left.
+p_count_down:
+  LDA p_number
+  ORA p_number+1
+  BEQ .counted
+  LDA p_number
+  BNE .low
+  DEC p_number+1
+.low:
+  DEC p_number
+  LDA #$01                     ; Z clear: a place to read
+.counted:
+  RTS
+
+; A free area from w2/w3 to w4/w5, if there is room for it and it is not empty.
+p_add_area:
+  LDX p_areas
+  CPX #p_max_areas
+  BCS .end
+  LDA w4                       ; last < first: empty
+  CMP w2
+  LDA w5
+  SBC w3
+  BCC .end
+  LDA w2
+  STA p_first_lo,X
+  LDA w3
+  STA p_first_hi,X
+  LDA w4
+  STA p_last_lo,X
+  LDA w5
+  STA p_last_hi,X
+  INC p_areas
+.end:
+  RTS
+
+; w4/w5 bytes at an address with p_linked's low byte, from the first free area that holds them:
+; the address in p_goes and the carry clear, or the carry set if none does.
+p_take:
+  LDX #$00
+.area:
+  CPX p_areas
+  BCS .none
+  LDA p_linked                 ; the area's first page, at the low byte linked
+  STA p_goes
+  LDA p_first_hi,X
+  STA p_goes+1
+  LDA p_goes                   ; below the area's first: a page on
+  CMP p_first_lo,X
+  BCS .end
+  INC p_goes+1
+  BEQ .next                    ; past $FFFF
+.end:
+  LDA p_goes                   ; the last byte it takes: p_goes + size - 1
+  CLC
+  ADC w4
+  STA p_end
+  LDA p_goes+1
+  ADC w5
+  STA p_end+1
+  BCS .next
+  LDA p_end
+  SEC
+  SBC #$01
+  STA p_end
+  BCS .fits
+  DEC p_end+1
+.fits:
+  LDA p_last_lo,X              ; at most the area's last
+  CMP p_end
+  LDA p_last_hi,X
+  SBC p_end+1
+  BCC .next
+  LDA p_end                    ; taken: the area starts after it
+  CLC
+  ADC #$01
+  STA p_first_lo,X
+  LDA p_end+1
+  ADC #$00
+  STA p_first_hi,X
+  CLC
+  RTS
+.next:
+  INX
+  JMP .area
+.none:
+  SEC
+  RTS
+  .endif
+
 
 ; An error's text: a tool's ROM form asks for text Y with OSBYTE 143, X = text_call (lathe/rt/
 ; bbc.lth, error_text), and the module writes ": " and the text with OSWRCH and claims the call;
