@@ -29,9 +29,11 @@ class Memory(unittest.TestCase):
         # with which a placer sets a table's size as the program starts; and 128 for the
         # environment's text that holds their names (lk_envf.TEXT_SIZE, 384 to 512, with LKDYN 1);
         # and 32 for each bank's `top`, the last address of its variables (lk_envf.bank_top, a word
-        # each of 16 banks, 2026-11-20), which puts a dynamic region's block on a page.
+        # each of 16 banks, 2026-11-20), which puts a dynamic region's block on a page; and 64 for
+        # each region's `fixed ADDR` and where it ends (lk_envf.region_at, lk_alloc.at_past, a word
+        # each of 16 regions, 2026-11-20), which puts Image B's name heap at the DFS's PAGE.
         self.assertLessEqual(lk_memory_report.CEILING,
-                             54144 + 96 * 7 + 512 + 16 * 3 + 2 * 8 + 2 * 2 * 16 + 128 + 2 * 16)
+                             54144 + 96 * 7 + 512 + 16 * 3 + 2 * 8 + 2 * 2 * 16 + 128 + 2 * 16 + 2 * 2 * 16)
         self.assertGreaterEqual(lk_memory_report.CEILING, lk_memory_report.BUDGET)
 
     def test_the_compiler_has_room_for_more_functions(self):

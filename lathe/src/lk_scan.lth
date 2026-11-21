@@ -34,9 +34,9 @@
 ;   | they are defined                     |                                   | use             |
 module lk_scan
 
-import lk_envf (cpu, fail_text, farcall, find_region, is_token, MAX_REGIONS, P_BANK, P_LINKED,
-                place_bank, place_count, place_name, placed, region_bank, region_used, token,
-                token_len, TOKEN_SIZE)
+import lk_envf (cpu, fail_text, farcall, find_region, has_at, is_token, MAX_REGIONS, P_BANK,
+                P_LINKED, place_bank, place_count, place_name, placed, region_at, region_bank,
+                region_used, token, token_len, TOKEN_SIZE)
 import lk_err (E_CLASS_DIFFERS, E_DAMAGED, E_DEFS, E_DUPLICATE, E_LOCALS, E_NEEDS_65C02,
                E_NO_FARCALL, E_OBJECTS, E_PLACE_UNLINKED, E_UNDEFINED, E_VERSION, fail)
 import lk_file (arg_count, ARG_OBJECT, fail)
@@ -74,9 +74,11 @@ var dfix_read: bool = false     ; a DFIX record was just read: a DATA record mus
 var rgn_read: bool = false      ; a RGN record was read: a VAR, or a DFIX and DATA, must follow
 var rgn_bank: byte = 0          ; the bank + 1 of its region, or 0 if the region is fixed
 var rgn_region: byte            ; the region itself, its entry in lk_envf
+var rgn_at: bool                ; and it is `fixed ADDR` (lk_envf.region_at; LKDYN)
 
-; The variables and constants in a region that is in a bank (lk_envf.region_bank), in the order
-; they are defined. Those of a region in fixed memory are ordinary ones and are not here.
+; The variables and constants in a region that is in a bank (lk_envf.region_bank), or (LKDYN) that
+; is `fixed ADDR`, in the order they are defined. Those of any other region in fixed memory are
+; ordinary ones and are not here.
 #if LKSMALL == 2
 pub const MAX_REGION_DEFS = 16  ; the 32K build (lk_tab.lth)
 #else
@@ -183,6 +185,9 @@ func rec_rgn()
   end
   rgn_read = true
   rgn_bank = 0
+#if LKDYN
+  rgn_at = false
+#end
   if size > lk_envf.TOKEN_SIZE then
     return
   end
@@ -191,6 +196,9 @@ func rec_rgn()
   if r != lk_envf.MAX_REGIONS then
     rgn_bank = lk_envf.region_bank[r]
     rgn_region = r
+#if LKDYN
+    rgn_at = lk_envf.region_at[r] != 0
+#end
   end
 end
 
@@ -200,7 +208,11 @@ func in_region(d: word)
     return
   end
   rgn_read = false
+#if LKDYN
+  if rgn_bank == 0 and not rgn_at then
+#else
   if rgn_bank == 0 then
+#end
     return
   end
   if rdef_count == MAX_REGION_DEFS then
@@ -209,7 +221,13 @@ func in_region(d: word)
   rdef_def[rdef_count] = d
   rdef_region[rdef_count] = rgn_region
   rdef_count += 1
+#if LKDYN
+  if rgn_bank != 0 then
+    lk_envf.region_used = rgn_bank
+  end
+#else
   lk_envf.region_used = rgn_bank
+#end
 end
 
 ; The bank + 1 of the region variable or constant d is in, or 0 for fixed memory.
@@ -221,6 +239,22 @@ pub func region_of(d: word): byte
     end
   end
   return 0
+end
+
+; True if variable or constant d is in a region that is `fixed ADDR`: a variable then has its
+; address from lk_alloc.place_at, and constant data is fixed, as any region's in fixed memory.
+; Only LKDYN's code calls it, so without it it is not linked.
+pub func is_at(d: word): bool
+  var i: byte
+  if not lk_envf.has_at then
+    return false
+  end
+  for i = 0 until rdef_count do
+    if rdef_def[i] == d then
+      return lk_envf.region_at[rdef_region[i]] != 0
+    end
+  end
+  return false
 end
 
 func rec_var()

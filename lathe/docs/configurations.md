@@ -241,7 +241,7 @@ farcall   rt_ovl
 | `rom NAME N` | Bank `N` of the window is read-only: code and constant data, never a variable; its file is written but start-up does not load it (added 2026-11-14: "Functions kept in fixed memory, and read-only banks", below). |
 | `overlay NAME N FILE` | Overlay `N` of the window and its file. |
 | `place MODULE NAME N` | The module's code goes in bank or overlay `N`. A module not placed is fixed. By module only: a module is the unit the call structure is known by, and placing functions one by one would need names in the environment that the source can change. |
-| `region REGION NAME N` | The data region `REGION` is bank `N` of the window. `region REGION fixed` (or no entry) puts it in fixed data memory. |
+| `region REGION NAME N` | The data region `REGION` is bank `N` of the window. `region REGION fixed` (or no entry) puts it in fixed data memory; `region REGION fixed ADDR` (2026-11-20) in fixed memory from ADDR, outside the ranges ("Regions placed at run time", below). |
 | `more data FIRST LAST` | A second range for variables, used when the first is full. |
 | `farcall MODULE` | The run-time module that the stubs and `with` blocks call: `rt_bank`, `rt_ovl` or `rt_bbc`, in `lathe/rt/`. The build adds it as it adds `rt_frame`. |
 | `define NAME [NUMBER]` | A name for the compiler (`-dNAME`, `#if NAME`; version 1) and for `when` and `unless`. Without a number it is true. |
@@ -985,6 +985,26 @@ as they were and skip them as entries they do not know):
   move (link error 64), so a region named from a bank cannot be `main` usefully: Image B's
   `LKLOCAL`, which `lk_name` names in bank 2, is not; its slots and calls, which only `lk_tab`
   names, are (391 bytes of its resident part).
+
+Since (2026-11-20, later, [`bbc.md`](bbc.md), "The image for machines with no sideways RAM"):
+**`region NAME fixed ADDR`**, for a table that must start at an address of its own rather than
+move. The region is fixed memory, as `region NAME fixed` (so `build.py` gives `-fNAME` with
+`define FIXED_REGIONS 1`, and its blocks are their bodies), but its variables are not in the
+data range: they go from ADDR upward, in the order they are defined (a two-byte one not across a
+page, as in main memory; a region's variable is never in zero page), and its constant data is
+fixed constant data. ADDR is `$100` or above (else link error 3). The region must share no
+address with the code, data or more range, nor with an earlier region `fixed ADDR`, and must end
+below `$FFFF`: else link error 32 with the region's name. Host and twin byte for byte
+(`lk_envf.region_entry`, `lk_scan.is_at`, `lk_alloc.place_at`; `test_lk_dynamic.FixedAt` and its
+twin cases); in the twin under `LKDYN`, so the ROM forms are as they were and read the entry as a
+bad one. Built for Image B's compiler: its name heap, `kernel.names`, lowest in main RAM from the
+DFS's PAGE, `$1900`, so that the compiler can begin the heap at PAGE on a machine whose PAGE is
+higher. What was tried first and why it does not serve: `var names: [N]byte at $1900` in the
+source (the `with NAMES do` blocks that reach it then do not compile, error 184: a variable
+`at` an address is in no region); putting the heap first in the data range from `$1900` by the
+order of placement (the frames come first in `data` when there is a `more` range, and the order
+of the variables is every image's); and a `dynamic main` region (the placer is for regions named
+only from fixed code, and the compiler's code that names the heap is in its banks: link error 64).
 
 ## Decisions for the owner
 

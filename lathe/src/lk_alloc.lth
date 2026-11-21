@@ -55,11 +55,15 @@
 ;   |                                      |                                   | after `and`     |
 module lk_alloc
 
-import lk_envf (cpu, data_hi, data_lo, has_more, more_hi, more_lo, win_lo, window, zp_hi, zp_lo)
-import lk_err (arrow, begin, colon, E_DATA_FULL, E_ZP_FULL, finish, over)
+import lk_envf (code_hi, code_lo, cpu, data_hi, data_lo, fail_region, fixed_at, has_more,
+                MAX_REGIONS, more_hi, more_lo, region_count, win_lo, window, zp_hi, zp_lo)
+import lk_err (arrow, begin, colon, E_DATA_FULL, E_OVERLAP, E_ZP_FULL, finish, over)
 import lk_graph (edge_node, first_edge, next_edge, order_at, order_count, scc_of)
 import lk_name (error_name, error_node)
 import lk_op (CPU_6502)
+#if LKDYN
+import lk_scan (is_at, rdef_count, rdef_def, rdef_region)  ; place_at: the regions `fixed ADDR`
+#end
 import lk_sym ()
 import lk_tab (add16, add_wk, cls_count, cls_node, cls_np, cls_par, cls_reach, cls_ref, copy_node,
                cp_addr, cp_info, cp_size, cp_weight, ctx_count, ctx_of, D_CLASS, D_ZP, def_a, def_b,
@@ -871,6 +875,11 @@ pub var more_end: word
 ; lk_place puts it there, its address is the window's first: not zero page, so what shrinks is
 ; known.
 func in_bank(d: word): bool
+#if LKDYN
+  if lk_scan.is_at(d) then
+    return true
+  end
+#end
   if lk_win.bank_def(d) == 0 then
     return false
   end
@@ -947,14 +956,79 @@ func place_vars_more(pos: word)
 #end
 end
 
+#if LKDYN
+var at_past: [lk_envf.MAX_REGIONS]word  ; place_at: the byte after each region `fixed ADDR` ends (its
+                                        ; first if it is empty), or 0
+
+; True if the addresses lo1 to hi1 and lo2 to hi2 share one (lk_envf.overlaps, which is its own).
+func overlaps(lo1: word, hi1: word, lo2: word, hi2: word): bool
+  return not (hi1 < lo2 or hi2 < lo1)
+end
+
+; The variables of each region that is `fixed ADDR` (lk_envf.fixed_at): from ADDR upward, in the
+; order they are defined (lk_scan's region definitions), a two-byte one not across a page as in
+; main memory. A region must share no address with the code, data or more range, or with another
+; such region before it, and must end below $FFFF: else link error 32, with its name.
+func place_at()
+  var r: byte
+  var q: byte
+  var i: byte
+  var d: word
+  var size: word
+  var first: word
+  var pos: word
+  var last: word
+  var clash: bool
+  for r = 0 until lk_envf.region_count do
+    first = lk_envf.fixed_at(r)
+    pos = first
+    if first != 0 then
+      for i = 0 until lk_scan.rdef_count do
+        d = lk_scan.rdef_def[i]
+        if lk_scan.rdef_region[i] == r and lk_tab.is_kept_var(d) then
+          size = lk_tab.def_b[d]
+          if straddles(pos, size) then
+            pos += 1
+          end
+          if size > $FFFF - pos then
+            lk_envf.fail_region(lk_err.E_OVERLAP, r)
+          end
+          lk_tab.def_a[d] = pos
+          pos += size
+        end
+      end
+    end
+    at_past[r] = pos
+    if pos != first then
+      last = pos - 1
+      clash = overlaps(first, last, lk_envf.code_lo, lk_envf.code_hi)
+      clash = clash or overlaps(first, last, lk_envf.data_lo, lk_envf.data_hi)
+      clash = clash or (lk_envf.has_more and overlaps(first, last, lk_envf.more_lo, lk_envf.more_hi))
+      for q = 0 until r do
+        if at_past[q] != lk_envf.fixed_at(q) then
+          clash = clash or overlaps(first, last, lk_envf.fixed_at(q), at_past[q] - 1)
+        end
+      end
+      if clash then
+        lk_envf.fail_region(lk_err.E_OVERLAP, r)
+      end
+    end
+  end
+end
+#end
+
 ; Lay out main memory: the variables, then each context. With a `more` range the frames come
-; first and the variables after them, in `data` and then in `more`.
+; first and the variables after them, in `data` and then in `more`. The variables of a region
+; that is `fixed ADDR` are placed first, apart (place_at, LKDYN).
 func assign_main()
   var pos: word
   var ctx: byte
   var room: word
   var n: word
   lk_tab.overflow = false
+#if LKDYN
+  place_at()
+#end
   pos = 0
   if not lk_envf.has_more then
     pos = place_vars()

@@ -82,7 +82,15 @@ const MAX_CALLS = 64
 const MAX_MEMBERS = 64          ; MEMB records of one module
 #if SMALL
 pub const MAX_TABLE = 264       ; (SMALL: the test programs' small build)
+#if RAM32
+#if ADAPT
+const MAX_TABLE_FIXES = 28      ; (RAM32 with ADAPT: Image B, the image for machines with no sideways RAM: lathe/docs/bbc.md)
+#else
+const MAX_TABLE_FIXES = 32      ; (SMALL, and RAM32: the 32K Model B)
+#end
+#else
 const MAX_TABLE_FIXES = 32
+#end
 #else
 pub const MAX_TABLE = 2048      ; bytes of a constant table being made
 const MAX_TABLE_FIXES = 256     ; addresses in one constant table

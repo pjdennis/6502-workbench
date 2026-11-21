@@ -15,7 +15,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_lk_support import Obj, link, string, NEVER, NOBODY  # noqa: E402
+from test_lk_support import Obj, link, string, EITHER, NEVER, NOBODY  # noqa: E402
 from test_lk_windows import ENV, WINDOW, REGION_BANKS, farcall_with  # noqa: E402
 import places  # noqa: E402
 
@@ -208,6 +208,35 @@ def planes_and_fixed_user():
     c.raw(0x60)
     t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY), (t.f('rt_with.unmap'), 0, NOBODY)])
     return t
+
+
+def at_user():
+    """Module t as compiled with -fwork -ftext: a (2 bytes), b (1) and c (300) in region work, x (2,
+    either class and weighty) in no region and k (2) in text; main names them all, with no block.
+    A variable in a region is never in zero page (lk_scan: class 2, or the object is damaged)."""
+    t = Obj('t')
+    for name in ('a', 'b', 'c', 'x', 'k'):
+        t.v(name)
+    t.raw(16, string('work'))
+    t.var('a', 2, NEVER)
+    t.raw(16, string('work'))
+    t.var('b', 1, NEVER)
+    t.var('x', 2, EITHER, weight=200)
+    t.raw(16, string('work'))
+    t.var('c', 300, NEVER)
+    t.raw(16, string('text'))
+    t.var('k', 2, NEVER)
+    c = t.code()
+    for name in ('a', 'b', 'c', 'x', 'k'):
+        c.abs(0xAD, t.v(name))              # LDA name
+    c.abs(0x8D, t.v('c'), add=299)          # STA c+299
+    c.raw(0x60)
+    t.func('main', c)
+    return t
+
+
+# `region NAME fixed ADDR`: the region's variables from ADDR, outside the ranges.
+AT = ENV + 'region work fixed $F100\nregion text fixed\n'
 
 
 def places_of(r):
@@ -517,6 +546,59 @@ class Dynamic(unittest.TestCase):
         self.assertEqual(a.map_text, b.map_text)
 
 
+class FixedAt(unittest.TestCase):
+    """`region NAME fixed ADDR` (lathe/host/README.md, "The environment file"): the region is fixed
+    memory, and its variables go from ADDR upward in the order they are defined, outside the code,
+    data and more ranges; one that runs into a range or into another such
+    region is link error 32. Built for Image B's compiler, whose name heap is lowest in main RAM
+    (lathe/docs/bbc.md, "The image for machines with no sideways RAM")."""
+
+    def test_a_regions_variables_go_from_its_address_in_order(self):
+        r = link([at_user()], AT)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertEqual([r.addr('V', 't.' + n) for n in 'abc'], [0xF100, 0xF102, 0xF103])
+        self.assertLess(r.addr('V', 't.x'), 0x100)          # in no region, in zero page
+        self.assertEqual(r.addr('V', 't.k'), 0xC000)        # a fixed region with no address
+        main = r.addr('F', 't.main')
+        self.assertEqual(r.at(main + 15, 2), (0xF103 + 299).to_bytes(2, 'little'))
+
+    def test_a_two_byte_variable_does_not_cross_a_page(self):
+        r = link([at_user()], AT.replace('$F100', '$F1FF'))
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertEqual([r.addr('V', 't.' + n) for n in 'abc'], [0xF200, 0xF202, 0xF203])
+
+    def test_without_its_address_the_region_is_in_the_data_range(self):
+        r = link([at_user()], AT.replace(' $F100', ''))
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertTrue(all(0xC000 <= r.addr('V', 't.' + n) or r.addr('V', 't.' + n) < 0x100
+                            for n in 'abck'))
+
+    def test_a_region_that_runs_into_a_range_or_another_is_refused(self):
+        from test_lk_errors import ErrorTest
+        check = ErrorTest.assertError
+        for env in (AT.replace('$F100', '$7F00'),                        # in the code range
+                    AT.replace('$F100', '$BF00'),                        # runs into the data range
+                    AT.replace('$F100', '$0100').replace('code $0200', 'code $0180'),
+                    AT + 'more data $F200 $F2FF\n',                      # runs into more
+                    AT.replace('region text fixed', 'region text fixed $F220'),  # into work
+                    AT.replace('region text fixed', 'region text fixed $F0FF'),  # work into it
+                    AT.replace('$F100', '$FF00')):                       # past $FFFF
+            with self.subTest(env=env):
+                check(self, link([at_user()], env), 32, 'parts of the image overlap')
+        r = link([at_user()], AT.replace('region text fixed', 'region text fixed $F22F'))
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertEqual(r.addr('V', 't.k'), 0xF22F)
+
+    def test_its_address_is_a_number_above_zero_page_and_the_stack(self):
+        from test_lk_errors import ErrorTest
+        check = ErrorTest.assertError
+        for entry in ('region work fixed $00F0', 'region work fixed X', 'region work fixed $F100 X',
+                      'region work fixed $1FFFF'):
+            with self.subTest(entry=entry):
+                check(self, link([at_user()], AT.replace('region work fixed $F100', entry)), 3,
+                      'environment file: bad entry')
+
+
 def cases():
     """(name, objects, environment) of every link above, for the Lathe-written linker."""
     a = Obj('a')
@@ -564,7 +646,15 @@ def cases():
             ('a bank\'s top of an unknown bank', [user(other=False), farcall_with(), placer()],
              TOP.replace('WIN 4 $9EFF', 'WIN 9 $9EFF')),
             ('a bank too full for its top', [user(other=False), farcall_with(), placer()],
-             TOP.replace('$9EFF', '$8100'))]
+             TOP.replace('$9EFF', '$8100')),
+            ('a fixed region at its address', [at_user()], AT),
+            ('a fixed region at the end of a page', [at_user()], AT.replace('$F100', '$F1FF')),
+            ('two fixed regions at their addresses', [at_user()],
+             AT.replace('region text fixed', 'region text fixed $F22F')),
+            ('a fixed region into the data range', [at_user()], AT.replace('$F100', '$BF00')),
+            ('a fixed region into another', [at_user()], AT.replace('region text fixed', 'region text fixed $F220')),
+            ('a fixed region past the end', [at_user()], AT.replace('$F100', '$FF00')),
+            ('a fixed region below the stack', [at_user()], AT.replace('$F100', '$00F0'))]
 
 
 class Twin(unittest.TestCase):

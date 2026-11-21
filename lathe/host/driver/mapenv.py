@@ -79,7 +79,7 @@ class Env:
     files: list = field(default_factory=list)    # the file of each `bank` or `overlay` that has one
     farcall: Optional[str] = None                # `farcall MODULE`
     regions: list = field(default_factory=list)  # `region NAME WIN N`: the regions in a bank
-    fixed_regions: list = field(default_factory=list)  # `region NAME fixed`: the regions said to be
+    fixed_regions: list = field(default_factory=list)  # `region NAME fixed [ADDR]`: the regions said to be
                                                        # in fixed memory (build.compiler_options)
     dynamic_regions: list = field(default_factory=list)  # `region NAME WIN N dynamic` (also in regions)
     main_regions: list = field(default_factory=list)  # `region NAME WIN N dynamic main` (also in
@@ -152,7 +152,7 @@ def parse_env(text, path='<env>'):
             env.files.append(args[3])
         elif key == 'overlay' and len(args) == 3:
             env.files.append(args[2])
-        elif key == 'region' and len(args) == 3:
+        elif key == 'region' and len(args) == 3 and args[1].lower() != 'fixed':
             env.regions.append(args[0].lower())
         elif key == 'region' and len(args) >= 4 and args[3].lower() == 'dynamic':
             env.regions.append(args[0].lower())
@@ -163,7 +163,7 @@ def parse_env(text, path='<env>'):
                 room = room[1:]
             if room:
                 env.rooms[args[0].lower()] = room[0]
-        elif key == 'region' and len(args) == 2 and args[1].lower() == 'fixed':
+        elif key == 'region' and len(args) in (2, 3) and args[1].lower() == 'fixed':
             env.fixed_regions.append(args[0].lower())
         elif key == 'farcall' and len(args) == 1:
             env.farcall = args[0].lower()

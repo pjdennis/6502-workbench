@@ -30,6 +30,7 @@ import lk_err
 import lk_graph
 import lk_name
 import lk_op
+import lk_scan
 import lk_sym
 import lk_tab
 import lk_win
@@ -619,12 +620,17 @@ def assign_zp():
 # `more`.
 data_end = 0
 more_end = 0
+at_past = [0] * lk_envf.MAX_REGIONS     # place_at: the byte after each region `fixed ADDR` ends (its
+                                        # first if it is empty), or 0
 
 
 def in_bank(d):
     """True if variable d, not in zero page, goes in its module's bank (lk_win.bank_def).
     Until lk_place puts it there, its address is the window's first: not zero page, so what
-    shrinks is known."""
+    shrinks is known. True too for one in a region that is `fixed ADDR`, which place_at has
+    given its address."""
+    if lk_scan.is_at(d):
+        return True
     if lk_win.bank_def(d) == 0:
         return False
     lk_tab.def_a[d] = lk_envf.win_lo[lk_envf.window()]
@@ -681,10 +687,45 @@ def place_vars_more(pos):
     more_end = mpos
 
 
+def place_at():
+    """The variables of each region that is `fixed ADDR` (lk_envf.fixed_at): from ADDR upward, in
+    the order they are defined (lk_scan's region definitions), a two-byte one not across a page as
+    in main memory. A region must share no address with the code, data or more range, or with
+    another such region before it, and must end below $FFFF: else link error 32, with its name."""
+    for r in range(0, lk_envf.region_count):
+        first = lk_envf.fixed_at(r)
+        pos = first
+        if first != 0:
+            for i in range(0, lk_scan.rdef_count):
+                d = lk_scan.rdef_def[i]
+                if lk_scan.rdef_region[i] == r and lk_tab.is_kept_var(d):
+                    size = lk_tab.def_b[d]
+                    if straddles(pos, size):
+                        pos += 1
+                    if size > 0xFFFF - pos:
+                        lk_envf.fail_region(lk_err.E_OVERLAP, r)
+                    lk_tab.def_a[d] = pos
+                    pos += size
+        at_past[r] = pos
+        if pos != first:
+            last = pos - 1
+            clash = lk_envf.overlaps(first, last, lk_envf.code_lo, lk_envf.code_hi)
+            clash = clash or lk_envf.overlaps(first, last, lk_envf.data_lo, lk_envf.data_hi)
+            clash = clash or (lk_envf.has_more and lk_envf.overlaps(first, last, lk_envf.more_lo,
+                                                                     lk_envf.more_hi))
+            for q in range(0, r):
+                if at_past[q] != lk_envf.fixed_at(q):
+                    clash = clash or lk_envf.overlaps(first, last, lk_envf.fixed_at(q), at_past[q] - 1)
+            if clash:
+                lk_envf.fail_region(lk_err.E_OVERLAP, r)
+
+
 def assign_main():
     """Lay out main memory: the variables, then each context. With a `more` range the frames
-    come first and the variables after them, in `data` and then in `more`."""
+    come first and the variables after them, in `data` and then in `more`. The variables of a
+    region that is `fixed ADDR` are placed first, apart (place_at)."""
     lk_tab.overflow = False
+    place_at()
     pos = 0
     if not lk_envf.has_more:
         pos = place_vars()

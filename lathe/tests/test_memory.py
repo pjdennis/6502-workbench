@@ -51,9 +51,11 @@ CONST = re.compile(r'^(?:pub )?const (\w+) = (\d+)', re.M)
 
 
 def twin_capacities(module):
-    """{name: {'small': N, 'full': N, 'ram32': N}} of the constants lathe/src/MODULE.lth declares
-    under `#if SMALL`, `#else` and, inside `#if SMALL`, `#if RAM32` (the 32K Model B's: its
-    `#else` is the small build's). A constant of no `#if RAM32` has the small build's size there."""
+    """{name: {'small': N, 'full': N, 'ram32': N, 'image_b': N}} of the constants lathe/src/MODULE.lth
+    declares under `#if SMALL`, `#else` and, inside `#if SMALL`, `#if RAM32` (the 32K Model B's: its
+    `#else` is the small build's) and, inside that, `#if ADAPT` (Image B's: its `#else` is the 32K
+    Model B's). A constant of no `#if RAM32` has the small build's size there, and one of no `#if
+    ADAPT` the 32K Model B's in Image B."""
     with open(os.path.join(report.LATHE, 'src', TWIN_FILE.get(module, module) + '.lth')) as f:
         lines = without_rooms(f.read().splitlines())
     found = {}
@@ -76,12 +78,17 @@ def twin_capacities(module):
         sizes = found.setdefault(name, {})
         if stack[0][1]:
             sizes['full'] = value
+        elif len(stack) >= 2 and stack[1][0] == 'RAM32' and stack[1][1]:
+            sizes['small'] = value
         elif len(stack) == 2 and stack[1][0] == 'RAM32':
-            sizes['small' if stack[1][1] else 'ram32'] = value
+            sizes['ram32'] = value
+        elif len(stack) == 3 and stack[1][0] == 'RAM32' and stack[2][0] == 'ADAPT':
+            sizes['ram32' if stack[2][1] else 'image_b'] = value
         else:
             sizes['small'] = value
     for sizes in found.values():
         sizes.setdefault('ram32', sizes['small'])
+        sizes.setdefault('image_b', sizes['ram32'])
     return found
 
 
@@ -117,6 +124,21 @@ class MemoryTest(unittest.TestCase):
         small = {(m, name): size for m, name, size in script_host.SMALL}
         differ = {key for key, size in found.items() if size != small[key]}
         self.assertEqual(differ, {(m, name) for m, name, size in script_host.RAM32})
+
+    def test_image_b_has_the_same_capacities_in_the_twins_and_the_host_test(self):
+        """lathe/docs/bbc.md, "The image for machines with no sideways RAM": RAM32 1 with ADAPT 1,
+        and each twin's `#if ADAPT` inside `#if RAM32` gives what script_host.IMAGE_B gives the host
+        modules (lathec_image_b.py); every other capacity is the 32K Model B's."""
+        import script_host
+        wanted = {(m, name): size for m, name, size in script_host.image_b_capacities()}
+        found = {}
+        for module in TWINS:
+            for name, sizes in twin_capacities(module).items():
+                found[(module, name)] = sizes['image_b']
+        self.assertEqual(found, wanted)
+        ram32 = {(m, name): size for m, name, size in script_host.ram32_capacities()}
+        differ = {key for key, size in found.items() if size != ram32[key]}
+        self.assertEqual(differ, {(m, name) for m, name, size in script_host.IMAGE_B})
 
     def test_each_twin_lays_out_its_arrays_as_the_host_counts_them(self):
         for module in TWINS:

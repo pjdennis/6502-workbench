@@ -97,13 +97,29 @@ import sys (arg_copy, close, open_in, open_out, read, write)
 ; ---- Text memory -------------------------------------------------------------------------
 
 #if SMALL
+#if RAM32
+#if ADAPT
+const TEXT_SIZE = 672           ; (RAM32 with ADAPT: Image B, the image for machines with no sideways RAM: lathe/docs/bbc.md)
+#else
+const TEXT_SIZE = 768           ; (SMALL, and RAM32: the 32K Model B)
+#end
+#else
 const TEXT_SIZE = 768           ; (SMALL: the test programs' small build)
+#end
 #else
 const TEXT_SIZE = 2048
 #end
 const PATH_SIZE = 256
 #if SMALL
+#if RAM32
+#if ADAPT
+const TOKEN_SIZE = 304          ; (RAM32 with ADAPT: Image B, as TEXT_SIZE)
+#else
+const TOKEN_SIZE = 384          ; (SMALL, and RAM32: the 32K Model B)
+#end
+#else
 const TOKEN_SIZE = 384          ; (SMALL: the test programs' small build)
+#end
 #else
 const TOKEN_SIZE = 2048         ; bytes of token memory: at least inlines.SAVED_SIZE
 #end
@@ -324,7 +340,12 @@ end
 
 #if SMALL
 #if RAM32
+#if ADAPT
+const NAME_HEAP_SIZE = 4646      ; (RAM32 with ADAPT: Image B, the image for machines with no sideways RAM: lathe/docs/bbc.md); on a machine whose PAGE is above the heap's
+                                 ; address init begins it at PAGE, so ADFS's ($1F00) has 1,536 bytes less
+#else
 const NAME_HEAP_SIZE = 3072      ; (RAM32: the 32K Model B, every table in main RAM: lathe/docs/bbc.md, "The 32K Model B")
+#end
 #else
 const NAME_HEAP_SIZE = 1536      ; (SMALL: the test programs' small build)
 #end
@@ -353,6 +374,17 @@ pub const NO_SYM = $FFFF        ; (with the symbol table below in the Python)
 pub const NO_OBJ = $FFFF
 
 pub var names: [NAME_HEAP_SIZE]byte in NAMES
+#if RAM32
+#if ADAPT
+; Image B (lathe/docs/bbc.md, "The image for machines with no sideways RAM"): the heap is lowest in
+; main RAM, from the DFS's PAGE ($1900: `region NAMES fixed $1900` in lathec-bbc.env), below the
+; code, and init begins it at PAGE when PAGE is higher (ADFS's, $1F00): the bytes below PAGE are
+; the filing system's, and the heap has the rest. A name is known by its offset, and nothing
+; reads below the first, so the heap may begin anywhere (test_bbc_rooms.SameObjects).
+extern func osbyte_xy(code: byte in a): word in xy at $FFF4  ; OSBYTE with a result in X and Y
+const OSBYTE_PAGE = 131         ; OSBYTE 131: PAGE, in X and Y
+#end
+#end
 var name_bucket: [NAME_BUCKETS]word
 pub var name_top: word = 1
 pub var new_length: byte
@@ -530,8 +562,17 @@ pub const MAX_SYMS = 256        ; (ROOMS, Image A: as linked, planes of 256 rows
 const MAX_MEMBERS = 256         ; (the members' rows are the symbols')
 #else
 #if SMALL
-pub const MAX_SYMS = 264        ; (SMALL: the test programs' small build; above 256, which
-const MAX_MEMBERS = 264         ; a word index needs)
+#if RAM32
+#if ADAPT
+pub const MAX_SYMS = 226        ; (RAM32 with ADAPT: Image B, as TEXT_SIZE: their room to the name heap)
+#else
+pub const MAX_SYMS = 264        ; (SMALL, and RAM32: the 32K Model B)
+#end
+#else
+pub const MAX_SYMS = 264        ; (SMALL: the test programs' small build; above 256, which a word index needs)
+#end
+const MAX_MEMBERS = 264         ; (SMALL: as the symbols in the small build, RAM32's and Image B's;
+                                ; above 256, which a word index needs)
 #else
 pub const MAX_SYMS = 560
 const MAX_MEMBERS = 512         ; gen.lth needs 437 (432 until 2026-11-17, when it needed 427)
@@ -1161,6 +1202,11 @@ pub func init()
 #if ROOMS
   var column: word
 #end
+#if RAM32
+#if ADAPT
+  var page: word
+#end
+#end
   var bucket: byte
   text_top = @text
   path = text_reserve(PATH_SIZE)
@@ -1171,6 +1217,16 @@ pub func init()
     name_bucket[bucket] = 0
   end
   name_top = 1
+#if RAM32
+#if ADAPT
+  page = osbyte_xy(OSBYTE_PAGE)          ; offset 0 stays no name: the heap begins at offset 1 or
+  with NAMES do                         ; at PAGE, whichever is higher
+    if page > word(@names) then
+      name_top = page - word(@names)
+    end
+  end
+#end
+#end
   sym_count = 0
   thaw_top = sym_rows
   local_base = 0

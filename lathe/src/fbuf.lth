@@ -86,7 +86,11 @@ import kernel (put, put_word)
 
 #if SMALL
 #if RAM32
+#if ADAPT
+const BUFFER_SIZE = 1472        ; bytes of entries (RAM32 with ADAPT: Image B, the image for machines with no sideways RAM: lathe/docs/bbc.md)
+#else
 const BUFFER_SIZE = 1536        ; bytes of entries (RAM32: the 32K Model B, every table in main RAM: lathe/docs/bbc.md, "The 32K Model B")
+#end
 #else
 const BUFFER_SIZE = 1024        ; bytes of entries (SMALL: the test programs' small build)
 #end
@@ -96,14 +100,30 @@ const BUFFER_SIZE = 4096        ; bytes of entries
 const MAX_ENTRY = 7            ; bytes of the largest entry
 const MAX_CODE = 4096           ; bytes of code in one function
 #if SMALL
+#if RAM32
+#if ADAPT
+const MAX_LABELS = 64           ; (RAM32 with ADAPT: Image B, as BUFFER_SIZE)
+#else
+const MAX_LABELS = 128          ; (SMALL, and RAM32: the 32K Model B)
+#end
+#else
 const MAX_LABELS = 128          ; (SMALL: the test programs' small build)
+#end
 #else
 const MAX_LABELS = 192          ; a label's number is stored in one byte
 #end
 const MAX_FIXUPS = 512          ; fix-ups of one function
 const PIECE_SIZE = 5            ; bytes of code one entry can become: a branch round a JMP
 #if SMALL
+#if RAM32
+#if ADAPT
+const MAX_WEIGHTS = 16          ; (RAM32 with ADAPT: Image B, as BUFFER_SIZE)
+#else
+const MAX_WEIGHTS = 32          ; (SMALL, and RAM32: the 32K Model B)
+#end
+#else
 const MAX_WEIGHTS = 32          ; (SMALL: the test programs' small build)
+#end
 #else
 const MAX_WEIGHTS = 64          ; slots of other functions one function uses; more are not counted
 #end

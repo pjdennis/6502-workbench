@@ -1104,7 +1104,7 @@ Since FBUF leaves out the stores nothing reads (2026-11-18), judged 16,071, 15,6
 
 ### What the 32K form compiles
 
-`LATHE_BBC_RAM32=1 python3 -m unittest test_bbc_ram32` (`Assessment`, 2 minutes): every module of `lathe/src` and `lathe/rt` that the host compiler compiles, with its options, compiled by `*LATHE` on the Model B (`bbc32`, DFS names, `--fill-ram`, `--bbc-strict`) from the eight-bank image; the oracle is the host compiler at the 32K form's capacities (`lathe/tests/lathec_ram32.py`). Every compile gives the host's files, or the host's error. **52 of 75 compile** (2026-11-18), in 750.6 million cycles, 6.3 minutes at 2 MHz.
+`LATHE_BBC_RAM32=1 python3 -m unittest test_bbc_ram32` (`Assessment`, 2 minutes): every module of `lathe/src` and `lathe/rt` that the host compiler compiles, with its options, compiled by `*LATHE` on the Model B (`bbc32`, DFS names, `--fill-ram`, `--bbc-strict`) from the eight-bank image; the oracle is the host compiler at the 32K form's capacities (`lathe/tests/lathec_ram32.py`). Every compile gives the host's files, or the host's error. **52 of 75 compile** (2026-11-18), in 750.6 million cycles, 6.3 minutes at 2 MHz. (Corrected 2026-11-21: since the linker's code under `LKDYN` grew on 2026-11-20, `lk_name.lth`, compiled with `-dLKDYN=1` as here, needs 3,110 bytes of names, measured by a real compile at the 32K form's capacities, and is refused there, error 70; its row below is of 2026-11-18. On 2026-11-21 53 of 79 modules compiled at these capacities, by the host oracle; Image B's compiler takes 54 of them at both pages, `lk_name` among them: "The compiler: the name heap begun at PAGE".)
 
 | Module | Lines | Names (of 3,072) | Symbols (264) | Members (264) | Largest function, buffer bytes (1,536) | Labels (128) | Cycles | At 2 MHz |
 |---|---|---|---|---|---|---|---|---|
@@ -2177,10 +2177,10 @@ About 1.4 KB of the bank stays unused there; main RAM below `$1F00` holds no tab
 
 The owner asked for two images, one that needs sideways RAM (Image A, above) and one that does
 not, **Image B**, each working with the DFS or ADFS by PAGE and using what the DFS leaves free.
-Image B is the 32K build made adaptive. **Built so far: the linker's half**, which on a DFS
-machine now gives every table at least the 32K build's (2026-11-20, later: "Every block on a
-page" and "The tenth block", below). The compiler's half (its name heap begun at PAGE, below) is designed and measured
-but not built.
+Image B is the 32K build made adaptive. **Built: both halves.** The linker's on a DFS machine
+gives every table at least the 32K build's (2026-11-20, later: "Every block on a page" and "The
+tenth block", below); the compiler's (2026-11-21: "The compiler: the name heap begun at PAGE",
+below) runs at PAGE `$1900` and `$1F00` with its heap begun at PAGE.
 
 ### Why not the placer for every table
 
@@ -2317,26 +2317,103 @@ only, linked and run (270.3 million cycles);
 every file the host tools' under that filing system's names (`BBCFS 3`), and the host linker at
 that machine's capacities linking it to the same image.
 
-### The compiler: the name heap begun at PAGE (designed, not built)
+### The compiler: the name heap begun at PAGE (2026-11-21)
 
-The compiler's tables cannot move, but the name heap can start late: it is reached only by
-offsets from its base, `name_top` starts at 1, 0 is no name, and nothing assumes where the first
-entry is. Measured on the host (a wrapper of `lathec_heap.py` that begins `name_top` and
-`local_names` at a given offset): every module of the self-compile, compiled with the heap begun at
-2, 1,537 and 3,001 and the same room above, gives the same files as from 1; a start that leaves
-too little room is error 70. The design: under a define, `kernel.names` linked lowest, from
-`$1900`, the code above it, and `kernel.init` begins the heap at PAGE − base (OSBYTE 131). On an
-ADFS machine the heap has 1,536 bytes less, so Image B's own capacities must be retuned (the
-32K build's heap of 3,072 would leave 1,536, too little for a module that imports `host`, about
-1,300). Not built: the splits to try and the build remain.
+The compiler's tables cannot move (its banked code names them), but the name heap can start late:
+it is reached only by offsets from its base, `name_top` starts at 1, 0 is no name, and nothing
+reads below the first entry. So, built:
+
+- **The layout** (`when RAM32 when ADAPT` in `lathec-bbc.env`): `kernel.names` lowest in main RAM,
+  `$1900-$2B25` (4,646 bytes), by the environment's new form `region NAMES fixed $1900` (a fixed
+  region's variables from an address of their own, outside the ranges:
+  [`configurations.md`](configurations.md), "Regions placed at run time"); the code range
+  `$2B26-$3FFB` (5,334 bytes resident, all of it), data `$3FFC-$7BFF`, `more data $0401-$06FF`:
+  **6 bytes of main RAM free** (in `more`). BBCFS 3, the 32K form's placement of the modules in five
+  banks, every region fixed (`-f`), `SMALL 1`, `ROOMS 0`.
+- **At the start** `kernel.init` asks the MOS for PAGE (OSBYTE 131, `extern func osbyte_xy`) and,
+  when PAGE is above the heap's address, begins `name_top` (and so `local_names`) at PAGE less it:
+  the bytes below PAGE are the filing system's and are never written. On a DFS machine the heap is
+  4,646 bytes, on an ADFS machine (`$1F00`) 3,110: 1,536 less. 40 bytes of code in kernel's bank.
+- **The module refuses `*LATHE` at a PAGE above `$1F00`**: `define HIGHEST_PAGE $1F00` in the
+  compiler's environment, which `bbcrom.py` reads; an image with such a program has the highest PAGE
+  in each command's entry (the linker's, its start, `$1F00`), and `module.asm`'s PAGE check reads it
+  there instead of the start address (`page_limit`, an offset in the entry; every other image is
+  assembled as before, the same bytes). `PAGE too high`, as before.
+- **Capacities, Image B's own** (`#if ADAPT` inside `#if RAM32` in the twins; `script_host.IMAGE_B`,
+  checked by `test_memory.py`; the 32K build's are unchanged):
+
+| Table | 32K build | Image B, DFS machine (PAGE `$1900`) | Image B, ADFS machine (PAGE `$1F00`) |
+|---|---|---|---|
+| Name heap | 3,072 | **4,646** | **3,110** |
+| Symbols | 264 | 226 | 226 |
+| Members | 264 | 264 | 264 |
+| Labels of a function | 128 | 64 | 64 |
+| Text memory | 768 | 672 | 672 |
+| Token memory, saved tokens | 384, 384 | 304, 304 | 304, 304 |
+| Function buffer | 1,536 | 1,472 | 1,472 |
+| Import rows (`MAX_WANTS`) | 56 | 52 | 52 |
+| Fix-ups of a constant table | 32 | 28 | 28 |
+| Types | 40 | 38 | 38 |
+| Weights of a function | 32 | 16 | 16 |
+| String, constant table, others | | as the 32K build's | as the 32K build's |
+
+So on a DFS machine the name heap is 1,574 bytes above the 32K build's and **nine capacities are
+below it: symbols, labels, text, tokens and saved tokens, function buffer, import rows, table
+fix-ups, types and weights**. How they were chosen: the census of 517 compiles (every module of
+`lathe/src` and `lathe/rt`, every compile of `test_bbc_toolchain`'s corpus, the modules of the
+generated programs of 8 modules of 26 functions and 6 of 21) with each table's peak use; the rule,
+in order: the DFS machine compiles everything the 32K build compiles; the ADFS machine as much as
+can be; the DFS machine keeps as much of the 32K build's capacities as it can. A split of
+4,470 bytes of heap (symbols 232, text 704, tokens 320) gave the DFS machine 476 and the ADFS
+machine 474: `lk_map` and `lk_name` lacked 18 and 176 bytes of heap there. The heap of 4,646 takes
+them both, from 102 bytes of symbols (232 to 226), 32 of text and 16 of tokens; each is still above
+the most any census compile that fits otherwise uses (225 symbols, 662 of text, 295 of saved
+tokens). The members stay at 264: at 256 or fewer their arrays take a byte index (error 120).
+
+**What compiles** (real compiles, by the host oracle `lathe/tests/lathec_image_b.py` at each
+machine's capacities and heap start; the predictions from the peaks were all right): of the census,
+**the 32K build 475, Image B on a DFS machine 476 and on an ADFS machine 476**, every one of the
+32K build's among them; the largest module of each is `for_ranges.lth` of the corpus (3,756 lines),
+of `lathe/src` and `lathe/rt` `fbuf.lth` (1,018 lines). The rest are refused for a function too large,
+an import list, saved tokens, a string, labels or a constant table on both machines, and at ADFS's
+PAGE 8 of them for names first. On the emulated Model B (`test_bbc_image_b.Assessment`,
+`LATHE_BBC_IMAGE_B_ALL=1`, 3.4 minutes): 54 of the 79 modules of `lathe/src` and `lathe/rt` at both
+pages, each the oracle's files or error, the same files at both pages. A module of variables of 31
+characters: 106 compile on the DFS machine, 64 on the ADFS machine, one more is error 70.
+
+**The heap may begin anywhere**: `test_bbc_rooms.SameObjects` compiles each module with the heap
+begun at offsets 2, 1,537 and 3,001 (the room above the same: the same files; 16 bytes less: error
+70); on the emulated Model B `lk_name`, `typetab` and the 54 give the same files at `$1900` and
+`$1F00`, the host compiler's at full size.
+
+**The largest programs, end to end, with Image B's own tools** (`LATHE_BBC_IMAGE_B_PROGRAMS=1`):
+under the emulator's DFS at `$1900` the 25 KB program (8 modules of 26 functions, 2,879 lines, 24,296
+bytes): 13 compiles 263.1 million cycles (the 32K image: 261.6), the link 364.3 million (399.5), run;
+under its ADFS at `$1F00` the 17.9 KB program (7 modules of 22 functions, 2,112 lines): 12 compiles
+202.1 million cycles, the link and the run 270.3 million; every file the host tools' under that
+filing system's names.
+
+**Cycles**: `*LATHE` starts in 454,163 cycles at `$1900` and 454,182 at `$1F00` (the 32K image's:
+451,267); `typetab.lth` compiles in 15.70 million at both pages (15.69 from the 32K image, DFS names);
+`lk_name.lth` in 54.4 million; `*LLINK` starts in 552,932 and 642,261 and links `calls` in 20.3 and
+20.4 million, as before.
+
+**The ROM account**: Image B fits the 128 KB module with **3,181 bytes free** (3,225 before: the
+compiler's init and the module's page limits); the compiler's banks as the linker judges them
+14,186, 15,616, 14,592, 15,861 and 15,978 bytes of 16,272 (placed 13,120, 13,849, 12,742, 13,638,
+13,926), the linker's as before.
 
 ### What Image B would make redundant (nothing removed)
 
-The 32K image (`test_bbc_ram32.build_image`) and its linker's form, once the compiler's half is
-built: Image B serves the 32K Model B under the DFS with the linker's calls, functions and nodes
-the same, 176 slots more and 128 symbols more (since the tenth block); `test_bbc_ram32`, `test_lk_ram32`'s BBC runs
-and `test_gen_program.OnTheModelB` could run Image B instead. Not before the owner accepts the
-compiler's half's cost.
+The 32K image (`test_bbc_ram32.build_image`) and the 32K forms of both tools (`RAM32 1` without
+`ADAPT`): Image B serves the 32K Model B under the DFS with the linker's calls, functions and nodes
+the same, 176 slots more and 128 symbols more, and the compiler's name heap 1,574 bytes larger, but
+nine of the compiler's capacities lower (above), and it serves ADFS's PAGE too. It compiles every
+census compile the 32K form compiles. So `test_bbc_ram32` (`Ram32`, `Assessment`), `test_lk_ram32`'s
+BBC runs and `test_gen_program.OnTheModelB` could run Image B instead (its `Assessment` and
+`LargestPrograms` already cover the same ground at both pages); the 32K form's own capacities
+(`#if RAM32` without `ADAPT`, `script_host.RAM32`, `lathec_ram32.py`) would then serve nothing but
+the comparison. Nothing is removed: the owner decides, having the cost of the nine capacities.
 
 ## Open, for the owner
 

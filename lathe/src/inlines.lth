@@ -82,7 +82,15 @@ import reg (depth, F_DATA, F_TEMP, INDEX, M_DIRECT, O_CONST, O_VAR, op_flags, op
 import typetab (is_pointer, size)
 
 #if SMALL
+#if RAM32
+#if ADAPT
+const SAVED_SIZE = 304      ; (RAM32 with ADAPT: Image B, the image for machines with no sideways RAM: lathe/docs/bbc.md)
+#else
+const SAVED_SIZE = 384      ; (SMALL, and RAM32: the 32K Model B)
+#end
+#else
 const SAVED_SIZE = 384      ; (SMALL: the test programs' small build)
+#end
 #else
 const SAVED_SIZE = 2048     ; bytes of saved tokens in one module
 #end

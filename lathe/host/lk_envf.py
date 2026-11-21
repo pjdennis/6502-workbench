@@ -31,6 +31,8 @@
     region    SLOTS WIN 4 dynamic main kernel.slot_rows rows 256 to 768
                                     ; and the placer puts it in main RAM alone: code compiled
                                     ; with -fSLOTS may name it without a block (lk_dyn.in_main)
+    region    NAMES fixed $1900       ; fixed memory, its variables from $1900 up in the order
+                                    ; they are defined, outside code, data and more (lk_alloc)
     placer    rt_place              ; the module whose `place` the start-up calls for those
     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
@@ -171,6 +173,8 @@ region_name = [0] * MAX_REGIONS
 region_bank = bytearray(MAX_REGIONS)    # the bank + 1, or 0 for fixed memory
 region_dynamic = 0                  # bit i: region i is `dynamic`, placed again at the start (lk_dyn)
 region_main = 0                     # bit i: region i is `dynamic main`, in main RAM alone (lk_dyn)
+region_at = [0] * MAX_REGIONS       # the ADDR of `fixed ADDR`, its variables' first address (lk_alloc), or 0
+has_at = False                      # some region is `fixed ADDR`
 region_room = [0] * MAX_REGIONS     # a dynamic region's capacity variable's name + 1, or 0 (lk_dyn);
                                     # in the text after the name, five words: room_rows,
                                     # room_floor, room_want, room_ceiling, room_planes
@@ -601,7 +605,7 @@ def place_entry():
 
 
 def region_entry():
-    global region_count, region_dynamic, region_main
+    global region_count, region_dynamic, region_main, has_at
     name_token()
     for i in range(0, region_count):
         if is_token(region_name[i]):
@@ -612,9 +616,16 @@ def region_entry():
     region_count += 1
     region_name[i] = hold_token()
     region_room[i] = 0
+    region_at[i] = 0
     name_token()
     if keyword() == W_FIXED:
         region_bank[i] = 0
+        if read_token():
+            address = token_number()
+            if address < 0x100:
+                bad()
+            region_at[i] = address
+            has_at = True
     else:
         w = find_window()
         n = bank_number()
@@ -638,6 +649,16 @@ def region_entry():
             if more:
                 room_entry(i)
     end_of_line()
+
+
+def fixed_at(r):
+    """The first address of region r's variables if it is `fixed ADDR`, else 0."""
+    return region_at[r]
+
+
+def fail_region(n, r):
+    """Link error n, with region r's name."""
+    fail_text(n, region_name[r])
 
 
 def is_word(w):

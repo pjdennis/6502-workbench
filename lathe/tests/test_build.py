@@ -264,6 +264,18 @@ class TestBuild(Sources):
             'region SYMS fixed', 'when R region SYMS fixed'))
         self.assertEqual(skipped.fixed_regions, ['names'])
 
+    def test_a_fixed_region_with_its_address_is_told_fixed_too(self):
+        """`region NAME fixed ADDR` (lathe/host/README.md, "The environment file"): the region's
+        variables go from ADDR, outside the ranges, and it is still fixed memory, so it gives
+        -fNAME as `region NAME fixed` does."""
+        import mapenv
+        text = ('define FIXED_REGIONS 1\ncode $0200 $7FFF\nexit return\nregion NAMES fixed $1900\n'
+                'region SYMS fixed\n')
+        env = mapenv.parse_env(text)
+        self.assertEqual(env.fixed_regions, ['names', 'syms'])
+        self.assertEqual(env.regions, [])
+        self.assertEqual(build.compiler_options(env), ['-c6502', '-dFIXED_REGIONS=1', '-fnames', '-fsyms'])
+
     def test_a_region_in_main_ram_alone_is_told_fixed_too(self):
         """`region NAME WIN N dynamic main` (lathe/host/README.md, "The environment file"): the
         placer puts it in main RAM alone, so with FIXED_REGIONS it is told as a fixed region is."""

@@ -6,8 +6,10 @@ fits them closest; it writes in kernel.name_room and kernel.token_room how many 
 which the compiler tests where the other builds test NAME_HEAP_SIZE and SAVED_SIZE.
 
 SameObjects: the host compiler with name heaps of many sizes, from the least a module compiles
-with up, and with room for 768 to 2,048 bytes of saved tokens (lathec_heap.py), gives the same
-files for every module: what the compiler writes does not depend on its capacities. By default the
+with up, with room for 768 to 2,048 bytes of saved tokens, and with the heap begun at offsets
+other than 1 (STARTS; lathec_heap.py), gives the same files for every module: what the compiler
+writes does not depend on its capacities, nor on where in the heap its names begin (Image B's
+compiler begins them at PAGE: test_bbc_image_b.py). By default the
 quick modules of test_src_selfhost and a module of long names; LATHE_BBC_ROOMS_ALL=1 every module
 of the compiler and the modules of a generated program (gen_program.py) too.
 
@@ -44,6 +46,9 @@ ONE_BANK_FUNCTIONS = 20         # functions a module of the generated program te
 ONE_BANK_LARGEST = 82           # with LATHE_BBC_ROOMS_SELFHOST=1: the most with which one bank compiles
                                 # them (its members are full at 84: error 72)
 LINKED = 9216                   # kernel.NAME_HEAP_SIZE, the heap as linked
+STARTS = (2, 1537, 3001)        # where the heap begins (name_top's first value, 1 in every build but
+                                # Image B's, which begins it at PAGE less $1900): the same files, from
+                                # the same room above the start; less is error 70
 BIG_NAMES = 330                 # bignames: 12,923 bytes of the heap at most
 
 
@@ -78,11 +83,11 @@ class Module:
             shutil.copy(li, self.dir)
         self.count = 0
 
-    def compile(self, heap, need=None, tokens=None, caps=None):
+    def compile(self, heap, need=None, tokens=None, caps=None, start=None):
         """The host compiler with a heap of `heap` bytes, room for `tokens` bytes of saved tokens
         (else inline.SAVED_SIZE) and the capacities `caps` ({'syms': rows, 'buffer': ..., 'table':
-        ..., 'string': ...}, lathec_heap.py): (status, error output, {file: bytes}); with `need`,
-        the most the heap was asked for, too."""
+        ..., 'string': ...}, lathec_heap.py), the heap begun at offset `start` (else 1):
+        (status, error output, {file: bytes}); with `need`, the most the heap was asked for, too."""
         self.count += 1
         d = os.path.join(self.dir, 'at-%d-%d' % (heap, self.count))
         shutil.copytree(self.dir, d, ignore=shutil.ignore_patterns('at-*'))
@@ -94,6 +99,8 @@ class Module:
             environ['LATHE_SAVED_TOKENS'] = str(tokens)
         if caps:
             environ['LATHE_CAPACITIES'] = ','.join('%s=%d' % kv for kv in sorted(caps.items()))
+        if start:
+            environ['LATHE_NAME_START'] = str(start)
         done = subprocess.run([sys.executable, HEAP_TOOL] + list(self.options) + [self.name + '.lth', '.'],
                               cwd=d, capture_output=True, env=environ)
         files = {f: read(os.path.join(d, f)) for f in sorted(os.listdir(d)) if f not in before}
@@ -185,6 +192,17 @@ class SameObjects(unittest.TestCase):
             status, said, files = module.compile(least - 16)
             self.assertEqual(status, 1)
             self.assertIn(b'error 70: too many names', said)
+        for start in STARTS:
+            with self.subTest(module=module.name, start=start):
+                status, said, files = module.compile(least + start - 1, start=start)
+                self.assertEqual((status, said), (0, b''))
+                self.assertEqual(sorted(files), sorted(expected))
+                for f in files:
+                    self.assertTrue(files[f] == expected[f], f + ' differs')
+                if least > 16:
+                    status, said, files = module.compile(least + start - 1 - 16, start=start)
+                    self.assertEqual(status, 1)
+                    self.assertIn(b'error 70: too many names', said)
         return least
 
     def test_the_same_files_at_every_heap(self):

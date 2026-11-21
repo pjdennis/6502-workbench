@@ -39,7 +39,7 @@ import lk_envf (bank_count, bank_file, bank_n, bank_win, in_window, is_overlay, 
                 placed, region_dynamic, text, window)
 import lk_err (E_IRQ_OVERLAY, E_IRQ_PLACED)
 import lk_name (fail, fail_in, fc_place, MAX_OBJECTS, obj_fn, object_count)
-import lk_scan (crosses, def_bank, fn_bank, object_of, region_of)
+import lk_scan (crosses, def_bank, fn_bank, is_at, object_of, region_of)
 import lk_sym (row_of)
 import lk_tab (ctx_count, ctx_of, D_CONST, D_FIXED, def_a, def_f, edge_flag, edge_sym, F_ADDR,
                F_INIT, F_INTERRUPT, F_STUB, first_call, fn_count, fn_ctx, fn_flags, fn_ref,
@@ -55,9 +55,10 @@ pub var table_count: byte = 0   ; banks or overlays in the table
 
 ; The bank + 1 that variable or constant d goes in, or 0 for fixed memory: that of its region, if
 ; it is `in` a region in a bank; else that of its module's code, if no fix-up outside that bank
-; names it and none takes its address (lk_graph.note_named). A variable goes in a bank, never an
-; overlay, which is loaded again from its file, nor a read-only bank (a region's variable in one
-; is an error: lk_place.place_bank_vars).
+; names it and none takes its address (lk_graph.note_named); 0 for one in a region that is `fixed
+; ADDR` (lk_scan.is_at, LKDYN). A variable goes in a bank, never an overlay, which is loaded again
+; from its file, nor a read-only bank (a region's variable in one is an error:
+; lk_place.place_bank_vars).
 pub func bank_def(d: word): byte
   var r: byte
   var b: byte
@@ -68,6 +69,11 @@ pub func bank_def(d: word): byte
   if not lk_envf.placed() or (lk_tab.def_f[d] & lk_tab.D_FIXED) != 0 then
     return 0
   end
+#if LKDYN
+  if lk_scan.is_at(d) then
+    return 0
+  end
+#end
   b = lk_scan.def_bank(d)
   if b == 0 or (lk_tab.def_f[d] & lk_tab.D_CONST) != 0 then
     return b

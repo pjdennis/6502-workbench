@@ -37,9 +37,11 @@ dfix_read = False                   # a DFIX record was just read: a DATA record
 rgn_read = False                    # a RGN record was read: a VAR, or a DFIX and DATA, must follow
 rgn_bank = 0                        # the bank + 1 of its region, or 0 if the region is fixed
 rgn_region = 0                      # the region itself, its entry in lk_envf
+rgn_at = False                      # and it is `fixed ADDR` (lk_envf.region_at)
 
-# The variables and constants in a region that is in a bank (lk_envf.region_bank), in the order
-# they are defined. Those of a region in fixed memory are ordinary ones and are not here.
+# The variables and constants in a region that is in a bank (lk_envf.region_bank), or that is
+# `fixed ADDR`, in the order they are defined. Those of any other region in fixed memory are
+# ordinary ones and are not here.
 MAX_REGION_DEFS = 64
 rdef_count = 0
 rdef_def = [0] * MAX_REGION_DEFS
@@ -89,7 +91,7 @@ def skip_string():
 def rec_rgn():
     """A RGN record: the region of the VAR or DATA record that follows. A name the environment
     file has no `region` entry for is a region in fixed memory, as is one given as `fixed`."""
-    global rgn_read, rgn_bank, rgn_region
+    global rgn_read, rgn_bank, rgn_region, rgn_at
     size = lk_rec.get_byte()
     for i in range(0, size):
         c = lk_rec.get_byte()
@@ -99,6 +101,7 @@ def rec_rgn():
         damaged()
     rgn_read = True
     rgn_bank = 0
+    rgn_at = False
     if size > lk_envf.TOKEN_SIZE:
         return
     lk_envf.token_len = size
@@ -106,6 +109,7 @@ def rec_rgn():
     if r != lk_envf.MAX_REGIONS:
         rgn_bank = lk_envf.region_bank[r]
         rgn_region = r
+        rgn_at = lk_envf.region_at[r] != 0
 
 
 def in_region(d):
@@ -114,14 +118,15 @@ def in_region(d):
     if not rgn_read:
         return
     rgn_read = False
-    if rgn_bank == 0:
+    if rgn_bank == 0 and not rgn_at:
         return
     if rdef_count == MAX_REGION_DEFS:
         lk_err.fail(lk_err.E_DEFS)
     rdef_def[rdef_count] = d
     rdef_region[rdef_count] = rgn_region
     rdef_count += 1
-    lk_envf.region_used = rgn_bank
+    if rgn_bank != 0:
+        lk_envf.region_used = rgn_bank
 
 
 def region_of(d):
@@ -130,6 +135,17 @@ def region_of(d):
         if rdef_def[i] == d:
             return lk_envf.region_bank[rdef_region[i]]
     return 0
+
+
+def is_at(d):
+    """True if variable or constant d is in a region that is `fixed ADDR`: a variable then has its
+    address from lk_alloc.place_at, and constant data is fixed, as any region's in fixed memory."""
+    if not lk_envf.has_at:
+        return False
+    for i in range(0, rdef_count):
+        if rdef_def[i] == d:
+            return lk_envf.region_at[rdef_region[i]] != 0
+    return False
 
 
 def define(s):

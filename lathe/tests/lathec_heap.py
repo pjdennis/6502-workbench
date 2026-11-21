@@ -12,6 +12,10 @@ table and of the members), `buffer` (FBUF's), `table` (OUT's constant table), `s
 With LATHE_NAME_HEAP_NEED=FILE it also writes to FILE the most the heap was asked to hold at the
 start of a name (kernel.name_begin's test), so that a test can find the least heap a module
 compiles with.
+
+With LATHE_NAME_START=N the heap begins at offset N, not 1 (kernel.init's name_top and
+local_names), as Image B's compiler begins it at PAGE less its address on a machine whose PAGE is
+higher (lathe/docs/bbc.md, "The image for machines with no sideways RAM"; lathec_image_b.py).
 """
 import os
 import sys
@@ -88,5 +92,8 @@ if need_file:
     atexit.register(write_need)
 if os.environ.get('LATHE_CAPACITIES'):
     capacities(os.environ['LATHE_CAPACITIES'])
+if os.environ.get('LATHE_NAME_START'):
+    import lathec_image_b
+    lathec_image_b.begin_heap_at(int(os.environ['LATHE_NAME_START']))
 env.start(sys.argv[1:])
 lathec.main()

@@ -231,6 +231,23 @@ def ram32_capacities():
     return [(m, n, ram32.get((m, n), v)) for m, n, v in SMALL]
 
 
+# Image B's capacities (RAM32 with ADAPT, the image for machines with no sideways RAM: `#if ADAPT`
+# inside `#if RAM32` in the twins; lathe/docs/bbc.md, "The image for machines with no sideways
+# RAM"): those that differ from the 32K Model B's. The name heap is lowest in main RAM and the
+# compiler begins it at PAGE, so on a machine whose PAGE is above $1900 it holds PAGE - $1900 bytes
+# less (lathec_image_b.py). test_memory.py checks that the twins agree.
+IMAGE_B = (('kernel', 'NAME_HEAP_SIZE', 4646), ('kernel', 'MAX_SYMS', 226), ('fbuf', 'BUFFER_SIZE', 1472),
+           ('fbuf', 'MAX_LABELS', 64), ('fbuf', 'MAX_WEIGHTS', 16), ('kernel', 'TEXT_SIZE', 672),
+           ('kernel', 'TOKEN_SIZE', 304), ('inline', 'SAVED_SIZE', 304), ('out', 'MAX_TABLE_FIXES', 28),
+           ('typetab', 'MAX_TYPES', 38), ('decl', 'MAX_WANTS', 52))
+
+
+def image_b_capacities():
+    """[(host module, name, size)] of Image B's compiler: the 32K Model B's with IMAGE_B's sizes."""
+    image_b = {(m, n): v for m, n, v in IMAGE_B}
+    return [(m, n, image_b.get((m, n), v)) for m, n, v in ram32_capacities()]
+
+
 def host_run(main, args, small=False):
     """main() of a Python twin, with program arguments: (status, output, error output). With
     `small`, the host modules have the capacities of the small build while it runs."""

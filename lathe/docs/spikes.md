@@ -1760,3 +1760,21 @@ on the DFS machine 768 symbols, 1,024 slots and 768 calls, every table at least 
 functions (17.9 KB: 389 symbols, 623 slots, 499 calls; 23 functions need 542 calls and are refused
 there). `*LLINK`'s start-up 552,928 cycles at `$1900`, 642,257 at `$1F00`; the `calls` link 20.3
 million; the 25 KB link 364.3 million (365.9). Every BBC image has 26 to 60 bytes more free.
+
+**The compiler's half (2026-11-21).** The routes to put `kernel.names` lowest from `$1900`, measured:
+`var names: [N]byte at $1900` (its `with NAMES do` blocks do not compile: error 184), the order of
+placement (with a `more` range the frames are first in `data`), a banked or `dynamic main` region
+(its namers are banked: link error 64). Built instead: `region NAMES fixed $1900`, a new environment
+form ([`configurations.md`](configurations.md), "Regions placed at run time"). Main RAM, by the real
+link: with the split first proposed (heap 4,470, symbols 232, text 704, tokens 320, estimated with
+160 bytes free) 32 bytes were free, not 160; the heap of 4,646 with symbols 226, text 672 and tokens
+304 leaves 6. The census, recompiled for real by the host oracles (`lathec_ram32.py`,
+`lathec_image_b.py` at `$1900` and `$1F00`, each compile with its imports' interfaces made at full
+size; 80 s on four cores): the 32K build 475 of 517, the split of 4,470 476 and 474, the split of
+4,646 476 and 476; the predictions from the peaks matched every real compile. The members cannot
+follow the symbols to 256 or fewer (error 120: a byte index). `lk_name.lth` needs 3,110 bytes of
+names since the linker's `LKDYN` code grew, so the 32K form no longer compiles it (the docs said it
+did). On the emulated Model B: every module of `lathe/src` and `lathe/rt` at both pages, 54 of 79,
+each the oracle's files or error (3.4 minutes); `*LATHE` starts in 454,163 cycles (the 32K image's
+451,267), `typetab` compiles in 15.70 million (15.69); the image has 3,181 bytes free (3,225)
+([`bbc.md`](bbc.md), "The compiler: the name heap begun at PAGE").

@@ -41,7 +41,9 @@
 ;      copied to $0100 and raised there, as a sideways ROM's errors must be (the language that
 ;      prints it is in the window then), before anything is copied or written; and, the same
 ;      way, `PAGE too high` if PAGE (OSBYTE 131) is above the program's start address, where its
-;      resident part is copied to, which would be over the filing system's workspace;
+;      resident part is copied to, which would be over the filing system's workspace (with
+;      page_limits, above the highest PAGE its entry gives: Image B's compiler, whose name heap is
+;      below its code and begins at PAGE, says $1F00 by `define HIGHEST_PAGE`);
 ;   1. copies the command's tail, after the spaces, from ($F2),Y to $0700, ended by CR (at most
 ;      239 bytes; from the end down when the line is below $0700, so that it may overlap);
 ;   2. writes the stub, 16 bytes at $07F0-$07FF, with the program's start address and the slot
@@ -288,9 +290,9 @@ bank0:
   STX w0
   STY w1
   LDX w3
-  LDA commands+3,X             ; the start address, where the program's memory starts, less PAGE
-  CMP w0
-  LDA commands+4,X
+  LDA commands+page_limit,X    ; the start address, where the program's memory starts (with
+  CMP w0                       ; page_limits the highest PAGE its entry gives), less PAGE
+  LDA commands+page_limit+1,X
   SBC w1
   BCS .page
   LDX #too_high-errors         ; below PAGE: the error, before anything is copied over the

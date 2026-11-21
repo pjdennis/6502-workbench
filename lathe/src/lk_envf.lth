@@ -21,6 +21,7 @@
 ;     place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
 ;     region    NAMES WIN 4           ; read and checked; not yet used (`region NAMES fixed` too)
 ;     region    NAMES WIN 4 dynamic   ; linked there, and placed again by the program as it starts
+;     region    NAMES fixed $1900     ; fixed, its variables from $1900 up (lk_alloc; with LKDYN)
 ;     placer    rt_place              ; the module whose `place` the start-up calls for those
 ;     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
 ;     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
@@ -192,6 +193,9 @@ pub var region_dynamic: word        ; bit i: region i is `dynamic`, placed again
                                     ; read() sets it)
 pub var region_main: word           ; bit i: region i is `dynamic main`, in main RAM alone (lk_dyn;
                                     ; read() sets it)
+pub var region_at: [MAX_REGIONS]word    ; the ADDR of `fixed ADDR`, its variables' first address
+                                        ; (lk_alloc.place_at; LKDYN), or 0
+pub var has_at: bool                ; some region is `fixed ADDR` (LKDYN; read() sets it)
 pub var region_room: [MAX_REGIONS]word  ; a dynamic region's capacity variable's name + 1, or 0 (lk_dyn;
                                         ; with LKDYN 0 nothing uses it, so it is not linked); in the
                                         ; text after the name, five words: room_rows, room_floor,
@@ -826,6 +830,17 @@ pub func room_planes(r: byte): word
   return held_word(region_room[r] + text[region_room[r] - 1] + 8)
 end
 
+; The first address of region r's variables if it is `fixed ADDR`, else 0. (Only LKDYN's code
+; calls this and the next, so without it they are not linked.)
+pub func fixed_at(r: byte): word
+  return region_at[r]
+end
+
+; Link error n, with region r's name.
+pub func fail_region(n: byte, r: byte)
+  fail_text(n, region_name[r])
+end
+
 func region_entry()
   var i: byte
   var w: byte
@@ -833,6 +848,7 @@ func region_entry()
   var b: byte
 #if LKDYN
   var more: bool
+  var address: word
 #end
   name_token()
   for i = 0 until region_count do
@@ -848,10 +864,21 @@ func region_entry()
   region_name[i] = hold_token()
 #if LKDYN
   region_room[i] = 0
+  region_at[i] = 0
 #end
   name_token()
   if keyword() == W_FIXED then
     region_bank[i] = 0
+#if LKDYN
+    if read_token() then
+      address = token_number()
+      if address < $100 then
+        bad()
+      end
+      region_at[i] = address
+      has_at = true
+    end
+#end
   else
     w = find_window()
     n = bank_number()
@@ -1208,6 +1235,7 @@ pub func read()
   placer = 0
   region_dynamic = 0
   region_main = 0
+  has_at = false
 #end
   handle = lk_file.open_in(lk_file.ARG_ENV)
   next_char()

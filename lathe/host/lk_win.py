@@ -37,13 +37,14 @@ table_count = 0                     # banks or overlays in the table
 def bank_def(d):
     """The bank + 1 that variable or constant d goes in, or 0 for fixed memory: that of its
     region, if it is `in` a region in a bank; else that of its module's code, if no fix-up
-    outside that bank names it and none takes its address (lk_graph.note_named). A variable
+    outside that bank names it and none takes its address (lk_graph.note_named); 0 for one in a
+    region that is `fixed ADDR` (lk_scan.is_at). A variable
     goes in a bank, never an overlay, which is loaded again from its file, nor a read-only bank
     (a region's variable in one is an error: lk_place.place_bank_vars)."""
     r = lk_scan.region_of(d)
     if r != 0:
         return r
-    if not lk_envf.placed() or (lk_tab.def_f[d] & lk_tab.D_FIXED) != 0:
+    if not lk_envf.placed() or (lk_tab.def_f[d] & lk_tab.D_FIXED) != 0 or lk_scan.is_at(d):
         return 0
     b = lk_scan.def_bank(d)
     if b == 0 or (lk_tab.def_f[d] & lk_tab.D_CONST) != 0:

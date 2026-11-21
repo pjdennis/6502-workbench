@@ -26,7 +26,11 @@ import err (E_RANGE, E_TYPES_FULL, fatal)
 
 #if SMALL
 #if RAM32
+#if ADAPT
+pub const MAX_TYPES = 38        ; (RAM32 with ADAPT: Image B, the image for machines with no sideways RAM: lathe/docs/bbc.md)
+#else
 pub const MAX_TYPES = 40        ; (RAM32: the 32K Model B, every table in main RAM: lathe/docs/bbc.md, "The 32K Model B")
+#end
 #else
 pub const MAX_TYPES = 32        ; (SMALL: the test programs' small build)
 #end

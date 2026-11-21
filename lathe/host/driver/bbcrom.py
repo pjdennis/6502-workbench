@@ -117,6 +117,9 @@ class Program:
     dynamic: bool = False       # it has dynamic regions: the module's placer serves it (module.asm)
     main_only: bool = False     # and they are in main RAM alone (`define FIXED_REGIONS 1`: the image
                                 # for machines with no sideways RAM), so the placer probes no slot
+    highest_page: int = 0       # `define HIGHEST_PAGE`: the module refuses the command at a higher
+                                # PAGE (else at a PAGE above its start address); Image B's compiler,
+                                # whose name heap is below its code and begins at PAGE
 
 
 def memory_top(path):
@@ -171,6 +174,10 @@ def load_program(p, size=BANKS, whole=False):
     p.dynamic = bool(env.dynamic_regions)
     told = [value for name, value in env.defines if name.upper() == 'FIXED_REGIONS']
     p.main_only = p.dynamic and bool(told) and told[-1] != 0
+    highest = [value for name, value in env.defines if name.upper() == 'HIGHEST_PAGE']
+    p.highest_page = highest[-1] if highest else 0
+    if p.highest_page and not 0x0800 <= p.highest_page <= p.load:
+        raise ImageError(f'{where}: HIGHEST_PAGE must be from $0800 to its start address ${p.load:04X}')
     if env.main_regions and not p.main_only:
         raise ImageError(f'{where}: a region `dynamic main` needs the placer for main RAM alone '
                          '(`define FIXED_REGIONS 1`)')
@@ -242,15 +249,18 @@ def assemble(text, what='lathe/rt/bbc/module.asm'):
     return code, {k[1]: v for k, v in a.symbols.items() if k[0] == 'global'}
 
 
-def tables(programs, lists, check_himem=False):
+def tables(programs, lists, check_himem=False, page_limits=False):
     """The asm text of the tables: the command table, the *HELP text and each command's copy
     list, [(source, destination, count, bank, unit)]. With check_himem each command's entry also
-    has the top of its program's memory, which HIMEM must not be below."""
+    has the top of its program's memory, which HIMEM must not be below; with page_limits too, the
+    highest PAGE it runs at (its HIGHEST_PAGE, or its start address)."""
     out = ['commands:']
     for n, p in enumerate(programs):
         out += [f'  .byte "{p.command}", $00', f'  .word list_{n}', f'  .word ${p.load:04X}']
         if check_himem:
             out += [f'  .word ${p.top:04X}']
+        if page_limits:
+            out += [f'  .word ${p.highest_page or p.load:04X}']
     out += ['  .byte $00', 'help_text:', '  .byte $0D', '  .byte "Lathe"', '  .byte $0D']
     for p in programs:
         out += [f'  .byte "  {p.command}"', '  .byte $0D']
@@ -298,8 +308,15 @@ def module_code(programs, lists, home=0, at=FIRST, parts=((0, 0, FIRST),)):
     with open(MODULE_ASM) as fh:
         source = fh.read()
     check_himem = any(p.top for p in programs)
+    page_limits = any(p.highest_page for p in programs)
+    if page_limits and not check_himem:
+        raise ImageError('a program with HIGHEST_PAGE needs the image to check HIMEM and PAGE')
     head = f'home: = ${home:02X}\nhome_at: = ${at:04X}\n'
-    head += 'check_himem: = $01\nentry_rest: = $07\n' if check_himem else 'entry_rest: = $05\n'
+    if page_limits:     # the PAGE check reads the entry's highest PAGE, not its start address
+        head += 'check_himem: = $01\nentry_rest: = $09\npage_limit: = $07\n'
+    else:
+        head += 'check_himem: = $01\nentry_rest: = $07\n' if check_himem else 'entry_rest: = $05\n'
+        head += 'page_limit: = $03\n'
     if any(p.dynamic for p in programs):
         if not check_himem:
             raise ImageError('a program with dynamic regions needs the image to check HIMEM: the placer '
@@ -318,7 +335,7 @@ def module_code(programs, lists, home=0, at=FIRST, parts=((0, 0, FIRST),)):
         head += f'part_at_home: = ${parts[0][2]:04X}\n'     # the one part is in the home bank: no table
     else:
         head += 'parts_away: = $01\n' + ('several_parts: = $01\n' if len(parts) > 1 else 'one_part_away: = $01\n')
-    code, labels = assemble(head + source + tables(programs, lists, check_himem)
+    code, labels = assemble(head + source + tables(programs, lists, check_himem, page_limits)
                             + ('' if at_home else parts_table(parts)))
     if labels['reserved_end'] != FIRST or len(code) > LAST - WINDOW + 1:
         raise ImageError(f'module.asm: the reserved bytes must end at ${FIRST:04X}, and its code fit a bank')
