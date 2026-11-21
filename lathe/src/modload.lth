@@ -30,7 +30,9 @@
 ;
 ; Before it writes anything it reads every file once and checks it: each bank file is the size
 ; the tool's map gives it (the `W` line of its name), the image is as long as the map's code
-; in fixed memory, everything fits a bank ($8050-$BFEF), no two pieces want one bank, and HOME
+; in fixed memory (for a tool with dynamic regions, a `placer` entry, which holds the list of
+; their places after that code: longer, its bytes there the code range's first address, and
+; ending in the code range), everything fits a bank ($8050-$BFEF), no two pieces want one bank, and HOME
 ; is a home bank of that number. A failure there writes nothing and ends with the MOS error
 ; `Exit 2` after a line that says what was wrong. Then it marks the module's slot empty in the
 ; MOS's ROM type table, so that the MOS offers it no service call while it is being written
@@ -319,6 +321,9 @@ var text_top: word
 
 var tool_start: [MAX_TOOLS]word     ; where the tool's code starts: its `code` range's first byte
 var tool_end: [MAX_TOOLS]word       ; the address after its code in fixed memory, from its map
+var tool_last: [MAX_TOOLS]word      ; its `code` range's last byte
+var tool_placer: [MAX_TOOLS]bool    ; it has dynamic regions (a `placer` entry): its image holds
+                                    ; the list of their places after the code its map gives
 var tool_top: [MAX_TOOLS]word       ; the address after its memory: its highest range's end, + 1
 var tool_mask: [MAX_TOOLS]word      ; its banks of the module, a bit each
 var tool_bank: [MAX_TOOLS]byte      ; the bank of its resident part
@@ -357,6 +362,7 @@ func read_env(t: byte, name: ^byte)
   tool_start[t] = 0
   tool_top[t] = 0
   tool_mask[t] = 0
+  tool_placer[t] = false
   open_text(name)
   while next_line() do
     first = 0
@@ -388,7 +394,10 @@ func read_env(t: byte, name: ^byte)
       define(word_of(first + 1), set)
     elif same(word_of(first), "code") and words - first == 3 then
       tool_start[t] = number_of(first + 1, false)
-      range_ends(t, number_of(first + 2, false))
+      tool_last[t] = number_of(first + 2, false)
+      range_ends(t, tool_last[t])
+    elif same(word_of(first), "placer") then
+      tool_placer[t] = true
     elif same(word_of(first), "data") and words - first == 3 then
       range_ends(t, number_of(first + 2, false))
     elif same(word_of(first), "more") and words - first == 4 and same(word_of(first + 1), "data") then
@@ -479,10 +488,12 @@ var reserved_bytes: [RESERVED]byte  ; and its reserved bytes, HOME's or the modu
 var descriptor: [DESCRIPTOR_SIZE]byte   ; the home bank's description of the layout
 var table: [TABLE_SIZE]byte         ; and the start of its command table
 var table_from: word                ; where in HOME the table is, from $8000 (0: not read yet)
+var word_from: word = $FFFF         ; where in a file the word noted is ($FFFF: none)
+var noted: word                     ; and the word, as length_of reads the file
 
 ; The length of file `name`, which must be at most `most` bytes; with home, HOME's reserved
 ; bytes, its description and (once table_from is known) its command table are noted as it is
-; read.
+; read; and the word at word_from, if the file has one there, in `noted`.
 func length_of(name: ^byte, most: word, home: bool): word
   var i: byte
   var h: byte
@@ -508,6 +519,11 @@ func length_of(name: ^byte, most: word, home: bool): word
         i = byte(n - table_from)
         table[i] = b
       end
+    end
+    if n == word_from then
+      noted = word(b)
+    elif n == word_from + 1 then
+      noted = noted + 256 * word(b)
     end
     if n == most then
       bbc.close(h)
@@ -774,9 +790,21 @@ pub func main()
     end
   end
   for t = 0 until tools do
-    if length_of(bbc.argv(arg + 2 + 3 * t), ROOM, false) != tool_end[t] - tool_start[t] then
-      fail("not the size its map gives: ", bbc.argv(arg + 2 + 3 * t))
+    if not tool_placer[t] then
+      if length_of(bbc.argv(arg + 2 + 3 * t), ROOM, false) != tool_end[t] - tool_start[t] then
+        fail("not the size its map gives: ", bbc.argv(arg + 2 + 3 * t))
+      end
+    else
+      ; The list of places after the code: it starts with the code range's first address, and
+      ; the image ends in the code range (lathe/host/lk_dyn.py has the list's form).
+      word_from = tool_end[t] - tool_start[t]
+      noted = 0
+      n = length_of(bbc.argv(arg + 2 + 3 * t), ROOM, false)
+      if n < word_from + 2 or n > tool_last[t] + 1 - tool_start[t] or noted != tool_start[t] then
+        fail("not the size its map gives: ", bbc.argv(arg + 2 + 3 * t))
+      end
     end
+    word_from = $FFFF
   end
   ; The home bank: HOME's, of the layout of these tools, or the module's that is there.
   if whole then

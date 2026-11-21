@@ -675,13 +675,48 @@ TEST cli_bbcbplus_model_b_and_mode(void) {
     ASSERT_EQ_FMT(0, parse(plus, &opts), "%d");
     ASSERT_EQ(BBC_MODEL_BPLUS, opts.bbc_model);
     ASSERT_STR_EQ("0,1,12,13", opts.bbc_sideways_ram);
-    char *bad[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "master", NULL};
-    ASSERT(bbc_error(bad, "--bbc-model must be 'b' or 'bplus'"));
+    char *bad[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "electron", NULL};
+    ASSERT(bbc_error(bad, "--bbc-model must be 'b', 'bplus' or 'master'"));
     char *shadow[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "b",
                       "--bbc-shadow", NULL};
     ASSERT(bbc_error(shadow, "the Model B has no shadow screen"));
     char *mode[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-mode", "8", NULL};
     ASSERT(bbc_error(mode, "--bbc-mode must be 0 to 7"));
+    PASS();
+}
+
+/* --bbc-model master: a Master-like machine. Its sideways RAM is 4 to 7 and the module's socket 8
+ * unless given, the shadow screen is allowed, and the CPU is the emulator's CMOS core unless
+ * --cpu nmos asks for the NMOS one (to compare with the B+). */
+TEST cli_bbcbplus_model_master(void) {
+    char *argv[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "master",
+                    "--bbc-module-ram", "--bbc-shadow", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+    ASSERT_EQ(BBC_MODEL_MASTER, opts.bbc_model);
+    ASSERT_STR_EQ("4,5,6,7", opts.bbc_sideways_ram);
+    ASSERT_EQ(8, opts.bbc_module_slot);
+    ASSERT_EQ(1, opts.bbc_shadow);
+    ASSERT_EQ(-1L, opts.bbc_page);               /* the machine's own: $0E00 */
+    ASSERT_EQ(CPU_65C02, opts.cpu_variant_opt);
+    char *given[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "master",
+                     "--bbc-sideways-ram", "4,5", "--bbc-module-ram", "--bbc-module-slot", "6", "--cpu", "nmos",
+                     NULL};
+    ASSERT_EQ_FMT(0, parse(given, &opts), "%d");
+    ASSERT_STR_EQ("4,5", opts.bbc_sideways_ram);
+    ASSERT_EQ(6, opts.bbc_module_slot);
+    ASSERT_EQ(CPU_NMOS, opts.cpu_variant_opt);
+    char *in_ram[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "master",
+                      "--bbc-module-ram", "--bbc-module-slot", "4", NULL};
+    ASSERT(bbc_error(in_ram, "slot 4 is sideways RAM"));
+    char *cmos[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--cpu", "65c02", NULL};
+    ASSERT(bbc_error(cmos, "requires --cpu nmos"));      /* the B+ and the Model B stay NMOS only */
+    char *plus[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-model", "master",
+                    "--bbc-model", "bplus", "--bbc-module-ram", NULL};
+    ASSERT_EQ_FMT(0, parse(plus, &opts), "%d");
+    ASSERT_STR_EQ("0,1,12,13", opts.bbc_sideways_ram);
+    ASSERT_EQ(4, opts.bbc_module_slot);
+    ASSERT_EQ(CPU_NMOS, opts.cpu_variant_opt);
     PASS();
 }
 
@@ -723,6 +758,10 @@ TEST cli_bbcbplus_options_parsed(void) {
                     "--bbc-module-dump", "out.bin", NULL};
     ASSERT_EQ_FMT(0, parse(dump, &opts), "%d");
     ASSERT_STR_EQ("out.bin", opts.bbc_module_dump);
+    ASSERT_EQ(NULL, opts.bbc_ram_dump);
+    char *ram_dump[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-ram-dump", "ram.bin", NULL};
+    ASSERT_EQ_FMT(0, parse(ram_dump, &opts), "%d");
+    ASSERT_STR_EQ("ram.bin", opts.bbc_ram_dump);
     char *eight[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m.bin",
                      "--bbc-module-scheme", "direct8", "--bbc-module-bank", "7", NULL};
     ASSERT_EQ_FMT(0, parse(eight, &opts), "%d");
@@ -873,6 +912,7 @@ SUITE(cli_suite) {
     RUN_TEST(cli_bbcbplus_options_parsed);
     RUN_TEST(cli_bbcbplus_errors);
     RUN_TEST(cli_bbcbplus_model_b_and_mode);
+    RUN_TEST(cli_bbcbplus_model_master);
     RUN_TEST(cli_bbcbplus_commands_in_turn);
     RUN_TEST(cli_bbcbplus_sideways_ram_none);
 }

@@ -783,8 +783,10 @@ def rom_env(source, out, first=1, banks=BANKS, settings=None):
 
     `settings` ({NAME: number}) sets the value of a source's `define NAME N` in the same way, for
     a variant the source describes under a define of its own: {'RAM32': 1} for the tools' 32K
-    Model B form (lathe/docs/bbc.md, "The 32K Model B"). A name the source does not define is an
-    error."""
+    Model B form (lathe/docs/bbc.md, "The 32K Model B"). A define under `when` or `unless` is set
+    too, every entry of the name: {'LKDYN': 1, 'ROM128': 1} for the developer's linker, the ROM
+    form with dynamic regions in the 128 KB layout and a fourth bank (lathe/docs/bbc.md, "The
+    developer's cycle"). A name the source does not define is an error."""
     if banks not in SCHEMES:
         raise ImageError(f'an image has 16 or 8 banks, not {banks}')
     lines, roms, n = [], [], first
@@ -794,10 +796,11 @@ def rom_env(source, out, first=1, banks=BANKS, settings=None):
     with open(source) as fh:
         for line in fh:
             words = line.split(';', 1)[0].split()
-            if len(words) == 3 and words[0].lower() == 'define' and words[1].lower() in settings:
-                line = re.sub(r'(?i)^(\s*define\s+\w+\s+)\S+', r'\g<1>%d' % settings[words[1].lower()], line,
-                              count=1)
-                unset.discard(words[1].lower())
+            told = _unconditional(words)
+            if len(told) == 3 and told[0].lower() == 'define' and told[1].lower() in settings:
+                line = re.sub(r'(?i)^((?:\s*(?:when|unless)\s+\w+)*\s*define\s+\w+\s+)\S+',
+                              r'\g<1>%d' % settings[told[1].lower()], line, count=1)
+                unset.discard(told[1].lower())
             elif [w.lower() for w in words[:2]] == ['define', 'romform'] and len(words) == 3:
                 line = re.sub(r'(?i)(romform\s+)\S+', r'\g<1>1', line, count=1)
             elif [w.lower() for w in words[:2]] == ['define', 'rom128'] and len(words) == 3:
@@ -823,6 +826,13 @@ def rom_env(source, out, first=1, banks=BANKS, settings=None):
     with open(out, 'w') as fh:
         fh.write(''.join(lines) + ''.join(roms))
     return n
+
+
+def _unconditional(words):
+    """The entry `words` is with its `when` and `unless` conditions taken off, whatever they are."""
+    while words and words[0].lower() in ('when', 'unless') and len(words) > 2:
+        words = words[2:]
+    return words
 
 
 def _active(words, defined):

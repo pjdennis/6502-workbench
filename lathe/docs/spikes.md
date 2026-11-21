@@ -1778,3 +1778,48 @@ did). On the emulated Model B: every module of `lathe/src` and `lathe/rt` at bot
 each the oracle's files or error (3.4 minutes); `*LATHE` starts in 454,163 cycles (the 32K image's
 451,267), `typetab` compiles in 15.70 million (15.69); the image has 3,181 bytes free (3,225)
 ([`bbc.md`](bbc.md), "The compiler: the name heap begun at PAGE").
+
+## Image A on a Master-like machine, measured (2026-11-21)
+
+On the emulator's `--bbc-model master` (PAGE `$0E00`, sideways RAM 4 to 7, the module in slot 8,
+the 65C02 core; [`bbc.md`](bbc.md), "Image A on a Master-like machine"), from Image A as it is,
+`--bbc-strict` on filled memory, every file the host tools': the self-compile (18 compiles) in
+**881,762,104** cycles (the B+128 at PAGE `$1900` 881,805,196, at `$1F00` 881,776,144), the
+linker's link of the compiler in **2,998,605,250** (the B+128 2,998,607,480); `*LATHE` and `*LLINK`
+start in 1,003,987 and 737,601 cycles (1,006,129 and 739,579). The NMOS core (`--cpu nmos`) gives the same counts to the cycle: the emulator's 65C02 core counts the NMOS opcodes as the NMOS core does, so these are not a 65C12's times; the difference from the B+128 is the start-up's, about 2,000 cycles a command (`OUTTAB` and `LKNODES` in main RAM save nothing: their blocks still switch a bank). The placer puts every
+table where its model says (main RAM read back after the run): with four banks every table at its
+most, as on the B+128, with `OUTTAB` (4,096 bytes from `$0EE0`) and `LKNODES` (3,600 from `$0ED0`)
+below `$1F00`; with two banks the name heap 11,776 and the saved tokens 1,536 (a Model B with two:
+8,704 and 1,024), the linker's symbols 2,304 and calls 2,048 (1,536 and 1,280). Every order of the
+dynamic entries tried by the model: none of the linker's does better for a Master without a loss
+elsewhere; six of the compiler's give a two-bank Master 2,048 bytes of saved tokens (1,536), which
+the corpus (520 at most) does not need: not made.
+
+## The developer's cycle for the images that ship, measured (2026-11-21)
+
+Which linker the developer needs to link Image A's and Image B's tools on the B+128: one with
+`LKDYN 1`, which no ROM form that ships has. The developer's form (`ROMFORM 0`) has it, but its
+start-up loads its banks into the module's banks 1 to 5 and marks the module's slot empty, so it
+cannot run beside the tools MODLOAD loaded. Its ROM form, as the host linker judges it, with `ADFS
+1`, `BBCFS 3`: in five banks (`ROM128 0`, sixteen-bank numbering) 8,328, 10,940, 8,972, 10,075 and
+15,079 bytes, resident 9,038 (code to `$424E`), 2,082 bytes of main RAM free (with `LKDYN 0`, for
+comparison, 6,929 to 11,744 and 8,917 resident); in the 128 KB layout's three banks (`ROM128 1`)
+17,652, 18,698 and 16,186, 1,380 and 2,426 over (link error 45). With the image's tools in banks 0
+to 7, the five-bank form, the home bank and three resident parts need seventeen banks; the 128 KB
+layout with a fourth bank (lk_map, lk_dyn, lk_boot, lk_win) is 14,791, 11,145, 16,186 and 10,414,
+resident 9,872 (code to `$458F`), 1,248 bytes free, and sixteen banks exactly: built
+([`bbc.md`](bbc.md), "For the images that ship"). Its places (`MAX_SITES`) 733; Image A's compiler
+has 230, its linker 126.
+
+On the emulated B+128 (ADFS, PAGE `$1F00`; the emulator ran 1.6 billion cycles in 28 seconds),
+`*DEVLINK` links with MODLOAD after it Image A's linker in 1,604 million cycles (13.4 minutes at 2
+MHz) and its compiler in 3,125 million (26.0); it links Image B's linker in 1,518 million (12.6).
+Every file the host linker's, but Image B's linker's two bytes (`lk_dyn.put_region` indexes
+`bank_value` with -1 for a region in no bank: the host reads 0, the twin `$FF`; mended in a copy,
+the host's bytes). A turn on the pairs: Image A's compiler 4,061 million (33.8 minutes), its
+linker 2,218 million (18.5), Image B's compiler 3,889 million (32.4, no MODLOAD), its linker 2,128
+million (17.7). Free sectors on the pairs (drive 0, drive 1): Image A's compiler 125 and 259, its
+linker 984 and 937, Image B's compiler 129 and 299, its linker 984 and 965. Image B's compile commands carry 249 bytes of options, more than `*LATHE`'s
+tail (239) and the MOS's line (255); without the three defines no source names they fit and give
+the same files. MODLOAD refused Image A's resident parts until it knew the list of places after
+the code.

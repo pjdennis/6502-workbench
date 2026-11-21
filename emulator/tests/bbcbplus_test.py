@@ -135,6 +135,31 @@ def run_tests(work, build):
         rc, out, err = emu("--bbc-module-ram", "--bbc-module-scheme", scheme, "--bbc-command", "HELLO")
         check(f"{scheme} RAM: empty, *HELLO is a bad command", rc == 1 and err.startswith("Bad command"), err)
 
+    print("bbcbplus: the machine each model is, as a program sees it")
+    romtab = os.path.join(build, "romtab.bin")
+    for model, line in ((None, b"219 ................"), ("b", b"119 ................"),
+                        ("master", b"30E .........SSSSSSS")):
+        rc, out, err = emu("--load", "1900", *(("--bbc-model", model) if model else ()), code=romtab)
+        check(f"{model or 'bplus'}: OSBYTE 0, PAGE and the ROM type table", out == line + b"\n\r" and rc == 0,
+              repr(out) + err)
+    dump = os.path.join(work, "ram.bin")
+    rc, out, err = emu("--load", "1900", "--bbc-model", "master", "--bbc-ram-dump", dump, code=romtab)
+    with open(dump, "rb") as f:
+        ram = f.read()
+    check("--bbc-ram-dump: main RAM at the end, the program's pointer to the table in it",
+          len(ram) == 0x8000 and ram[0x70:0x72] == b"\xA1\x02" and ram[0x2AD] == 0x82, (len(ram), ram[0x70:0x72]))
+    rc, out, err = emu("--load", "1900", "--bbc-model", "master", "--cpu", "nmos", code=romtab)
+    check("master --cpu nmos: the same", out == b"30E .........SSSSSSS\n\r" and rc == 0, repr(out) + err)
+    print("bbcbplus: --bbc-model master, the module in its socket (slot 8)")
+    image = os.path.join(build, "module-cc128.rom")
+    rc, out, err = emu("--bbc-model", "master", "--bbc-module", image, "--bbc-command", "HELLO")
+    check("master: *HELLO prints from bank 3", out == b"Hello from bank 3\n\r" and rc == 0, repr(out) + err)
+    check("master: the module is in slot 8", "module: slot 8, cc128 ROM" in report_line(err, "module:"), err)
+    check("master: no check failed", "mos-memory-writes=0  romsel-mismatches=0" in err, err)
+    rc, out, err = emu("--bbc-model", "master", "--bbc-module", image, "--bbc-module-slot", "4",
+                       "--bbc-command", "HELLO")
+    check("master: slot 4 is sideways RAM, refused for the module", rc == 1 and "sideways RAM" in err, err)
+
     print("bbcbplus: batch only, and the cycle cap")
     p = subprocess.run([EMU, "--machine", "bbcbplus", "--bbc-command", "X", "--live"], capture_output=True)
     check("--live is refused", p.returncode == 1 and b"batch only" in p.stderr, p.stderr)

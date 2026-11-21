@@ -232,14 +232,18 @@ CAPACITY_SETS = ({'syms': 768, 'buffer': 4096, 'table': 2048, 'string': 2048},
                  {'syms': 256, 'buffer': 1280, 'table': 512, 'string': 512})
 CAPACITY_ERROR = b'error (7|7[0-9]|8[0-9]|9[0-8]): '                 # 7: a string too long
 
-# Machines: (name, PAGE, HIMEM, the free sideways RAM, the emulator's options for it or None).
+# Machines: (name, PAGE, HIMEM, the free sideways RAM, the emulator's options for it or None). The
+# Master-like ones are the emulator's --bbc-model master (PAGE $0E00, its module in slot 8).
 MACHINES = (
     ('B+128, DFS', 0x1900, 0x7C00, (0, 1, 12, 13), ('1900', False, ())),
     ('B+128, DFS, shadow mode', 0x1900, 0x8000, (0, 1, 12, 13), ('1900', True, ())),
     ('B+128, ADFS and DFS', 0x1F00, 0x7C00, (0, 1, 12, 13), ('1F00', False, ())),
     ('Model B, RAM in 8 to 11', 0x1900, 0x7C00, (8, 9, 10, 11),
      ('1900', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10,11'))),
-    ('Master 128 (model only)', 0x0E00, 0x8000, (4, 5, 6, 7), None),
+    ('Master-like, shadow mode', 0x0E00, 0x8000, (4, 5, 6, 7), ('0E00', True, ('--bbc-model', 'master'))),
+    ('Master-like, mode 7', 0x0E00, 0x7C00, (4, 5, 6, 7), ('0E00', False, ('--bbc-model', 'master'))),
+    ('Master-like, two banks', 0x0E00, 0x7C00, (4, 5),
+     ('0E00', False, ('--bbc-model', 'master', '--bbc-sideways-ram', '4,5'))),
     ('three banks', 0x1900, 0x7C00, (8, 9, 10), ('1900', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9,10'))),
     ('two banks, DFS', 0x1900, 0x7C00, (8, 9), ('1900', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9'))),
     ('two banks, ADFS', 0x1F00, 0x7C00, (8, 9), ('1F00', False, ('--bbc-model', 'b', '--bbc-sideways-ram', '8,9'))),
@@ -293,7 +297,7 @@ class OnTheBBC(unittest.TestCase):
         for m in MACHINES:
             with self.subTest(machine=m[0]):
                 got = capacities(self.tools[0], m)
-                want = expected[len(m[3]) if len(m[3]) > 1 else (1, m[1])]
+                want = COMPILER_ON.get(m[0]) or expected[len(m[3]) if len(m[3]) > 1 else (1, m[1])]
                 self.assertEqual({k: v[2] for k, v in got.items() if v[2] is not None}, want)
 
     def host_compile(self, module, m):
@@ -389,11 +393,18 @@ class OnTheBBC(unittest.TestCase):
             self.assertTrue(compiled)
 
 
+# Where a machine's compiler gets other than what its number of banks gives: a Master-like machine
+# with two banks has the 4,352 bytes from PAGE $0E00 to $1F00, which hold OUTTAB, so that the name
+# heap gets 11,776 (8,704 with PAGE $1900) and the saved tokens 1,536 (1,024).
+COMPILER_ON = {'Master-like, two banks': {'names': 11776, 'syms': 512, 'funcbuf': 4096, 'outtab': 2048,
+                                          'string': 2048, 'tokens': 1536}}
+
 # What Image A's linker gets (lathe/src/linker-bbc.env, ADAPT): the rows of lk_name.local, of the
 # slots' columns and of the calls (`locals`, `slots`, `calls`: lk_rooms.py), by the number of banks.
 LINKER_FULL = {'locals': 4096, 'slots': 4096, 'calls': 3584}
 LINKER_GETS = {4: LINKER_FULL, 3: dict(LINKER_FULL, slots=3840),
                2: {'locals': 1536, 'slots': 2304, 'calls': 1280}, 1: None}
+LINKER_ON = {'Master-like, two banks': {'locals': 2304, 'slots': 2304, 'calls': 2048}}   # LKNODES below $1F00
 LINKER_REGIONS = {'lklocal': 'locals', 'lkslots': 'slots', 'lkcalls': 'calls'}
 ROOMS_LINKER = os.path.join(HERE, 'lk_rooms.py')
 
@@ -473,7 +484,8 @@ class TheLinker(unittest.TestCase):
         turn until they fit beside the work area, under either filing system; one refused."""
         for m in MACHINES:
             with self.subTest(machine=m[0]):
-                self.assertEqual(linker_capacities(self.tools[1], m), LINKER_GETS[min(len(m[3]), 4)])
+                self.assertEqual(linker_capacities(self.tools[1], m),
+                                 LINKER_ON.get(m[0]) or LINKER_GETS[min(len(m[3]), 4)])
 
     def test_two_banks_are_enough(self):
         import dataclasses

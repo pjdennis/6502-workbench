@@ -1302,9 +1302,10 @@ static void enter_language(struct bbc_machine *m, uint8_t slot) {
 
 static void os_byte(struct bbc_machine *m) {
     switch (a) {
-    case 0:     /* the OS version: an error for X = 0, else X = 2 (OS 2.00, the B+; 1, OS 1.20, the B) */
-        if (x == 0) raise(m->cfg.model_b ? BBC_MOS_E_OS_120 : BBC_MOS_E_OS);
-        else x = m->cfg.model_b ? 1 : 2;
+    case 0:     /* the OS version: an error for X = 0, else X = 2 (OS 2.00, the B+; 1, OS 1.20, the B;
+                 * 3, OS 3.20, the Master 128) */
+        if (x == 0) raise(m->cfg.master ? BBC_MOS_E_OS_320 : m->cfg.model_b ? BBC_MOS_E_OS_120 : BBC_MOS_E_OS);
+        else x = m->cfg.master ? 3 : m->cfg.model_b ? 1 : 2;
         break;
     case 126: { /* acknowledge Escape */
         uint8_t flag = bus_rd(m, ZP_ESCAPE);
@@ -1535,6 +1536,12 @@ static int is_jam(uint8_t op) {
     return (op & 0x0F) == 0x02 && op != 0xA2 && (op & 0xF0) != 0x80 && op != 0xC2 && op != 0xE2;
 }
 
+/* The opcodes of the emulator's 65C02 core that a 65C12 lacks: the bit instructions (RMB, SMB,
+ * BBR, BBS: $x7 and $xF) and WAI and STP */
+static int not_65c12(uint8_t op) {
+    return (op & 0x07) == 0x07 || op == 0xCB || op == 0xDB;
+}
+
 static char fault_text[128];
 
 static void fault(struct bbc_machine *m, enum bbc_end end, const char *fmt, unsigned a1, unsigned a2) {
@@ -1551,9 +1558,10 @@ void bbc_machine_init(struct bbc_machine *m, const struct bbc_config *cfg,
     if (!m->cfg.out) m->cfg.out = stdout;
     if (!m->cfg.in) m->cfg.in = stdin;
     if (!m->cfg.err) m->cfg.err = stderr;
-    if (!m->cfg.page) m->cfg.page = 0x1900;
+    if (!m->cfg.page) m->cfg.page = m->cfg.master ? 0x0E00 : 0x1900;
     if (!m->cfg.screen) m->cfg.screen = bbc_screen_start(7);
     mem->model_b = m->cfg.model_b;
+    mem->master = (uint8_t)m->cfg.master;
     m->mem = mem;
     m->module = module;
     memcpy(mem->mos, bbc_mos_rom, sizeof mem->mos);
@@ -1568,7 +1576,7 @@ void bbc_machine_init(struct bbc_machine *m, const struct bbc_config *cfg,
 
 int bbc_machine_run(struct bbc_machine *m, uint64_t cap) {
     active = m;
-    cpu_variant = CPU_NMOS;
+    cpu_variant = m->cfg.cmos ? CPU_65C02 : CPU_NMOS;
     cpu_external_read = cpu_read_hook;
     cpu_external_write = cpu_write_hook;
     clockticks6502 = clockgoal6502 = 0;
@@ -1604,6 +1612,10 @@ int bbc_machine_run(struct bbc_machine *m, uint64_t cap) {
                     break;
                 }
             }
+        }
+        if (m->cfg.cmos && not_65c12(quiet_peek(m, at))) {
+            fault(m, BBC_END_FAULT, "opcode $%02X at $%04X is not a 65C12's", quiet_peek(m, at), at);
+            break;
         }
         if (is_jam(quiet_peek(m, at))) {
             fault(m, BBC_END_FAULT, "the CPU jammed on opcode $%02X at $%04X", quiet_peek(m, at), at);

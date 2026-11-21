@@ -49,9 +49,14 @@ enum bbc_end {
 
 struct bbc_config {
     const char *disk_dir;   /* --disk: the host directory of the filing system, or NULL */
-    uint16_t page;          /* OSBYTE 131: OSHWM ($1900) */
+    uint16_t page;          /* OSBYTE 131: OSHWM (0: $1900, or $0E00 on the Master) */
     int shadow;             /* --bbc-shadow: OSBYTE 132 answers $8000 (else the screen's start) */
     int model_b;            /* --bbc-model b: the 32K Model B, OS 1.20 (OSBYTE 0 gives 1) */
+    int master;             /* --bbc-model master: a Master-like machine, OS 3.20 (OSBYTE 0 gives
+                             * 3), PAGE $0E00 unless given, the Master's ROMSEL and private RAM
+                             * (chips/bbc_memory.h) */
+    int cmos;               /* the CPU is the emulator's 65C02 core (the Master's, unless --cpu
+                             * nmos); an opcode the 65C12 lacks, or an NMOS jam opcode, is a fault */
     uint16_t screen;        /* where the screen of the mode at power on starts, which is HIMEM
                              * without the shadow screen (bbc_screen_start; 0: mode 7's, $7C00).
                              * A program's write from there to $7FFF is checked (screen_writes) */

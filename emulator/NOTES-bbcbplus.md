@@ -1,6 +1,6 @@
 # The facts behind `--machine bbcbplus`
 
-Every fact about the real BBC Model B+128, its MOS and the module carrier
+Every fact about the real BBC Model B+128 (and the Master 128, at the end), its MOS and the module carrier
 that the emulator's bbcbplus machine relies on. Each is marked:
 
 - **checked**: read in the source named, on 2026-11-14;
@@ -245,3 +245,33 @@ drive`, the DFS's error, for want of ADFS's; `/` and `"` are `Bad name`; `^` at 
 at the root; reading a name through a missing directory is "not there" (A=0), creating one is
 `Not found`; OPENOUT with fewer than 256 sectors free in one run is `Disc full` if fewer are free
 in all, else `Compaction required`.
+
+## The Master 128 (`--bbc-model master`)
+
+Read on 2026-11-21: MAME's `src/mame/acorn/bbcm.cpp` (BSD-3-Clause; its address maps, ROMSEL and
+ACCCON handlers, paged-ROM read and write, machine configuration and ROM layout). As above,
+"checked" against MAME means "as MAME models it". Nothing else was read: every MOS fact below is
+**memory** (several are in `lathe/docs/spikes.md`, "One ROM for every BBC: a study", marked there
+as from memory too). The emulator's machine is a model of what Lathe's tools touch, not a Master
+emulator: no Master MOS ROM, none of its built-in ROMs, no 65C12-only behaviour beyond what the
+emulator's 65C02 core gives for nothing.
+
+| Fact | | Source | The emulator |
+|---|---|---|---|
+| The CPU is a G65SC12 (a CMOS 6502) at 2 MHz, 16 MHz / 8 | checked | MAME bbcm.cpp: `G65SC12(config, m_maincpu, 16_MHz_XTAL / 8)` | the emulator's 65C02 core (`--cpu nmos` for the NMOS one), 2 MHz |
+| The 65C12 has the 65C02's new instructions but not the bit instructions (RMB, SMB, BBR, BBS) nor WAI and STP | memory | | the core has them; a run that meets one ends as a fault |
+| `$0000-$7FFF` RAM; `$3000-$7FFF` can be the 20 KB shadow RAM (LYNNE, ACCCON bit X, or bit E for the VDU code at `$C000-$DFFF`) | checked | MAME bbcm.cpp address map, `acccon_w` | main RAM only; LYNNE and ACCCON not modelled (`--bbc-shadow` only changes HIMEM, as on the B+) |
+| `$8000-$BFFF` paged ROM/RAM; ROMSEL bit 7 pages the 4 KB of ANDY over `$8000-$8FFF` | checked | MAME bbcm.cpp (`romsel_w`, the view `m_view_andy`) | modelled |
+| `$C000-$DFFF` can be the 8 KB of HAZEL (ACCCON bit Y), where the filing systems keep their workspace | checked (HAZEL), memory (what it holds) | MAME bbcm.cpp | not modelled: the MOS ROM is always there |
+| ROMSEL is `$FE30-$FE33`, read and write; it reads back bits 0-3; ACCCON is `$FE34-$FE37`; `$FE38-$FE3F` the Econet interrupt flip-flop (INTOFF, INTON) | checked | MAME bbcm.cpp SHEILA map, `romsel_r` | ROMSEL as MAME has it; the others not modelled |
+| Slots 4 to 7 are two 32 KB sockets (IC41: 4 and 5, IC37: 6 and 7) holding sideways RAM on the Master 128 | checked | MAME bbcm.cpp (`BBC_ROMSLOT32 ... "ram"`, `set_fixed_ram(true)`) | `--bbc-sideways-ram` defaults to `4,5,6,7` |
+| Slots 0 to 3 are the two cartridge sockets; slot 8 the 16 KB socket IC27; 9 to 15 the MOS ROM IC24: 9 DFS, 10 ViewSheet, 11 Edit, 12 BASIC, 13 ADFS, 14 View, 15 Terminal (MOS 3.20) | checked | MAME bbcm.cpp, the comments of the ROM layout and `BBC_ROMSLOT16 ... m_rom[0x08] // IC27` | the module in slot 8 by default; stand-ins in 9 to 15 (below) |
+| An empty cartridge slot reads the video bus; an empty IC27 reads `$FF` | checked | MAME bbcm.cpp `paged_r`, `ROMREGION_ERASEFF` | every empty slot reads the open bus, as on the B+ |
+| The MOS's own ROMs are languages or service ROMs, with their * commands | memory | | stand-ins: a header the MOS accepts (type `$82`, the title, `(C)`) and an RTS service entry: no commands, no languages |
+| OSBYTE 0 with X not 0 gives 3 on a Master 128; with X = 0 the error "OS 3.20" | memory | `spikes.md` has 3, from memory | modelled |
+| PAGE (OSBYTE 131) is `$0E00` with the DFS and ADFS, whose workspace is in HAZEL | memory | `spikes.md`, from memory | `$0E00` unless `--bbc-page` |
+| HIMEM (OSBYTE 132) is the screen's start in a mode without shadow (`$7C00` in mode 7) and `$8000` in a shadow mode (128 to 135, or `*SHADOW`) | memory | | as the B+: `--bbc-mode`, `--bbc-shadow` |
+| The ROM type table (OSBYTE 170) has 0 for an empty slot, sideways RAM with no image in it included; `*SRDATA` and `*SRROM` mark a bank's use; OSWORD &42 and &43 move bytes | memory | `spikes.md`, from memory | the table as the B+'s, from the headers at reset; `*SRDATA`, `*SRROM` and OSWORD &42/&43 not modelled |
+| OSARGS gives 4 for the DFS and 8 for ADFS, as on the B and B+ | memory | (ADFS's 8: the ADFS guide, above) | as before (`--bbc-fs`) |
+| The zero page and pages 1 to 3 are the MOS's as on the B+ (`$A8-$AF` for * commands; `$0100` up the stack); `$0800-$0DFF` is the MOS's | memory | | the checks of the B+, with PAGE `$0E00` |
+| The Master 128's MOS is 3.20 (1986), 3.50 the upgrade of 1989 | checked | MAME bbcm.cpp, `ROM_SYSTEM_BIOS` | "OS 3.20" |

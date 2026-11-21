@@ -1471,6 +1471,115 @@ At most two files open and one written at a time; at most 26 entries in a direct
 
 Not for the cycle: with MODLOAD the tools are worked on in their ROM forms only, and a new link is live after one `*RUN MODLOAD`. The developer's form of the tools (`ROMFORM 0`, `*RUN LATHEC`, `*RUN LLINK`, which load their banks into the module's RAM at start) is still what the tests use for the corpus and the self-compile in a single `*RUN`, and its loader in `rt_bbc` stays in any case: a user's own banked program (`bbc-bank.env`, `*RUN PROG`) loads its banks so. What removing the tools' developer's form would save (counted 2026-11-20, nothing removed): in `lathec-bbc.env` the `define ROMFORM` line and 7 `unless ROMFORM` entries (its code and data ranges for each PAGE, its `bank 33` with the texts' constants, its place of `out`, `TEXTS_IN_MODULE 0`) and the `when ROMFORM` conditions on 9 more, which would lose their condition; in `linker-bbc.env` the `define`, 1 `unless` and 2 `when` entries; the texts-in-the-tool build of `err` and `lk_err` for the BBC (`TEXTS_IN_MODULE 0`, which the host builds keep); and the tests that build or run it: `test_bbc_selfhost` (the run under `*RUN LATHEC`), `test_bbc_selflink` and `test_bbc_adfs`'s `Loop` and `test_bbc_rom128`'s loop (the new compiler run as `*RUN LATHEC`; the cycle covers that now in the ROM form), `DeveloperForms` in `test_bbc_dfs` and `test_bbc_adfs`, and the developer's-form cases of `test_bbc_rom`, `test_bbc_rom128` and `test_bbc_ram32` that compare the two forms' environments. The developer's form also needs the fault fix of 2026-11-17 (the slot unmarked when a developer's form loads its banks), which the user's banked programs need too. Those loops would move to the ROM form and MODLOAD, as the cycle does.
 
+### For the images that ship (2026-11-21)
+
+Image A's and Image B's tools have dynamic regions (and Image B's `top`, `dynamic main` and `region
+NAMES fixed $1900`), which their own `*LLINK` cannot link (`LKDYN 0`). So the developer's module
+holds a third tool, **the developer's linker, `*DEVLINK`**: the ROM form with `LKDYN 1`, which no
+image that ships has. Built (`lathe/tests/test_bbc_devcycle.py`):
+
+- **Its form.** `bbcrom.rom_env(linker-bbc.env, OUT, 8, 16, settings={'ROM128': 1, 'LKDYN': 1,
+  'ADFS': 1, 'BBCFS': 3})`: the 128 KB layout of the linker in the sixteen-bank RAM form, its banks
+  8 to 11 of the module, after the image's tools (0 to 7, as they ship). In three banks it is 1,380
+  and 2,426 bytes over as judged (bank 3 is 16,186), so `linker-bbc.env`'s `when ROM128 when LKDYN`
+  entries give it a fourth bank: lk_map, lk_dyn, lk_boot and lk_win. As judged 14,791, 11,145,
+  16,186 and 10,414 bytes of 16,272; resident 9,872 bytes from `$1F00` (code to `$458F`, 112 bytes
+  under the split), variables `$4600-$7A8E`: 1,248 bytes of main RAM free. Its tables are the full
+  build's, in slots 0, 1 and 12, which the image's tools use only while they run. The places it can
+  hold (`lk_dyn.MAX_SITES`, in the work area below `W_OWN`) are 733; Image A's compiler has 230,
+  its linker 126. (`rom_env`'s settings now reach a define under `when` and `unless` too, which
+  is how `LKDYN 1` is set.) No entry of any other build changed: every image's bytes are as before.
+- **The module.** bbcrom.py's whole layout of three tools: `*LATHE` 0 to 4, `*LLINK` 5 to 7,
+  `*DEVLINK` 8 to 11, the home bank 12, the resident parts 13 to 15: sixteen banks exactly (the
+  five-bank developer's linker would need seventeen). For Image A, its two tools; for Image B, the
+  plain image's compiler (`ADFS 1`, `BBCFS 3`) in Image B's compiler's place, since Image B's compiler
+  compiles 54 of the 79 modules of `lathe/src` and `lathe/rt` and not the tools', and a module
+  places dynamic regions in main RAM alone or with the sideways RAM probed, not both, so Image A's
+  compiler cannot be beside Image B's linker. The developer's linker's bank files have the image's
+  linker's names (`LLINK1.BIN` to `LLINK4.BIN`), so its files are on a disc of their own (the
+  first-load disc).
+- **What MODLOAD needed.** A resident part of a tool with dynamic regions holds its list of places
+  after the code its map gives (Image A's linker's 331 bytes, from `$453C`), so MODLOAD refused it as
+  not the map's length. Now, for a tool whose environment has a `placer` entry, the image must be
+  longer than the map's code, end in the code range, and hold at the map's end of code the code
+  range's first address (the list's first word); a tool without one is checked as before. The
+  rest holds unchanged: the whole layout copies the whole bank, so a resident part of any length
+  with its list is copied; the home bank's placer (module.asm's `place`, with the probe) is in
+  HOME as `module_code` builds it.
+
+**The cycle**, with `LATHE_BBC_DEVCYCLE=1` (`ImageACycle`, `ImageBCycle`): test_bbc_cycle's pairs and
+turns, `*DEVLINK @LINKARG` for the link; every file on both drives the host tools' of the same
+commands, the module's sixteen banks bbcrom.py's whole image of the host's link outputs; then hello
+compiled, linked and run with the new tools on a disc of its own. Image A's compiler takes two
+turns (the second's interfaces version 3, compiled by the compiler the first linked) and its
+linker one (hello's map has the changed linker's `$START`); its tools place their tables in the
+B+128's four banks of sideways RAM and main RAM as they start. At ADFS's PAGE, 2 MHz, the discs'
+own time not counted:
+
+| Pair | A turn (compile all, link, load) | Of it: the link and MODLOAD | Drive 0 free | Drive 1 free |
+|---|---|---|---|---|
+| Image A's compiler | 4,061 million cycles, **33.8 minutes** | 3,125 million, 26.0 minutes | 125 sectors | 259 |
+| Image A's linker | 2,218 million, **18.5 minutes** | 1,604 million, 13.4 minutes | 984 | 937 |
+| Image B's compiler (no MODLOAD) | 3,889 million, **32.4 minutes** | | 129 | 299 |
+| Image B's linker (no MODLOAD: two bytes off, below) | 2,128 million, **17.7 minutes** | the link 1,518 million, 12.6 minutes | 984 | 965 |
+| the plain image (test_bbc_cycle) | 3,979 and 2,230 million | | 163 and 1,076 | 249 and 933 |
+
+**Discs.** Each tool of each image needs its own pair: the objects differ by the image's defines,
+and two images' objects of one tool (about 2,290 sectors each) do not share a drive. The sources
+are the same, so one drive 0 could serve both images of a tool with a second ROM environment and a
+second command file (about 55 sectors more: the compiler's drive 0 would have about 70 free).
+A new module's file needs the 256 sectors ADFS gives at OPENOUT on drive 1: the compiler's pairs
+have 259 and 299.
+
+**Image B, how far the B+128 goes.** Its compiler: every module compiled by the plain `*LATHE`
+and linked by `*DEVLINK`, every file the host's, but its compile commands do not fit `*LATHE`'s
+tail: the options alone are 249 bytes (the defines and eight `-f`), the tail 239 and the MOS's line
+255. The test types them without the defines no source names (`FIXED_REGIONS`, `HIGHEST_PAGE`,
+`ROM128`: the module and bbcrom.py read them, the compiler does not), which gives the same files.
+MODLOAD refuses it in the developer's module (its banks are the plain compiler's and it starts at
+`$2B26`: a new HOME is needed), so the 128 KB image bbcrom.py makes of it as the B+128 linked it,
+the same bytes as the host's Image B, runs test_bbc_image_b's tests on a Model B with no sideways
+RAM (`ImageBFromTheBBC`; with `LATHE_BBC_IMAGE_B_PROGRAMS=1` its largest programs too). Its linker:
+`*DEVLINK` links it, every file the host linker's **but two bytes**: the bank bytes in its list of
+places of its two regions that are not dynamic (`LKNODES`, `LKWORK`: `fixed`, in no bank), `$FF`
+where the host writes 0. A fault of `lk_dyn.put_region`, host and twin: it writes
+`bank_value[region_bank[r] - 1]`, and `region_bank` is 0 for a region in no bank, so the host's
+Python reads the array's last entry (0) and the twin the byte after its array. Image A's regions
+are all dynamic, so no image so far had it. Mended in a copy (`if region_bank[r] == 0` put 0), the
+B+128's link is the host's bytes; landed, it changes Wendy 2's two banked linkers (`LKDYN 1`) and
+nothing else, so it waits for the owner. Image B's linker as the host linked it, which the module
+holds, runs on the B+128 (an ADFS machine to it: its tables in main RAM above its data): hello
+compiled, linked and run.
+
+**What still comes from the host**, after the first load:
+
+- **HOME**, the home bank: `module.asm` (with the placer and its probe, or the placer for main RAM
+  alone, the command table with each tool's start, top and highest PAGE, the description) and
+  `texts.asm` assembled by the host's assembler, with msgpack's tables (TXTPACK gives the same
+  tables on the BBC, but nothing there assembles the code around them), laid out by bbcrom.py's
+  whole layout. Needed again for a change to the texts, `module.asm`, a tool's start, top or
+  highest PAGE, or the tools of the module. For this cycle the module's code in Lathe would have
+  to give: the placer in both forms (`.ifdef probe`, `main_only`), the entries with a top and with
+  a page limit, the description at `$BFE0`, the parts' table and the reserved bytes at `$8000`,
+  all at fixed addresses of the home bank, and the whole layout's arithmetic (which banks, which
+  copy list), about what `bbcrom.whole_layout` does in 50 lines of Python.
+- **The 128 KB image** for the EPROM (bbcrom.py's eight-bank layout, the resident parts in pieces
+  at the ends of the banks), and LOADMOD, for an image to try in the module: nothing on the BBC
+  packs the pieces or assembles the module's code. The banks and resident parts the BBC links are
+  that image's bytes (Image B's compiler shown so).
+- **The ROM environments** (`bbcrom.rom_env`: the window, the banks renumbered, `rom`, the settings):
+  text files the developer keeps on drive 0, as the cycle has them; a change to `lathec-bbc.env`
+  or `linker-bbc.env` is made again on the host, or by hand in the ROM form's copy.
+- **The command files** (`LINKARG`, from build.py's order of the objects) and the compile commands
+  (build.py's options): written once, by hand or from the host.
+- **The first-load disc**: MODLOAD (a Lathe program the BBC could compile and link, not shown),
+  HOME, and every tool's ROM environment, map, resident image and bank files, the developer's
+  linker's among them (about 1,850 sectors with its files, estimated).
+- **The developer's linker itself**: from the host. It has no dynamic region, so the image's own
+  `*LLINK` or itself could link it on the BBC, from its own objects (its defines are not the
+  image's linker's: `LKDYN 1`, `LKROOMS 0`); not shown, and a third pair of discs.
+- **Image B's compiler in a module**: a HOME of its own; and its compile commands are typed short.
+
 ## The texts' packer on the BBC (2026-11-20)
 
 The owner's goal: that all coding can be done on the BBC. The texts of the tools' errors are packed into the module by `lathe/host/driver/msgpack.py`; `lathe/src/txtpack.lth` (TXTPACK) is its twin in Lathe, built with `lathe/src/txtpack-bbc.env` and run with `*RUN`:
@@ -1556,7 +1665,7 @@ checks against the real one on the BBC):
 | B+128, DFS, shadow mode | `$1900`, `$8000` | 4,669 | `WANTS` | none |
 | ADFS alone | `$1D00`, `$7C00` | 2,621 | `WANTS` | none |
 | B+128, ADFS and DFS | `$1F00`, `$7C00` | 2,109 | `WANTS` | none |
-| Master 128 (not run: the emulator has no Master) | `$0E00`, `$8000` | 7,485 / 7,055 | `STRING`, `WANTS` (3,648; 23 calls) | `LKNODES` (3,600; 8 calls) |
+| Master 128 (not run then: the emulator had no Master; "Image A on a Master-like machine") | `$0E00`, `$8000` | 7,485 / 7,055 | `STRING`, `WANTS` (3,648; 23 calls) | `LKNODES` (3,600; 8 calls) |
 
 The tables are whole variables at full size: `STRING`, `TOKENS` and OUTTAB's table are 2,048 bytes
 each, more than any one free area holds below a Master, so at PAGE `$1900` 2,045 of the 3,645 free
@@ -1782,7 +1891,7 @@ The first of the compiler's limits, the name heap, now takes the room its machin
 | B+128, ADFS and DFS | `$1F00`, `$7C00`, the same | 16,128 | the same |
 | Model B, sideways RAM 8 to 11 | `$1900`, `$7C00` | 16,128 (slot 10) | slots 8 and 9; slot 11 unused |
 | three banks | `$1900`, `$7C00`, 8 9 10 | 16,128 (slot 10) | slots 8 and 9 |
-| Master 128 (model only) | `$0E00`, `$8000`, 4 to 7 | 16,128 (slot 6) | `STRING` and `WANTS` in main RAM, the rest in slots 4 and 5 |
+| Master 128 (model only then; since 2026-11-21 run on the emulator's Master-like machine, where today's placer puts `OUTTAB` and `LKNODES` in main RAM: "Image A on a Master-like machine") | `$0E00`, `$8000`, 4 to 7 | 16,128 (slot 6) | `STRING` and `WANTS` in main RAM, the rest in slots 4 and 5 |
 | two banks, one bank | | refused | |
 
 9,216 bytes was the heap as linked: 75 % more. With three banks the compiler now runs (four were
@@ -1833,7 +1942,7 @@ machines marked so):
 | B+128, DFS, `$1900` (run), and in a shadow mode (run) | 16,128 (slot 12) | **1,312, below `$1F00`** | full; slot 13 unused |
 | B+128, ADFS and DFS, `$1F00` (run) | 16,128 | 1,120, in the code range after the list | full |
 | Model B, sideways RAM 8 to 11 (run); three banks (run) | 16,128 | 1,312 | full |
-| Master 128 (model only) | 16,128 | 1,120 | full; `OUTTAB` in main RAM |
+| Master 128 (model only then; run since 2026-11-21) | 16,128 | 1,120 | full; `OUTTAB` in main RAM |
 | **Model B, two banks, DFS (run)** | **8,192** | 1,312 | full |
 | **Model B, two banks, ADFS (run)** | **8,192** | 1,120 | full |
 | one bank | refused | | |
@@ -1898,11 +2007,13 @@ steps of 256 rows, and the symbol table's rows set by the machine, 768 where the
   (`$58C0`), and `test_lk_memory`'s ceiling is 128 bytes higher.
 
 **What each machine gets** (the model of the placer over Image A's list; the emulator ran every
-machine but the Master; `test_bbc_rooms.OnTheBBC.test_what_the_compiler_gets_on_each_machine`):
+machine, the Master since 2026-11-21 on its Master-like machine, `--bbc-model master`;
+`test_bbc_rooms.OnTheBBC.test_what_the_compiler_gets_on_each_machine`):
 
 | Machine | Name heap | Symbols and members | Function buffer | Constant table | String | Saved tokens |
 |---|---|---|---|---|---|---|
-| B+128, DFS, ADFS, shadow mode; Model B with 4 or 3 banks; Master (model) | 16,128 | **768** | 4,096 | 2,048 | 2,048 | 2,048 |
+| B+128, DFS, ADFS, shadow mode; Model B with 4 or 3 banks; Master-like, mode 7 or shadow (run) | 16,128 | **768** | 4,096 | 2,048 | 2,048 | 2,048 |
+| Master-like with two banks (4 and 5; run since 2026-11-21) | **11,776** | 512 | 4,096 | 2,048 (below `$1F00`) | 2,048 | **1,536** |
 | two banks, DFS or ADFS | **8,704** | 512 | 4,096 | 2,048 | 2,048 | 1,024 |
 | **one bank, DFS** | **4,096** | **256** | **1,792** | **768** | **768** | 768 |
 | **one bank, ADFS** | **4,096** | **256** | **1,280** | **512** | **512** | 768 |
@@ -2017,11 +2128,12 @@ DFS and ADFS, with its symbols of the object files, its slots and its calls size
 
 **What each machine's linker gets** (the model of the placer over Image A's list,
 `test_bbc_rooms.TheLinker.test_what_the_linker_gets_on_each_machine`; the emulator ran every
-machine but the Master; the start-up, `*LLINK` with no arguments, at PAGE `$1900`):
+machine, the Master since 2026-11-21; the start-up, `*LLINK` with no arguments, at PAGE `$1900`):
 
 | Machine | Symbols of the object files | Slots | Calls | Functions, nodes, the rest | `*LLINK`'s start-up, cycles |
 |---|---|---|---|---|---|
-| B+128 (DFS, ADFS, shadow mode), Model B with four banks, Master (model) | **4,096** (4,000) | **4,096** (4,000) | 3,584 (3,600) | full (896 functions, 900 nodes) | 743,805 (722,309) |
+| B+128 (DFS, ADFS, shadow mode), Model B with four banks, Master-like (run) | **4,096** (4,000) | **4,096** (4,000) | 3,584 (3,600) | full (896 functions, 900 nodes) | 743,805 (722,309) |
+| Master-like with two banks (run since 2026-11-21; `LKNODES` below `$1F00`) | **2,304** | 2,304 | **2,048** | full | |
 | three banks | **4,096** | 3,840 (4,000) | 3,584 | full | 791,266 (722,071) |
 | **two banks, DFS or ADFS** | **1,536** | **2,304** | **1,280** | full | **1,164,924** (refused) |
 | one bank | refused | | | | 1,468,029 to the refusal |
@@ -2161,10 +2273,90 @@ About 1.4 KB of the bank stays unused there; main RAM below `$1F00` holds no tab
 - **One bank compiles, does not link**: Image A's `*LLINK` stays refused with one bank, and a
   program is linked elsewhere (or with the 32K image, a separate EPROM).
 
+### Image A on a Master-like machine (2026-11-21)
+
+The emulator has a Master-like machine now, `--bbc-model master` (emulator/README.md; the facts,
+each marked checked against MAME's `bbcm.cpp` or from memory, in `emulator/NOTES-bbcbplus.md`,
+"The Master 128"): PAGE `$0E00`, sideways RAM in slots 4 to 7, the module in slot 8 (the
+internal socket), stand-ins for the MOS's own ROMs in 9 to 15 (headers in the ROM type table,
+service entries that claim nothing), ROMSEL at `$FE30-$FE33` with its 4 KB of private RAM, OSBYTE
+0 giving 3, and the emulator's 65C02 core (the 65C12's opcodes a fault where they differ; `--cpu
+nmos` for the B+'s core). It is a model of what the tools touch, not a Master: the MOS is the
+emulator's own, as for the B+, and HAZEL, LYNNE, `*SRDATA` and the real ROMs are not there. Nothing
+of Image A changed for it (`test_bbc_master.py`; `boards.run_module` now leaves the module's slot to
+the emulator's model unless a test names one).
+
+**Where the tables go, and their capacities** (`*LATHE`, `*LLINK` with no arguments; main RAM read
+back with `--bbc-ram-dump` after the run: every high byte, bank and capacity variable of both
+tools' lists is what `places.plan` and `places.apply` say, in mode 7 and a shadow mode, on either
+core, with four banks and with two; so the model was right, and the tables of the stages before
+that show `STRING` and `WANTS` in main RAM on a Master were right for the lists of their day, not
+for today's):
+
+| Table | B+128, PAGE `$1900` or `$1F00` | Master-like, four banks (mode 7 or shadow) | Master-like, two banks (4, 5) |
+|---|---|---|---|
+| `NAMES` (name heap) | 16,128, slot 0 from `$80E0` | 16,128, slot 4 from `$80E0` | **11,776**, slot 4 from `$80E0` |
+| `SYMS` (rows) | 768, slot 1 from `$80E0` | 768, slot 5 from `$80E0` | 512, slot 5 from `$80E0` |
+| `FUNCBUF` | 4,096, slot 12 from `$80E0` | 4,096, slot 6 from `$80E0` | 4,096, slot 5 from `$A6E0` |
+| `OUTTAB` | 2,048, slot 12 from `$93E0` | 2,048, **main RAM from `$0EE0`** | 2,048, main RAM from `$0EE0` |
+| `WANTS` | 1,600, slot 12 from `$A4A0` | 1,600, slot 6 from `$94A0` | slot 4 from `$AFA0` |
+| `STRING` | 2,048, slot 12 from `$AAE0` | 2,048, slot 6 from `$9AE0` | 2,048, slot 4 from `$B5E0` |
+| `TOKENS` | 2,048, slot 12 from `$B2E0` | 2,048, slot 6 from `$A2E0` | **1,536**, slot 5 from `$B9E0` |
+| `LKWORK` | slot 0 from `$80A0` | slot 4 from `$80A0` | slot 4 from `$80A0` |
+| `LKLOCAL` (rows) | 4,096, slot 1 from `$80E0` | 4,096, slot 5 from `$80E0` | **2,304**, slot 5 from `$80E0` |
+| `LKSLOTS` (rows) | 4,096, slot 12 from `$80E0` | 4,096, slot 6 from `$80E0` | 2,304, slot 5 from `$92E0` |
+| `LKCALLS` (rows) | 3,584, slot 13 from `$80E0` | 3,584, slot 7 from `$80E0` | **2,048**, slot 5 from `$A5E0` |
+| `LKNODES` | slot 1 from `$A1D0` | **main RAM from `$0ED0`** | main RAM from `$0ED0` |
+
+With four banks the Master gets what the B+128 gets: every table at its most. With two banks it
+gets more than a Model B with two (name heap 8,704, saved tokens 1,024, the linker's symbols 1,536
+and calls 1,280): the 4,352 bytes below `$1F00` hold `OUTTAB` and `LKNODES`, which leaves a slot
+the room. The module of 12,923 bytes of names compiles on the Master with four banks and is error
+70 with two, as the host compiler gives with those capacities (`test_bbc_rooms`, which runs the
+Master-like machine in mode 7, in a shadow mode and with two banks; with two banks the compiler's
+18 modules compile there in 885,483,820 cycles, on a Model B with two in 891,588,088 under the DFS:
+not analysed further: most likely the start-ups, whose tables give up fewer steps on the Master).
+
+**Measured** (`--bbc-strict` on filled memory, every file the host tools'; the 65C02 core):
+
+| | B+128, PAGE `$1900` | Master-like, four banks, mode 7 |
+|---|---|---|
+| `*LATHE` with no arguments | 1,006,129 | 1,003,987 |
+| `*LLINK` with no arguments | 739,579 | 737,601 |
+| the self-compile, 18 compiles | 881,805,196 | **881,762,104** |
+| the linker links the compiler | 2,998,607,480 | **2,998,605,250** |
+
+The start-up is about 2,000 cycles shorter, and the self-compile and the link are shorter by about
+that a command (43,092 and 2,230 cycles): `OUTTAB` and `LKNODES` in main RAM save nothing in a
+block, whose bank is still switched (to the module's own slot). The NMOS core (`--cpu nmos`) gives the same
+counts, to the cycle, for the start-ups, the self-compile and the link: the emulator's 65C02 core counts every opcode the NMOS 6502 has as the NMOS
+core does (its table of cycles differs only in the opcodes the NMOS lacks), so these are not a real
+65C12's times (from memory: a CMOS 6502 takes a cycle more for `JMP (abs)` and in decimal mode,
+and one less for some read-modify-write instructions indexed by X). What the 65C02 core shows is
+that nothing in the tools depends on the NMOS 6502's own behaviour (the `JMP ($xxFF)` that reads
+its high byte from the same page, the undocumented opcodes).
+The tool chain (hello, calls) compiles, links and runs, every file the host tools'.
+
+**The memory below `$1F00`** (4,352 bytes from PAGE `$0E00`): the compiler puts `OUTTAB`'s block
+there (4,096 bytes from `$0EE0`; 224 bytes below it and 32 above stay unused), the linker
+`LKNODES` (3,600 from `$0ED0`; 208 below and 544 above unused). With four banks no table is short,
+so they gain nothing in capacity; with two they are what gives the Master its larger name heap and
+linker tables. A cheaper or better use by the environment's entries alone was looked for, by the
+model over the lists with the compiler's seven dynamic regions and the linker's five in every
+order (each a guess at a relink, which would also move the blocks' low bytes): no order of the
+linker's gives any Master more without some machine that runs today getting less; six orders of
+the compiler's (`OUTTAB`, `STRING` and `TOKENS` first, then `NAMES`) give a Master with two banks
+2,048 bytes of saved tokens instead of 1,536 and change nothing else anywhere. The corpus needs at
+most 520 bytes of them, and the change would move every byte of Image A, so it is not made: an
+option, not a gain.
+
 ### What is not done
 
 - The linker with one bank: measured, not built, the choice the owner's ("The linker on one bank:
-  measured, not built"). The Master, and the rest of the probing policy: stage 2's next parts.
+  measured, not built"). The rest of the probing policy (`*SRDATA` on a Master, a special case by
+  OSBYTE 0, the slots named by the user): stage 2's next parts. Image A runs on the emulator's
+  Master-like machine since 2026-11-21 ("Image A on a Master-like machine"); a real Master, its
+  MOS, its HAZEL and its built-in ROMs are not shown by it.
 - Image B, the bare 32K Model B: stage 3.
 - The module's own check: it copies the resident part to `$1F00` before the tool's `PAGE too high`;
   with PAGE above `$1F00` that copy writes below PAGE. The module should refuse PAGE above a
@@ -2172,6 +2364,19 @@ About 1.4 KB of the bank stays unused there; main RAM below `$1F00` holds no tab
   refusal without `--bbc-strict` so that the tool's message is seen).
 - Nothing is redundant yet: the B+128 builds of today (`$1900` with `BBCFS` 0 and 1, the ADFS
   build with `BBCFS 2`) stay until Image A carries the names chosen at run time and fits with them.
+- The developer's cycle for the images (2026-11-21: "The developer's cycle", "For the images that
+  ship"): Image A's both tools rebuilt and run from the B+128's module with `*DEVLINK`; Image B's
+  compiler rebuilt there (its commands typed without the defines no source names) and run on a
+  Model B; Image B's linker's link two bytes from the host's, by a fault of `lk_dyn.put_region`
+  (host and twin index `bank_value` with -1 for a region in no bank) whose mending changes Wendy
+  2's banked linkers: the owner's. Not done: the developer's linker rebuilt on the BBC; Image B's
+  compiler in a module of the B+128 (a HOME of its own); a compile command file (`*LATHE @FILE`,
+  as the linker has), which Image B's compiler's 249 bytes of options call for; MODLOAD's walk of
+  the command table assumes entries without a page limit (`HIGHEST_PAGE`), so a whole layout with
+  Image B's compiler would be misread for its second and later tools (by inspection: read two
+  bytes off, their start and top would not match, so refused), until the description says the
+  entries' length; everything the host still makes (that section's
+  list).
 
 ## The image for machines with no sideways RAM (2026-11-20, later)
 

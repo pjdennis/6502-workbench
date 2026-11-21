@@ -443,6 +443,12 @@ e_outside_file:
   .byte $00, $B7
   .asciiz "Outside file"
 
+; --bbc-model master: OSBYTE 0 with X = 0 on the Master 128's MOS. Last, so that adding it moved
+; nothing of the ROM before it.
+e_os_320:
+  .byte $00, 247
+  .asciiz "OS 3.20"
+
 ; ---- the entry points, at the real MOS's addresses ----
 * = $FFB6
   .byte $36               ; length of the default vector table

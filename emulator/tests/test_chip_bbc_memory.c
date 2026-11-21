@@ -259,6 +259,57 @@ TEST model_b_romsel_is_fe30_to_fe3f_of_four_bits_and_has_no_private_ram(void) {
     PASS();
 }
 
+/* The Master-like map (master): ROMSEL is $FE30-$FE33 (MAME's bbcm decodes it so), reads back
+ * its four slot bits, and bit 7 pages the 4 KB of ANDY at $8000-$8FFF, not the B+'s 12 KB;
+ * $FE34-$FE3F (ACCCON, the Econet interrupt flip-flop) are not ROMSEL. */
+TEST master_romsel_is_fe30_to_fe33_readable_and_andy_is_4k(void) {
+    setup(8);
+    mem.master = 1;
+    for (int s = 0; s < BBC_SLOTS; s++)
+        if (s != 8) {
+            mem.kind[s] = BBC_SLOT_ROM;
+            memset(mem.slot[s], 0x40 + s, BBC_SLOT_SIZE);
+        }
+    for (uint16_t a = 0xFE30; a <= 0xFE33; a++) {
+        wr(a, (uint8_t)(a & 0x0F));
+        ASSERT_EQ(a & 0x0F, mem.romsel);
+    }
+    uint16_t others[] = { 0xFE34, 0xFE37, 0xFE38, 0xFE3B, 0xFE3C, 0xFE3F, 0xFE2F, 0xFE40 };
+    for (unsigned i = 0; i < sizeof others / sizeof others[0]; i++) {
+        wr(others[i], 9);
+        ASSERT_EQ(3, mem.romsel);
+    }
+    wr(BBC_ROMSEL, 0x80 | 12);          /* ANDY over $8000-$8FFF, slot 12 above */
+    ASSERT_EQ(12, rd(BBC_ROMSEL));      /* read back: the slot's four bits */
+    wr(0x8000, 0x11);
+    wr(0x8FFF, 0x22);
+    ASSERT_EQ(0x11, rd(0x8000));
+    ASSERT_EQ(0x22, rd(0x8FFF));
+    ASSERT_EQ(0x11, mem.private_ram[0]);
+    ASSERT_EQ(0x4C, rd(0x9000));
+    ASSERT_EQ(0x4C, rd(0xAFFF));
+    wr(BBC_ROMSEL, 12);
+    ASSERT_EQ(0x4C, rd(0x8000));
+    wr(BBC_ROMSEL, 0x80 | 8);           /* the module: hidden below $9000 only */
+    ASSERT_EQ(0x11, rd(0x8000));
+    ASSERT_EQ(0xA0, rd(0x9000));
+    PASS();
+}
+
+/* A stand-in for a ROM the real machine has built in: a header the MOS accepts (the type, the
+ * copyright string, the title) and a service entry that claims nothing (an RTS at $8003). */
+TEST a_stand_in_rom_has_a_header_and_a_service_entry_that_returns(void) {
+    setup(-1);
+    bbc_memory_stand_in_rom(&mem, 13, "ADFS");
+    ASSERT_EQ(BBC_SLOT_ROM, mem.kind[13]);
+    const uint8_t *r = mem.slot[13];
+    ASSERT_EQ(0x60, r[3]);              /* the service entry: RTS */
+    ASSERT_EQ(0x82, r[6]);              /* a service ROM of 6502 code, no language entry */
+    ASSERT_EQ(0, memcmp(r + 9, "ADFS", 5));
+    ASSERT_EQ(0, memcmp(r + r[7], "\0(C)", 4));
+    PASS();
+}
+
 SUITE(bbc_memory_suite) {
     RUN_TEST(main_ram_reads_back);
     RUN_TEST(romsel_selects_the_slot_in_the_window);
@@ -272,6 +323,8 @@ SUITE(bbc_memory_suite) {
     RUN_TEST(private_ram_hides_the_module_below_b000);
     RUN_TEST(load_rom_image);
     RUN_TEST(model_b_romsel_is_fe30_to_fe3f_of_four_bits_and_has_no_private_ram);
+    RUN_TEST(master_romsel_is_fe30_to_fe33_readable_and_andy_is_4k);
+    RUN_TEST(a_stand_in_rom_has_a_header_and_a_service_entry_that_returns);
 }
 
 GREATEST_MAIN_DEFS();

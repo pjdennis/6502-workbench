@@ -11,6 +11,13 @@
 #include "chips/bbc_module.h"
 #include "fill_ram.h"
 
+/* The Master 128's built-in ROMs (MAME's bbcm lists them so for MOS 3.20), as stand-ins: headers
+ * the MOS accepts and service entries that claim nothing (chips/bbc_memory.h) */
+static const char *const master_roms[BBC_SLOTS] = {
+    [9] = "DFS", [10] = "ViewSheet", [11] = "Edit", [12] = "BASIC", [13] = "ADFS", [14] = "View",
+    [15] = "Terminal",
+};
+
 static void report(const struct bbc_machine *m, const struct emu_opts *opts) {
     fprintf(stderr, "bbcbplus: exit  cpu_cycles=%llu  pc=$%04X  (%s)\n",
             (unsigned long long)clockticks6502, m->end_pc, bbc_end_name(m->end));
@@ -63,6 +70,11 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
     for (int s = 0; s < BBC_SLOTS; s++)
         if (ram & (1u << s)) mem.kind[s] = BBC_SLOT_RAM;
     if (opts->fill_ram) fill_ram_bbc(&mem);   /* before the ROM images: a ROM in a RAM slot overwrites it */
+    int master = opts->bbc_model == BBC_MODEL_MASTER;
+    for (int s = 0; s < BBC_SLOTS; s++)   /* a stand-in where nothing else was put */
+        if (master && master_roms[s] && mem.kind[s] == BBC_SLOT_EMPTY && !opts->bbc_roms[s]
+            && !((opts->bbc_module_filename || opts->bbc_module_ram) && s == opts->bbc_module_slot))
+            bbc_memory_stand_in_rom(&mem, s, master_roms[s]);
     for (int s = 0; s < BBC_SLOTS; s++) {
         if (!opts->bbc_roms[s]) continue;
         int rc = bbc_memory_load_rom(&mem, s, opts->bbc_roms[s]);
@@ -93,9 +105,11 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
 
     struct bbc_config cfg = {
         .disk_dir = opts->disk_dir,
-        .page = (uint16_t)(opts->bbc_page >= 0 ? opts->bbc_page : 0x1900),
+        .page = (uint16_t)(opts->bbc_page >= 0 ? opts->bbc_page : master ? 0x0E00 : 0x1900),
         .shadow = opts->bbc_shadow,
         .model_b = opts->bbc_model == BBC_MODEL_B,
+        .master = master,
+        .cmos = master && opts->cpu_variant_opt == CPU_65C02,
         .screen = bbc_screen_start(opts->bbc_mode),
         .strict = opts->bbc_strict,
         .dfs = opts->bbc_dfs,
@@ -131,6 +145,12 @@ int emu_run_bbcbplus(const struct emu_opts *opts) {
         size_t size = (size_t)bbc_module_banks(module.scheme) * BBC_MODULE_BANK_SIZE;
         if (!f || fwrite(module.data, 1, size, f) != size) fprintf(stderr, "bbcbplus: could not write %s\n",
                                                                     opts->bbc_module_dump);
+        if (f) fclose(f);
+    }
+    if (opts->bbc_ram_dump) {   /* main RAM as the run left it: what a test reads back */
+        FILE *f = fopen(opts->bbc_ram_dump, "wb");
+        if (!f || fwrite(mem.ram, 1, sizeof mem.ram, f) != sizeof mem.ram)
+            fprintf(stderr, "bbcbplus: could not write %s\n", opts->bbc_ram_dump);
         if (f) fclose(f);
     }
     if ((m.end == BBC_END_FAULT || m.end == BBC_END_STRICT) && !opts->exit_report)

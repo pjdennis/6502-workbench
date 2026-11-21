@@ -21,6 +21,9 @@
 #define BBC_MODEL_BPLUS     0   /* the Model B+128: sideways RAM in slots 0, 1, 12 and 13 by default */
 #define BBC_MODEL_B         1   /* the 32K Model B: no sideways RAM unless given, no shadow
                                  * screen, no private RAM, ROMSEL all of $FE30-$FE3F, OS 1.20 */
+#define BBC_MODEL_MASTER    2   /* a Master-like machine: PAGE $0E00, sideways RAM in slots 4-7 and
+                                 * the module in slot 8 by default, stand-in ROMs in 9-15, OS 3.20,
+                                 * the 65C02 core unless --cpu nmos (emulator/README.md) */
 
 /* LCD panel selection for the wendy2c web/live render. Defaults to
  * the standard 16x2 5x8 module shipped on the breadboard; the 16x1
@@ -128,20 +131,22 @@ struct emu_opts {
                                          * 0 = the keyboard board's default */
     /* --machine bbcbplus (emu_bbcbplus.h) */
     const char *bbc_sideways_ram;       /* --bbc-sideways-ram LIST: slots of sideways RAM; default "0,1,12,13"
-                                         * on the B+, "none" on the Model B */
+                                         * on the B+, "none" on the Model B, "4,5,6,7" on the Master */
     int bbc_sideways_ram_given;         /* set when --bbc-sideways-ram was given */
-    int bbc_model;                      /* --bbc-model b|bplus: BBC_MODEL_*; default BBC_MODEL_BPLUS */
+    int bbc_model;                      /* --bbc-model b|bplus|master: BBC_MODEL_*; default BBC_MODEL_BPLUS */
     int bbc_mode;                       /* --bbc-mode N: the screen mode at power on, 0 to 7; default 7 */
     const char *bbc_roms[16];           /* --bbc-rom N=FILE: a 16 KB ROM image in slot N */
     const char *bbc_module_filename;    /* --bbc-module FILE: the module's image, bank 0 first */
     int bbc_module_ram;                 /* --bbc-module-ram: the module holds RAM */
     const char *bbc_module_dump;        /* --bbc-module-dump FILE: the module's banks to FILE at the end */
-    int bbc_module_slot;                /* --bbc-module-slot N; default 4 */
+    const char *bbc_ram_dump;           /* --bbc-ram-dump FILE: main RAM ($0000-$7FFF) to FILE at the end */
+    int bbc_module_slot;                /* --bbc-module-slot N; default 4, 8 on the Master */
+    int bbc_module_slot_given;          /* set when --bbc-module-slot was given */
     int bbc_module_bank;                /* --bbc-module-bank N: the bank at power on; default 0 */
     int bbc_module_scheme;              /* --bbc-module-scheme: BBC_SCHEME_* */
     int bbc_module_options;             /* set when a --bbc-module-* option was given */
     int bbc_shadow;                     /* --bbc-shadow: OSBYTE 132 answers $8000 */
-    long bbc_page;                      /* --bbc-page HEX: OSBYTE 131; -1 = $1900 */
+    long bbc_page;                      /* --bbc-page HEX: OSBYTE 131; -1 = $1900 ($0E00 on the Master) */
     const char *bbc_command;            /* --bbc-command TEXT: passed to OSCLI after reset */
 #define BBC_MORE_COMMANDS 63
     const char *bbc_more_commands[BBC_MORE_COMMANDS]; /* a second --bbc-command and on: each

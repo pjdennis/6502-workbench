@@ -7,6 +7,7 @@ Assembles the sources here with the repository's own assembler (its
 Python work-alike, asm/pyasm.py) and writes:
 
   hello.bin                       hello.asm, at $1900 (run with --load 1900)
+  romtab.bin                      romtab.asm, at $1900: the machine, PAGE and the ROM type table
   COPY, COPY.inf                  copy.asm, load and exec $1900
   module-cc128.rom                module.asm's banks 0 and 3 in a 128 KB image,
   module-direct16.rom             switched as the scheme named (define:DIRECT16)
@@ -54,6 +55,7 @@ def module_image(scheme_defines):
 def build(out_dir):
     os.makedirs(out_dir, exist_ok=True)
     write(out_dir, "hello.bin", assemble("hello.asm"))
+    write(out_dir, "romtab.bin", assemble("romtab.asm"))
     write(out_dir, "COPY", assemble("copy.asm"), load=0x1900)
     write(out_dir, "module-cc128.rom", module_image(["CC128"]))
     write(out_dir, "module-direct16.rom", module_image(["DIRECT16"]))

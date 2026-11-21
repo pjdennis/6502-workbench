@@ -53,7 +53,9 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->bbc_module_filename = NULL;
     opts->bbc_module_ram = 0;
     opts->bbc_module_dump = NULL;
+    opts->bbc_ram_dump = NULL;
     opts->bbc_module_slot = 4;
+    opts->bbc_module_slot_given = 0;
     opts->bbc_module_bank = 0;
     opts->bbc_module_scheme = BBC_SCHEME_CC128;
     opts->bbc_module_options = 0;
@@ -155,24 +157,31 @@ void emu_opts_usage(FILE *fp) {
 "                         bbcbplus: the directory the MOS's filing system uses\n"
 "bbcbplus (the BBC Model B+128 with the emulator's own MOS; batch only):\n"
 "  --bbc-command TEXT     pass TEXT to OSCLI after reset (else run <code file> at --load)\n"
-"  --bbc-model b|bplus    the Model B+128 (bplus, the default) or the 32K Model B (b:\n"
+"  --bbc-model M          the Model B+128 (bplus, the default), the 32K Model B (b:\n"
 "                         no sideways RAM unless given, no shadow screen, no private\n"
-"                         RAM, ROMSEL at all of $FE30-$FE3F, OSBYTE 0 gives OS 1.20)\n"
+"                         RAM, ROMSEL at all of $FE30-$FE3F, OSBYTE 0 gives OS 1.20) or a\n"
+"                         Master-like machine (master: PAGE $0E00, sideways RAM 4-7,\n"
+"                         the module in slot 8, stand-in ROMs in 9-15, 4 KB private\n"
+"                         RAM, ROMSEL at $FE30-$FE33, OSBYTE 0 gives OS 3.20, the\n"
+"                         emulator's 65C02 core unless --cpu nmos)\n"
 "  --bbc-mode N           the screen mode at power on (default 7): HIMEM is where its\n"
 "                         screen starts ($7C00 in mode 7, $5800 in mode 4), unless\n"
 "                         --bbc-shadow\n"
-"  --bbc-sideways-ram L   slots of sideways RAM (default 0,1,12,13 on the B+; 'none')\n"
+"  --bbc-sideways-ram L   slots of sideways RAM (default 0,1,12,13 on the B+, 4,5,6,7\n"
+"                         on the Master; 'none')\n"
 "  --bbc-rom N=FILE       a 16 KB ROM image in slot N (repeatable)\n"
 "  --bbc-module FILE      the banked module's image, bank 0 first\n"
 "  --bbc-module-ram       the module holds RAM, written through the window\n"
 "  --bbc-module-dump FILE at the end of the run, the module's banks to FILE\n"
-"  --bbc-module-slot N    the module's slot (default 4)\n"
+"  --bbc-ram-dump FILE    at the end of the run, main RAM ($0000-$7FFF) to FILE\n"
+"  --bbc-module-slot N    the module's slot (default 4; 8 on the Master)\n"
 "  --bbc-module-bank N    the module's bank at power on (default 0)\n"
 "  --bbc-module-scheme S  cc128 (the Computer Concepts 128K carrier, default),\n"
 "                         direct16 (sixteen banks, a read of $BFF0+n selects n) or\n"
 "                         direct8 (eight banks, a read of $BFF0+n selects n AND 7)\n"
 "  --bbc-shadow           OSBYTE 132 (HIMEM) answers $8000, not the screen's start\n"
-"  --bbc-page HEX         OSBYTE 131 (PAGE) answers HEX (default 1900)\n"
+"  --bbc-page HEX         OSBYTE 131 (PAGE) answers HEX (default 1900; E00 on the\n"
+"                         Master)\n"
 "  --bbc-strict           a write to MOS memory or to the screen (HIMEM to $7FFF,\n"
 "                         without --bbc-shadow) or a ROMSEL unlike $F4 at a MOS\n"
 "                         call ends the run (status 1)\n"
@@ -346,6 +355,8 @@ static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
         }
     } else if (strcmp(arg, "--bbc-module-dump") == 0) {
         if (take_str_value(argc, argv, i, arg, &opts->bbc_module_dump)) return 1;
+    } else if (strcmp(arg, "--bbc-ram-dump") == 0) {
+        if (take_str_value(argc, argv, i, arg, &opts->bbc_ram_dump)) return 1;
     } else if (strcmp(arg, "--bbc-module") == 0) {
         if (take_str_value(argc, argv, i, arg, &opts->bbc_module_filename)) return 1;
     } else if (strcmp(arg, "--bbc-sideways-ram") == 0) {
@@ -366,6 +377,7 @@ static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
         opts->bbc_roms[slot] = end + 1;
     } else if (strcmp(arg, "--bbc-module-slot") == 0) {
         if (take_int_in(argc, argv, i, arg, 0, 15, "0 to 15", &opts->bbc_module_slot)) return 1;
+        opts->bbc_module_slot_given = 1;
     } else if (strcmp(arg, "--bbc-module-bank") == 0) {
         if (take_int_in(argc, argv, i, arg, 0, 15, "0 to 15", &opts->bbc_module_bank)) return 1;
     } else if (strcmp(arg, "--bbc-module-scheme") == 0) {
@@ -392,8 +404,9 @@ static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
         if (take_str_value(argc, argv, i, arg, &value)) return 1;
         if (strcmp(value, "b") == 0) opts->bbc_model = BBC_MODEL_B;
         else if (strcmp(value, "bplus") == 0) opts->bbc_model = BBC_MODEL_BPLUS;
+        else if (strcmp(value, "master") == 0) opts->bbc_model = BBC_MODEL_MASTER;
         else {
-            fprintf(stderr, "error: --bbc-model must be 'b' or 'bplus'\n");
+            fprintf(stderr, "error: --bbc-model must be 'b', 'bplus' or 'master'\n");
             return 1;
         }
     } else if (strcmp(arg, "--bbc-mode") == 0) {
@@ -427,11 +440,19 @@ static int bbc_check(struct emu_opts *opts) {
         fprintf(stderr, "error: --machine bbcbplus runs batch only: --live and --web are not supported\n");
         return 1;
     }
-    if (opts->cpu_variant_opt == CPU_65C02) {
-        fprintf(stderr, "error: --machine bbcbplus requires --cpu nmos (the B+'s 6512A)\n");
-        return 1;
+    if (opts->bbc_model == BBC_MODEL_MASTER) {
+        /* the Master's 65C12 is a CMOS 6502: the emulator's 65C02 core, unless --cpu nmos asks for
+         * the B+'s core (to measure what the machine changes, apart from the CPU) */
+        opts->cpu_variant_opt = opts->cpu_variant_opt == CPU_NMOS ? CPU_NMOS : CPU_65C02;
+        if (!opts->bbc_sideways_ram_given) opts->bbc_sideways_ram = "4,5,6,7";
+        if (!opts->bbc_module_slot_given) opts->bbc_module_slot = 8;
+    } else {
+        if (opts->cpu_variant_opt == CPU_65C02) {
+            fprintf(stderr, "error: --machine bbcbplus requires --cpu nmos (the B+'s 6512A)\n");
+            return 1;
+        }
+        opts->cpu_variant_opt = CPU_NMOS;
     }
-    opts->cpu_variant_opt = CPU_NMOS;
     if (!opts->bbc_command && !(opts->code_filename && opts->load_address >= 0)) {
         fprintf(stderr, "error: --machine bbcbplus needs --bbc-command or a code file with --load\n");
         return 1;

@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include "../bus.h"
 
-/* The BBC Model B+128's memory map, as far as a batch tool sees it:
+/* The BBC Model B+128's memory map, as far as a batch tool sees it (and the Model B's and a
+ * Master-like machine's, below):
  *
  *   $0000-$7FFF  main RAM (32 KB; the shadow screen RAM is not modelled)
  *   $8000-$BFFF  the sideways window: the slot ROMSEL selects. With
@@ -21,6 +22,13 @@
  * four bits, and there is no private RAM: a write with bit 7 set selects
  * the slot of its low four bits.
  *
+ * On the Master-like machine (master), as MAME's bbcm models the Master 128,
+ * ROMSEL is $FE30-$FE33 and reads back its slot (bits 0-3); bit 7 pages the
+ * 4 KB of private RAM called ANDY over $8000-$8FFF, so $9000-$BFFF still shows
+ * the slot. $FE34-$FE3F (ACCCON and the Econet interrupt flip-flop there) are
+ * not modelled, and neither are the shadow screen (LYNNE) nor the filing
+ * systems' RAM at $C000-$DFFF (HAZEL): the MOS ROM is always there.
+ *
  * Each of the sixteen slots is empty (reads find the open bus), a 16 KB
  * ROM image, 16 KB of sideways RAM (written through the window while its
  * slot is selected) or the banked module (chips/bbc_module.h), which is
@@ -33,6 +41,7 @@
 #define BBC_SLOTS 16
 #define BBC_SLOT_SIZE 0x4000
 #define BBC_PRIVATE_RAM_SIZE 0x3000
+#define BBC_ANDY_SIZE 0x1000            /* the Master's private RAM: the first 4 KB of private_ram */
 #define BBC_ROMSEL 0xFE30
 
 enum bbc_slot_kind { BBC_SLOT_EMPTY, BBC_SLOT_ROM, BBC_SLOT_RAM, BBC_SLOT_MODULE };
@@ -46,6 +55,8 @@ struct bbc_memory_state {
     uint8_t romsel;                 /* the ROMSEL latch, as last written */
     uint8_t model_b;                /* the Model B: ROMSEL is all of $FE30-$FE3F and holds bits
                                      * 0-3 only; no private RAM, no shadow screen select */
+    uint8_t master;                 /* the Master-like machine: ROMSEL $FE30-$FE33, read back,
+                                     * bit 7 the 4 KB of ANDY at $8000-$8FFF */
     uint8_t open_bus;               /* the last byte on the data bus (kept by the machine) */
 };
 
@@ -59,6 +70,12 @@ void bbc_memory_chip(struct chip *chip, struct bbc_memory_state *state);
  * or -1 if the file can't be read, -2 if it is larger than 16 KB. A slot
  * that is sideways RAM keeps being RAM, with the image in it. */
 int bbc_memory_load_rom(struct bbc_memory_state *state, int slot, const char *path);
+
+/* A stand-in for a ROM the real machine has built in (the Master's in slots 9 to 15): the slot
+ * becomes a ROM whose header the MOS accepts, type $82 (a service ROM of 6502 code, no language
+ * entry), the copyright string "(C)" and `title`, and whose service entry is an RTS at $8003, so
+ * that it claims no call. The rest of the slot reads $FF. */
+void bbc_memory_stand_in_rom(struct bbc_memory_state *state, int slot, const char *title);
 
 /* Decode bus->addr (and bus->rwb): bus->romcs is set when the module's
  * slot is selected and the address is in the part of the window it

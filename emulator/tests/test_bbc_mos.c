@@ -1440,6 +1440,68 @@ TEST without_dfs_names_and_limits_are_as_before(void) {
     PASS();
 }
 
+/* ---- the Master-like machine (--bbc-model master) ---- */
+
+/* OSBYTE 0 gives 3 (a Master 128) and its error for X = 0 is "OS 3.20"; PAGE is $0E00 unless
+ * given; MOS memory is $0800 up to that PAGE. */
+TEST master_os_version_and_page(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM(0), LDX_IMM(1), JSR(OSBYTE), STX_ZP(0x70),
+        LDA_IMM(131), JSR(OSBYTE), STX_ZP(0x71), STY_ZP(0x72),
+        LDA_IMM(132), JSR(OSBYTE), STX_ZP(0x73), STY_ZP(0x74),
+        LDA_IMM(1), STA_ABS(0x0DFF), STA_ABS(0x0E00), RTS };
+    struct bbc_config master = { .master = 1, .cmos = 1 };
+    ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &master));
+    ASSERT_EQ(3, mem.ram[0x70]);
+    ASSERT_EQ(0x00, mem.ram[0x71]);
+    ASSERT_EQ(0x0E, mem.ram[0x72]);
+    ASSERT_EQ(0x7C, mem.ram[0x74]);
+    ASSERT_EQ(1, (int)m.mos_writes);            /* $0DFF, not $0E00 */
+    ASSERT_EQ(0x0DFF, m.first_writes[0].addr);
+    struct bbc_config shadow = { .master = 1, .cmos = 1, .shadow = 1, .page = 0x1900 };
+    fresh();
+    ASSERT_EQ(0, run(code, sizeof code, NULL, NULL, &shadow));
+    ASSERT_EQ(0x19, mem.ram[0x72]);
+    ASSERT_EQ(0x80, mem.ram[0x74]);
+    static const uint8_t error[] = { LDA_IMM(0), LDX_IMM(0), JSR(OSBYTE), RTS };
+    fresh();
+    ASSERT_EQ(1, run(error, sizeof error, NULL, NULL, &master));
+    ASSERT_STR_EQ("OS 3.20\n", err_text);
+    PASS();
+}
+
+/* With cmos the CPU is the emulator's 65C02 core: STZ and BRA run, and JMP ($xxFF) reads its high
+ * byte from the next page. The opcodes the 65C12 lacks (the bit instructions $x7 and $xF, WAI and
+ * STP) end the run as a fault, as do the NMOS's jam opcodes (a 65C12 runs them as NOPs; no tool
+ * should). */
+TEST master_cmos_core_and_the_opcodes_a_65c12_lacks(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM(0x55), STA_ZP(0x70), 0x64, 0x70,        /* STZ $70 */
+        0x80, 0x02, LDA_IMM(0xEE),                      /* BRA over an LDA */
+        STA_ZP(0x71),
+        LDA_IMM(LO(PAGE + 0x20)), STA_ABS(0x10FF), LDA_IMM(HI(PAGE + 0x20)), STA_ABS(0x1100),
+        LDA_IMM(0x00), STA_ABS(0x1000), JMP_IND(0x10FF) };
+    uint8_t prog[0x30];
+    memset(prog, NOP, sizeof prog);
+    memcpy(prog, code, sizeof code);
+    prog[0x20] = RTS;
+    struct bbc_config master = { .master = 1, .cmos = 1 };
+    ASSERT_EQ(0, run(prog, sizeof prog, NULL, NULL, &master));
+    ASSERT_EQ(0x00, mem.ram[0x70]);
+    ASSERT_EQ(0x55, mem.ram[0x71]);
+    static const uint8_t lacks[] = { 0x07, 0x0F, 0x87, 0xFF, 0xCB, 0xDB, 0x02, 0x12 };
+    for (unsigned i = 0; i < sizeof lacks; i++) {
+        uint8_t bad[] = { NOP, lacks[i], 0x70, 0x00 };
+        fresh();
+        ASSERT_EQ(1, run(bad, sizeof bad, NULL, NULL, &master));
+        ASSERT_EQ(BBC_END_FAULT, m.end);
+        ASSERT(strstr(m.fault, (lacks[i] & 0x0F) == 0x02 ? "jammed" : "65C12") != NULL);
+    }
+    PASS();
+}
+
 /* ---- the trap and the checks ---- */
 
 TEST jumping_straight_to_a_trap_is_a_fault(void) {
@@ -1592,6 +1654,8 @@ SUITE(bbc_mos_suite) {
     RUN_TEST(adfs_map_holds_80_free_spaces);
     RUN_TEST(osargs_gives_the_number_of_the_filing_system);
     RUN_TEST(without_dfs_names_and_limits_are_as_before);
+    RUN_TEST(master_os_version_and_page);
+    RUN_TEST(master_cmos_core_and_the_opcodes_a_65c12_lacks);
     RUN_TEST(jumping_straight_to_a_trap_is_a_fault);
     RUN_TEST(a_jam_opcode_is_a_fault);
     RUN_TEST(writes_to_mos_memory_are_counted);

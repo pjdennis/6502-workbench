@@ -192,18 +192,19 @@ do), and the checks with the first few offenders.
 | `--bbc-command TEXT` | passed to OSCLI after reset, from `$0700` (as a language's input line would be). Repeatable, up to 64: each further line is passed in turn, from `$0700` with the stack reset, when the one before returns (an error ends the run there) |
 | `<code file> --load HEX` | without `--bbc-command`: the file put in main RAM at HEX and entered there (with both, the file is loaded and the command run) |
 | `--disk DIR` | the host directory the MOS's filing system works in |
-| `--bbc-model b\|bplus` | the Model B+128 (`bplus`, the default) or the 32K Model B (`b`): no sideways RAM unless `--bbc-sideways-ram` gives some, no private RAM, ROMSEL at every address of `$FE30-$FE3F` holding bits 0-3 only, OSBYTE 0 giving 1 (OS 1.20), and `--bbc-shadow` refused (below, "What is modelled") |
+| `--bbc-model b\|bplus\|master` | the Model B+128 (`bplus`, the default), the 32K Model B (`b`): no sideways RAM unless `--bbc-sideways-ram` gives some, no private RAM, ROMSEL at every address of `$FE30-$FE3F` holding bits 0-3 only, OSBYTE 0 giving 1 (OS 1.20), and `--bbc-shadow` refused; or a Master-like machine (`master`): PAGE `$0E00`, sideways RAM in slots 4 to 7, the module in slot 8, stand-ins for the MOS's ROMs in 9 to 15, ROMSEL at `$FE30-$FE33` read back, 4 KB of private RAM, OSBYTE 0 giving 3 (OS 3.20), the 65C02 core unless `--cpu nmos` (below, "What is modelled") |
 | `--bbc-mode N` | the screen mode at power on, 0 to 7 (default 7): OSBYTE 132 (HIMEM) answers where its screen starts (`$7C00` in mode 7, `$6000` in 6, `$5800` in 4 and 5, `$4000` in 3, `$3000` in 0 to 2), unless `--bbc-shadow`; a program's write from there to `$7FFF` is a failed check. A `VDU 22` that changes the mode is not modelled |
-| `--bbc-sideways-ram LIST` | the slots that are sideways RAM (default `0,1,12,13`, the B+128's; `none`, the default with `--bbc-model b`) |
+| `--bbc-sideways-ram LIST` | the slots that are sideways RAM (default `0,1,12,13`, the B+128's; `none`, the default with `--bbc-model b`; `4,5,6,7` with `--bbc-model master`) |
 | `--bbc-rom N=FILE` | a plain 16 KB ROM image in slot N (repeatable); in a sideways RAM slot it is loaded into the RAM |
 | `--bbc-module FILE` | the module's image, bank 0 first: up to 131072 bytes (`cc128`, `direct8`) or 262144 (`direct16`) |
-| `--bbc-module-slot N` | the module's slot (default 4; it may not be a sideways RAM slot or one given `--bbc-rom`) |
+| `--bbc-module-slot N` | the module's slot (default 4, 8 with `--bbc-model master`; it may not be a sideways RAM slot or one given `--bbc-rom`) |
 | `--bbc-module-bank N` | the module's bank at power on (default 0; the real latch powers up undefined): 0-7, or 0-15 for `direct16` |
 | `--bbc-module-scheme S` | `cc128` (default), `direct16` or `direct8`, below |
 | `--bbc-module-ram` | the developer's form: the module holds RAM |
 | `--bbc-module-dump FILE` | at the end of the run, however it ends, the module's banks (all of them, bank 0 first) to FILE: what a test reads back of the RAM form |
+| `--bbc-ram-dump FILE` | at the end of the run, however it ends, main RAM (`$0000-$7FFF`, 32,768 bytes) to FILE: what a test reads back of where a program put things (Lathe's `test_bbc_master.py` reads the placer's work there) |
 | `--bbc-shadow` | OSBYTE 132 (HIMEM) answers `$8000` instead of the screen's start (`$7C00` in mode 7), and the screen is not checked; the shadow screen RAM itself is not modelled |
-| `--bbc-page HEX` | OSBYTE 131 (OSHWM, PAGE) answers HEX instead of `$1900` |
+| `--bbc-page HEX` | OSBYTE 131 (OSHWM, PAGE) answers HEX instead of `$1900` (`$0E00` with `--bbc-model master`) |
 | `--bbc-strict` | a write to MOS memory or to the screen (HIMEM to `$7FFF`, without `--bbc-shadow`), or a ROMSEL unlike `$F4` at a MOS call, ends the run (status 1); without it each is counted in the exit report (`mos-memory-writes`, `screen-writes`, `romsel-mismatches`) |
 | `--bbc-fs host\|dfs\|adfs` | the names the filing system takes: as given (`host`, the default), or only the Acorn DFS's, with its limits (`dfs`, below), or ADFS's, with its directories, limits and the space of an L disc (`adfs`, below) |
 | `--bbc-fs-number N` | OSARGS with A=0 and Y=0 gives N (0 to 255) for the filing system's number, not the number of the one emulated (4 under `host` and `dfs`, 8 under `adfs`): a filing system a program does not know, for a test of what it does then (Lathe's `BBCFS 3`, `lathe/docs/bbc.md`, "File names on the BBC") |
@@ -239,6 +240,26 @@ do), and the checks with the first few offenders.
   its timing), the CPU is the same NMOS core at 2 MHz, there are no
   interrupts, and the DFS is the host directory with the DFS's names and
   limits (`--bbc-fs dfs`), not a 8271 or 1770 and its timing.
+- **The Master-like machine** (`--bbc-model master`): what Lathe's tools touch of a Master 128,
+  no more (the facts, each marked checked against MAME's `bbcm.cpp` or from memory:
+  `NOTES-bbcbplus.md`, "The Master 128"). PAGE is `$0E00` (the Master's filing systems keep their
+  workspace in its own RAM), so MOS memory is `$0800-$0DFF`; HIMEM as on the B+ (`--bbc-mode`,
+  `--bbc-shadow`, which is allowed). Sideways RAM is slots 4 to 7 and the module defaults to slot
+  8 (the internal socket IC27), each overridable. Slots 9 to 15, where the Master's MOS ROM holds
+  DFS, ViewSheet, Edit, BASIC, ADFS, View and Terminal, have stand-ins unless `--bbc-rom`, the
+  module or `--bbc-sideways-ram` takes the slot: 16 KB with a header the MOS accepts (type `$82`,
+  the title, `(C)`) and an RTS at the service entry, so they are in the ROM type table and claim
+  nothing; they have no commands and no language entry, and there is no language at reset (slot
+  15 is selected, as with no language on the B+). ROMSEL is `$FE30-$FE33`, readable (bits 0-3);
+  its bit 7 pages ANDY, 4 KB of private RAM, over `$8000-$8FFF` only. OSBYTE 0 gives 3 and its
+  error for X = 0 is "OS 3.20" (247). The CPU is the emulator's 65C02 core (`--cpu nmos`: the
+  NMOS core, to compare with the B+): a superset of the 65C12, so an opcode the 65C12 lacks
+  (`$x7`, `$xF`, `WAI`, `STP`) ends the run as a fault, as do the NMOS jam opcodes, which a 65C12
+  runs as NOPs. The exit report still says `bbcbplus:`. **Not modelled**: the Master's MOS (the
+  emulator's MOS is the same in every model: MOS 1.20's entry points and the calls above),
+  HAZEL (`$C000-$DFFF` is always the MOS ROM), LYNNE and ACCCON (`$FE34`), the cartridge
+  sockets' own behaviour, `*SRDATA`, `*SRROM`, `*SRLOAD` and OSWORD &42/&43, `*CONFIGURE` and
+  the CMOS RAM, the real-time clock, and the 1770.
 - **The module** (`chips/bbc_module.c`): eight (`cc128`, `direct8`) or
   sixteen (`direct16`) 16 KB banks behind one socket. A ROM socket has no write
   line, so the module switches on reads of addresses at the top of its
@@ -310,7 +331,7 @@ do), and the checks with the first few offenders.
   returns Escape (C set). OSWORD 1 reads the clock, five bytes of
   centiseconds since reset, from the cycle count at 2 MHz; OSWORD 2 sets
   it. Other OSWORDs go to the ROMs as service call 8.
-- **OSBYTE**: 0 (X=0: the error "OS 2.00", 247; else X=2, the B+), 126
+- **OSBYTE**: 0 (X=0: the error "OS 2.00", 247; else X=2, the B+; "OS 1.20" and 1 on the Model B, "OS 3.20" and 3 on the Master-like machine), 126
   (acknowledge Escape), 127 (end of file X), 130 (X=Y=`$FF`), 131 (PAGE),
   132 (HIMEM), 142 (enter the language in slot X: select it, record it at
   `$028C`, enter `$8000` with A=1; an empty slot does nothing, a ROM
