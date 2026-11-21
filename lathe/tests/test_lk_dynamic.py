@@ -29,6 +29,10 @@ ROOM = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic
 MAIN = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic main\n')
 MAIN_ROOM = DYNAMIC.replace('region work WIN 4 dynamic\n', 'region work WIN 4 dynamic main t.room\n')
 TOP = DYNAMIC.replace('region work WIN 4 dynamic\n', 'top WIN 4 $9EFF\nregion work WIN 4 dynamic\n')
+# A dynamic region beside a region in no bank (`fixed`), with the environment's sixteen banks all
+# given (lk_envf.MAX_BANKS), the last a value no region has.
+NO_BANK = DYNAMIC.replace('region text WIN 5\n', 'region text fixed\n').replace(
+    REGION_BANKS, REGION_BANKS + ''.join('bank WIN %d $%02X\n' % (n, 0x10 + n) for n in range(6, 19)))
 CODE_LO = 0x0200
 
 
@@ -506,6 +510,16 @@ class Dynamic(unittest.TestCase):
                       MAIN.replace('region text WIN 5', 'region text WIN 5 dynamic main'))
         self.assertEqual((r.status, r.errors), (0, ''))     # text's block maps it all the same
 
+    def test_a_region_in_no_bank_has_the_bank_byte_0(self):
+        """A region that is not dynamic and in no bank (`fixed`) has no block, no places and the
+        bank byte 0 in the list, whatever banks the environment has."""
+        r = self.link([user(other=False), farcall_with(), placer()], NO_BANK)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        p, at = places_of(r)
+        text = p.regions[1]
+        self.assertEqual((text.value, text.first, text.size, text.highs, text.banks), (0, 0, 0, [], []))
+        self.assertEqual(p.regions[0].value, 0x14)
+
     def test_a_banks_variables_may_end_below_the_window(self):
         """`top WIN 4 $9EFF`: bank 4's variables go down from $9EFF and not from the window's end,
         so that a block of whole pages there starts on a page (for a region the placer puts in
@@ -647,6 +661,7 @@ def cases():
              TOP.replace('WIN 4 $9EFF', 'WIN 9 $9EFF')),
             ('a bank too full for its top', [user(other=False), farcall_with(), placer()],
              TOP.replace('$9EFF', '$8100')),
+            ('a region in no bank', [user(other=False), farcall_with(), placer()], NO_BANK),
             ('a fixed region at its address', [at_user()], AT),
             ('a fixed region at the end of a page', [at_user()], AT.replace('$F100', '$F1FF')),
             ('two fixed regions at their addresses', [at_user()],

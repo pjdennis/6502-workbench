@@ -1814,12 +1814,12 @@ has 230, its linker 126.
 On the emulated B+128 (ADFS, PAGE `$1F00`; the emulator ran 1.6 billion cycles in 28 seconds),
 `*DEVLINK` links with MODLOAD after it Image A's linker in 1,604 million cycles (13.4 minutes at 2
 MHz) and its compiler in 3,125 million (26.0); it links Image B's linker in 1,518 million (12.6).
-Every file the host linker's, but Image B's linker's two bytes (`lk_dyn.put_region` indexes
-`bank_value` with -1 for a region in no bank: the host reads 0, the twin `$FF`; mended in a copy,
-the host's bytes). A turn on the pairs: Image A's compiler 4,061 million (33.8 minutes), its
-linker 2,218 million (18.5), Image B's compiler 3,889 million (32.4, no MODLOAD), its linker 2,128
-million (17.7). Free sectors on the pairs (drive 0, drive 1): Image A's compiler 125 and 259, its
-linker 984 and 937, Image B's compiler 129 and 299, its linker 984 and 965. Image B's compile commands carry 249 bytes of options, more than `*LATHE`'s
+Every file the host linker's, but Image B's linker's two bytes (`lk_dyn.put_region` indexed
+`bank_value` with -1 for a region in no bank: the host read 0, the twin `$FF`; mended since, in
+host and twin, and then the host's bytes). A turn on the pairs: Image A's compiler 4,061 million (33.8 minutes), its
+linker 2,218 million (18.5), Image B's compiler 3,889 million (32.4, no MODLOAD), its linker 2,156
+million (18.0, with MODLOAD). Free sectors on the pairs (drive 0, drive 1): Image A's compiler 125 and 259, its
+linker 984 and 937, Image B's compiler 129 and 299, its linker 983 and 965. Image B's compile commands carry 249 bytes of options, more than `*LATHE`'s
 tail (239) and the MOS's line (255); without the three defines no source names they fit and give
 the same files. MODLOAD refused Image A's resident parts until it knew the list of places after
 the code.

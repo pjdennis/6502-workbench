@@ -556,9 +556,11 @@ def whole_descriptor(lay, programs, labels):
     """The 16 bytes at DESCRIPTOR_AT of the whole layout's home bank, which MODLOAD reads to load
     one tool into a module that is there (lathe/docs/bbc.md, "The developer's cycle"): "LW" and
     version 1, the home bank, the number of tools, 1 if the commands' entries have a top (the
-    check of HIMEM), the address of the command table, and for each tool in the table's order
-    (up to four) its banks of the module, a bit each, as a word."""
-    d = bytearray(b'LW\x01') + bytes([lay.home, len(programs), 1 if any(p.top for p in programs) else 0])
+    check of HIMEM) and 2 if they have the highest PAGE after it too (a program with HIGHEST_PAGE:
+    module.asm's page_limit), the address of the command table, and for each tool in the table's
+    order (up to four) its banks of the module, a bit each, as a word."""
+    entries = (2 if any(p.highest_page for p in programs) else 1) if any(p.top for p in programs) else 0
+    d = bytearray(b'LW\x01') + bytes([lay.home, len(programs), entries])
     d += labels['commands'].to_bytes(2, 'little')
     for i in range(MAX_WHOLE_TOOLS):
         mask = 0

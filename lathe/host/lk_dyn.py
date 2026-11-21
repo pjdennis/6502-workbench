@@ -28,7 +28,7 @@ to the placer module's `place` (the environment's `placer` entry) after FARCALL.
             is not needed once it has been read), `data` and `more` after their variables
     byte    R, then for each region of the environment, in the order of the entries (one that
             is not dynamic has no block and no places):
-            byte    the bank's value it is linked with
+            byte    the bank's value it is linked with (0 for a region in no bank, `fixed`)
             word    its block's first byte, as linked, and word its size (0: nothing to move)
             word    the address of its capacity variable (the `region` entry's word after
                     `dynamic`), or 0; if not 0, then:
@@ -279,7 +279,10 @@ def put_region(r):
     """Region r (its entry in lk_envf): its bank's value, its block, its capacity variable and its
     places; constant data in a dynamic region is refused, as it would have to be copied where the
     block goes."""
-    lk_out.put(lk_envf.bank_value[lk_envf.region_bank[r] - 1])
+    if lk_envf.region_bank[r] == 0:  # a region in no bank (`fixed`): no block, no bank
+        lk_out.put(0)
+    else:
+        lk_out.put(lk_envf.bank_value[lk_envf.region_bank[r] - 1])
     first = 0xFFFF
     past = 0
     last = 0                        # where its last variable starts

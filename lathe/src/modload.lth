@@ -24,9 +24,9 @@
 ; must start where the module's command copies it and its memory end where the command's check
 ; of HIMEM has it, for the home bank's tables to hold for it. The module is known by its reserved
 ; bytes, the same in every bank, and the description bbcrom.py puts at $BFE0 of its home bank
-; ("LW", version 1, the home bank, the number of tools, whether the commands have a top, the
-; command table's address and each tool's banks, a bit each); a slot that holds anything else is
-; refused. HOME's own description is checked against the tools given in the same way.
+; ("LW", version 1, the home bank, the number of tools, whether the commands have a top, and a
+; highest PAGE after it, the command table's address and each tool's banks, a bit each); a slot
+; that holds anything else is refused. HOME's own description is checked against the tools given in the same way.
 ;
 ; Before it writes anything it reads every file once and checks it: each bank file is the size
 ; the tool's map gives it (the `W` line of its name), the image is as long as the map's code
@@ -325,6 +325,7 @@ var tool_last: [MAX_TOOLS]word      ; its `code` range's last byte
 var tool_placer: [MAX_TOOLS]bool    ; it has dynamic regions (a `placer` entry): its image holds
                                     ; the list of their places after the code its map gives
 var tool_top: [MAX_TOOLS]word       ; the address after its memory: its highest range's end, + 1
+var tool_page: [MAX_TOOLS]word      ; the highest PAGE it runs at: its HIGHEST_PAGE, else its start
 var tool_mask: [MAX_TOOLS]word      ; its banks of the module, a bit each
 var tool_bank: [MAX_TOOLS]byte      ; the bank of its resident part
 var tools: byte
@@ -363,6 +364,7 @@ func read_env(t: byte, name: ^byte)
   tool_top[t] = 0
   tool_mask[t] = 0
   tool_placer[t] = false
+  tool_page[t] = 0
   open_text(name)
   while next_line() do
     first = 0
@@ -390,6 +392,9 @@ func read_env(t: byte, name: ^byte)
       set = true
       if words - first >= 3 then
         set = number_of(first + 2, false) != 0
+        if same(word_of(first + 1), "HIGHEST_PAGE") then
+          tool_page[t] = number_of(first + 2, false)
+        end
       end
       define(word_of(first + 1), set)
     elif same(word_of(first), "code") and words - first == 3 then
@@ -433,6 +438,9 @@ func read_env(t: byte, name: ^byte)
   end
   if tool_start[t] == 0 then
     fail("no code range in ", name)
+  end
+  if tool_page[t] == 0 then
+    tool_page[t] = tool_start[t]
   end
 end
 
@@ -623,7 +631,7 @@ func described(home: byte): bool
   if descriptor[0] != 'L' or descriptor[1] != 'W' or descriptor[2] != 1 or descriptor[3] != home then
     return false
   end
-  return descriptor[4] >= 1 and descriptor[4] <= MAX_TOOLS
+  return descriptor[4] >= 1 and descriptor[4] <= MAX_TOOLS and descriptor[5] <= 2
 end
 
 ; The command table's address, from the description.
@@ -641,27 +649,35 @@ func table_word(here: byte): word
   return word(table[here]) + 256 * word(table[here + 1])
 end
 
-; True if the command table's entry k (its name, its copy list, its program's start and, if the
-; description says the commands have one, its top) has tool t's start and top.
+; True if the command table's entry k (its name, its copy list, its program's start, and, as the
+; description's byte 5 says, nothing more (0), its top (1), or its top and the highest PAGE it runs
+; at (2: module.asm's page_limit, an image with a program of HIGHEST_PAGE) has tool t's start,
+; top and highest PAGE.
 func entry_fits(k: byte, t: byte): bool
   var here: byte
   var i: byte
   here = 0
   for i = 0 until k + 1 do
-    while here < TABLE_SIZE - 7 and table[here] != 0 do
+    while here < TABLE_SIZE - 9 and table[here] != 0 do
       here += 1
     end
-    if here >= TABLE_SIZE - 7 then
+    if here >= TABLE_SIZE - 9 then
       return false
     end
     if i == k then
       if table_word(here + 3) != tool_start[t] then
         return false
       end
+      if descriptor[5] == 2 and table_word(here + 7) != tool_page[t] then
+        return false
+      end
       return descriptor[5] == 0 or table_word(here + 5) == tool_top[t]
     end
     here += 5
     if descriptor[5] != 0 then
+      here += 2
+    end
+    if descriptor[5] == 2 then
       here += 2
     end
   end

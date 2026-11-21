@@ -36,10 +36,10 @@ MODLOAD_ENV = os.path.join(support.SRC, 'modload-bbc.env')
 TOOLS = (('LATHE', 'lathec'), ('LLINK', 'linker'))
 
 
-def program(command, codes, resident, slots=()):
+def program(command, codes, resident, slots=(), load=0x1900):
     """A made-up bbcrom.Program (test_bbc_rom128.program's)."""
     import test_bbc_rom128
-    return test_bbc_rom128.program(command, codes, resident, slots)
+    return test_bbc_rom128.program(command, codes, resident, slots, load)
 
 
 class WholeLayout(unittest.TestCase):
@@ -69,6 +69,20 @@ class WholeLayout(unittest.TestCase):
         end = max(at + len(part) for first, last, bank, at, part in lay.parts)
         self.assertLessEqual(end, bbcrom.DESCRIPTOR_AT)
         self.assertEqual(lay.areas[0], [3, end, bbcrom.DESCRIPTOR_AT - 1])
+
+    def test_the_description_says_when_the_entries_have_a_page_limit(self):
+        """With a program whose environment has HIGHEST_PAGE, every command's entry has the highest
+        PAGE after its top (module.asm's page_limit): the description's byte 5 is 2 then, 1 with a
+        top alone."""
+        a = program('A', {0: 14000}, 9000, load=0x2B00)
+        b = program('B', {2: 12000}, 7000)
+        for p in (a, b):
+            p.top = 0x7C00
+        lay = bbcrom.layout([a, b], 16, whole=True)
+        self.assertEqual(lay.descriptor[5], 1)
+        a.highest_page = 0x1F00
+        lay = bbcrom.layout([a, b], 16, whole=True)
+        self.assertEqual(lay.descriptor[5], 2)
 
     def test_region_constants_and_too_many_banks_are_refused(self):
         with self.assertRaises(bbcrom.ImageError) as caught:
@@ -298,6 +312,47 @@ class OnTheBBC(unittest.TestCase):
         status, out, said, report = self.run_lines(self.disc(), ['RUN MODLOAD ' + ' '.join(self.tool_args('LLINK')),
                                                                   'LLINK'], preload=self.image_with(self.wipe((5, 6, 7, 10))))
         self.assertIn(b'usage', out.lower(), report)
+
+    def test_one_tool_into_a_module_whose_entries_have_a_page_limit(self):
+        """A whole layout whose first command has a highest PAGE (`define HIGHEST_PAGE` in its
+        environment: every entry has a page limit then): MODLOAD reads each entry of that form, so
+        each tool goes into the module there as before; a tool whose HIGHEST_PAGE is not the
+        entry's is refused (a new HOME is needed)."""
+        import test_bbc_adfs as adfs
+        d = tempfile.mkdtemp(dir=self.dir)
+        tools = []
+        for command, resident, rom, map_path in self.tools:
+            if command == 'LATHE':
+                limited = os.path.join(d, os.path.basename(rom))
+                with open(rom) as f, open(limited, 'w') as g:
+                    g.write(f.read() + 'define    HIGHEST_PAGE $1D00\n')
+                rom = limited
+            tools.append((command, resident, rom, map_path))
+        whole, home = os.path.join(d, 'WHOLE'), os.path.join(d, 'HOME')
+        bbcrom.image(tools, whole, os.path.join(d, 'listing'), banks=16, whole=True, home=home)
+        with open(home, 'rb') as f:
+            self.assertEqual(f.read()[-11], 2)
+        files, args = tool_files(tools)
+        saved = self.whole
+        self.whole = whole
+        try:
+            for i, (command, banks) in enumerate((('LATHE', (0, 1, 2, 3, 4, 9)), ('LLINK', (5, 6, 7, 10)))):
+                with self.subTest(command=command):
+                    before = self.image_with(self.wipe(banks))
+                    dump = os.path.join(d, 'dump-' + command)
+                    line = 'RUN MODLOAD ' + ' '.join(args[3 * i:3 * i + 3])
+                    status, out, said, report = self.run_lines(self.disc(files), [line], dump, preload=before)
+                    self.assertEqual((status, out, said), (0, b'', b''), report)
+                    self.assert_whole_image(dump)
+            other = dict(files)
+            other['lathe.env'] = files['lathe.env'].replace(b'HIGHEST_PAGE $1D00', b'HIGHEST_PAGE $1C00')
+            dump = os.path.join(d, 'dump-other')
+            status, out, said, report = self.run_lines(self.disc(other), ['RUN MODLOAD ' + ' '.join(args[:3])],
+                                                       dump, preload=whole)
+            self.assertEqual(status, 2, report)
+            self.assertIn(b'a new HOME is needed', out)
+        finally:
+            self.whole = saved
 
     def test_it_refuses_a_module_it_does_not_know_or_that_does_not_fit_the_tool(self):
         """Without HOME: an empty slot, a home bank with no description, a module whose command

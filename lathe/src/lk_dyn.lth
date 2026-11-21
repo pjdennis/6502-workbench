@@ -363,7 +363,11 @@ func put_region(r: byte)
   var plane_rows: word
   var start: word               ; where variable d starts, and the byte after it
   var after: word
-  lk_out.put(lk_envf.bank_value[lk_envf.region_bank[r] - 1])
+  if lk_envf.region_bank[r] == 0 then  ; a region in no bank (`fixed`): no block, no bank
+    lk_out.put(0)
+  else
+    lk_out.put(lk_envf.bank_value[lk_envf.region_bank[r] - 1])
+  end
   first = $FFFF
   past = 0
   last = 0

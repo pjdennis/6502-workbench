@@ -18,10 +18,9 @@ LATHE_BBC_DEVCYCLE=1 (about ten minutes; LATHE_BBC_DEVCYCLE_TOOL=LATHE or LLINK 
 ImageACycle, each of Image A's tools on its pair of ADFS discs (test_bbc_cycle's layout): its
 modules compiled by *LATHE, linked by *DEVLINK, loaded by MODLOAD, every file the host tools'
 and the module bbcrom.py's whole image; then hello compiled, linked and run by the new tools.
-ImageBCycle, Image B's tools compiled and linked on the B+128 so (the linker's link two bytes
-from the host's: a fault of lk_dyn, see there); ImageBFromTheBBC, test_bbc_image_b's runs on a
-Model B with no sideways RAM from the 128 KB image of Image B's compiler as the B+128 linked it,
-the same bytes as the host's; with LATHE_BBC_IMAGE_B_PROGRAMS=1 too, its largest programs.
+ImageBCycle, Image B's tools compiled and linked on the B+128 so, its linker loaded and run there;
+ImageBFromTheBBC, test_bbc_image_b's runs on a Model B with no sideways RAM from the 128 KB image
+of Image B's tools as the B+128 linked them, the same bytes as the host's; with LATHE_BBC_IMAGE_B_PROGRAMS=1 too, its largest programs.
 """
 import os
 import shutil
@@ -539,32 +538,6 @@ def made_tool(command, bbc, host, link, rom_env, out):
     return (command, os.path.join(out, os.path.basename(link[2])), rom, os.path.join(out, os.path.basename(link[3])))
 
 
-def list_bank_bytes(image, code_lo, at):
-    """The offsets in `image` (a resident part from code_lo) of the bank byte of each region of
-    its list of places (at `at`) that is not dynamic (no block): lathe/host/lk_dyn.py's form."""
-    i = at - code_lo
-    word = (lambda k: image[k] | image[k + 1] << 8)
-    i += 4
-    i += 1 + 4 * image[i]
-    regions, i = image[i], i + 1
-    found = []
-    for _ in range(regions):
-        bank_at, size, room = i, word(i + 3), word(i + 5)
-        if size == 0:
-            found.append(bank_at)
-        i += 7
-        planes = 0
-        if room:
-            planes = image[i + 8]
-            i += 9
-        for each_planes in (planes, 0):
-            n, i = word(i), i + 2
-            for _ in range(n):
-                i += 3 if image[i] == 0 else 1
-                i += 1 if each_planes else 0
-    return found
-
-
 @unittest.skipUnless(HAVE_TOOLS and CYCLE, 'LATHE_BBC_DEVCYCLE=1 runs it')
 class ImageBCycle(DevCycle, unittest.TestCase):
     """Image B's tools on the B+128, on the module of the plain image's compiler, Image B's linker
@@ -575,16 +548,11 @@ class ImageBCycle(DevCycle, unittest.TestCase):
     whole commands. Its banks are the module's compiler's and it starts elsewhere ($2B26), so
     MODLOAD refuses it there (a new HOME is needed): it runs on the Model B (ImageBFromTheBBC).
 
-    The linker: *DEVLINK links it, every file the host linker's but two bytes of its resident part,
-    the bank bytes in its list of places of its two regions that are not dynamic (LKNODES and
-    LKWORK, `fixed`, in no bank), where the host linker writes 0 and the developer's $FF: both
-    tools write `bank_value[region_bank[r] - 1]` (lk_dyn.put_region), with region_bank 0 for a
-    region in no bank, so the host's Python reads the list's last entry (0) and the twin the byte
-    after its array. A fault of lk_dyn, host and twin (lathe/docs/bbc.md, "For the images that
-    ship"); mended there, a measured copy links it to the host's bytes, but that changes Wendy 2's
-    banked linkers (LKDYN 1), so it waits for the owner. So Image B's linker as the host linked
-    it, which the module holds, runs on the B+128: hello compiled by the plain *LATHE, linked by
-    Image B's *LLINK (its tables in main RAM, an ADFS machine's: PAGE $1F00) and run."""
+    The linker: compiled by *LATHE, linked by *DEVLINK and loaded by MODLOAD, every file the host
+    tools' (since lk_dyn.put_region writes 0 for the bank of a region in no bank: before, the twin
+    read the byte after its array there, two bytes of this link), and then hello compiled by the
+    plain *LATHE, linked by the new *LLINK (its tables in main RAM, an ADFS machine's: PAGE
+    $1F00) and run."""
     MODULE = MODULE_B
     TOOLS = IMAGE_B
 
@@ -606,46 +574,17 @@ class ImageBCycle(DevCycle, unittest.TestCase):
 
     @unittest.skipIf(ONLY and ONLY != 'LLINK', 'LATHE_BBC_DEVCYCLE_TOOL')
     def test_the_linker_on_its_pair(self):
-        """*DEVLINK links Image B's linker from the objects *LATHE compiled: every file the host's
-        but the two bytes above."""
-        import bbcfs
-        import mapenv
-        import places
-        import test_bbc_adfs as adfs
-        with self.assertRaises(AssertionError) as caught:
-            self.cycle('LLINK', 1, [], False)
-        self.assertIn(':1/LINK differs', str(caught.exception))
-        work = os.path.join(self.dir, 'llink')
-        with open(os.path.join(work, 'host0', '1', 'LINK'), 'rb') as f:
-            host = f.read()
-        with open(bbcfs.adfs_host_path(os.path.join(work, 'bbc'), '1/LINK'), 'rb') as f:
-            got = f.read()
-        self.assertEqual(len(got), len(host))
-        code_lo = mapenv.read_env(self.image_tools['LLINK'][2]).code[0]
-        with open(os.path.join(work, 'host0', '1', 'LINK.map')) as f:
-            place = next(int(line.split()[1], 16) for line in f
-                         if line.startswith('F ') and line.split()[3] == 'rt_place.place')
-        _, at = places.find(host, code_lo, place)
-        fixed = list_bank_bytes(host, code_lo, at)
-        self.assertEqual(len(fixed), 2)
-        self.assertEqual([i for i in range(len(host)) if host[i] != got[i]], fixed)
-        self.assertEqual([(host[i], got[i]) for i in fixed], [(0, 0xFF)] * 2)
-        command, resident, rom, map_path = self.image_tools['LLINK']
-        kept = os.path.join(made_dir(), 'llink')
-        shutil.copytree(os.path.dirname(resident), kept)
-        MADE_B['LLINK'] = (command, os.path.join(kept, os.path.basename(resident)),
-                           os.path.join(kept, os.path.basename(rom)),
-                           os.path.join(kept, os.path.relpath(map_path, os.path.dirname(resident))))
-        self.hello(self.whole, os.path.join(work, 'host'), 'LLINK')
+        bbc, host, link, module = self.cycle('LLINK', 1, [], True)
+        self.keep('LLINK', bbc, host, link)
+        self.hello(module, os.path.join(self.dir, 'llink', 'host'), 'LLINK')
 
 
 import test_bbc_image_b  # noqa: E402
 
 
 def from_the_bbc(cls):
-    """cls's tools, image and listing: Image B's 128 KB image of the compiler's files as the B+128
-    linked them and the linker's as the host did (ImageBCycle, run here if it has not run), in a
-    directory of cls's own."""
+    """cls's tools, image and listing: Image B's 128 KB image of both tools' files as the B+128
+    linked them (ImageBCycle, run here if it has not run), in a directory of cls's own."""
     for command, test in (('LATHE', 'test_the_compiler_on_its_pair'), ('LLINK', 'test_the_linker_on_its_pair')):
         if command not in MADE_B:
             ImageBCycle.setUpClass()
@@ -665,7 +604,7 @@ def from_the_bbc(cls):
 @unittest.skipUnless(HAVE_TOOLS and CYCLE and not ONLY, 'LATHE_BBC_DEVCYCLE=1 runs it')
 class ImageBFromTheBBC(test_bbc_image_b.ImageB):
     """test_bbc_image_b's runs on a Model B with no sideways RAM (at PAGE $1900 and $1F00), from
-    the 128 KB image bbcrom.py makes of Image B's compiler as the B+128 linked it (from_the_bbc):
+    the 128 KB image bbcrom.py makes of Image B's tools as the B+128 linked them (from_the_bbc):
     the same bytes as the host's Image B."""
 
     @classmethod

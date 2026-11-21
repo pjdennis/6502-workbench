@@ -1521,7 +1521,7 @@ own time not counted:
 | Image A's compiler | 4,061 million cycles, **33.8 minutes** | 3,125 million, 26.0 minutes | 125 sectors | 259 |
 | Image A's linker | 2,218 million, **18.5 minutes** | 1,604 million, 13.4 minutes | 984 | 937 |
 | Image B's compiler (no MODLOAD) | 3,889 million, **32.4 minutes** | | 129 | 299 |
-| Image B's linker (no MODLOAD: two bytes off, below) | 2,128 million, **17.7 minutes** | the link 1,518 million, 12.6 minutes | 984 | 965 |
+| Image B's linker | 2,156 million, **18.0 minutes** | the link alone 1,518 million, 12.6 minutes | 983 | 965 |
 | the plain image (test_bbc_cycle) | 3,979 and 2,230 million | | 163 and 1,076 | 249 and 933 |
 
 **Discs.** Each tool of each image needs its own pair: the objects differ by the image's defines,
@@ -1532,24 +1532,36 @@ A new module's file needs the 256 sectors ADFS gives at OPENOUT on drive 1: the 
 have 259 and 299.
 
 **Image B, how far the B+128 goes.** Its compiler: every module compiled by the plain `*LATHE`
-and linked by `*DEVLINK`, every file the host's, but its compile commands do not fit `*LATHE`'s
-tail: the options alone are 249 bytes (the defines and eight `-f`), the tail 239 and the MOS's line
-255. The test types them without the defines no source names (`FIXED_REGIONS`, `HIGHEST_PAGE`,
-`ROM128`: the module and bbcrom.py read them, the compiler does not), which gives the same files.
-MODLOAD refuses it in the developer's module (its banks are the plain compiler's and it starts at
-`$2B26`: a new HOME is needed), so the 128 KB image bbcrom.py makes of it as the B+128 linked it,
+and linked by `*DEVLINK`, every file the host's. Its compile commands as the host gives them do not
+fit: build.py passes the compiler every define of the environment, and Image B's options alone are
+249 bytes (the defines and eight `-f`), where `*LATHE`'s tail holds 239 and the MOS's line 255. The
+test types them without the three defines no source names (`FIXED_REGIONS`, `HIGHEST_PAGE`,
+`ROM128`: the module and bbcrom.py read them, the compiler does not), and every file is what the
+host compiler writes from the whole command. The compiler has no command file: the linker's
+`@FILE` (`lk_file`: the words of a file, up to its `MAX_ARGS` and a text of its own) would take the
+same in `lathec.lth` and `lathec.py`, a few hundred bytes of code and a buffer for the words, so
+every image's compiler would change, and Image B's compiler has 6 bytes of main RAM free (its
+buffer would have to be one of its tables, used before the compile starts); not built. MODLOAD
+refuses it in the developer's module (its banks are the plain compiler's and it starts at `$2B26`:
+a new HOME is needed), so the 128 KB image bbcrom.py makes of both tools as the B+128 linked them,
 the same bytes as the host's Image B, runs test_bbc_image_b's tests on a Model B with no sideways
 RAM (`ImageBFromTheBBC`; with `LATHE_BBC_IMAGE_B_PROGRAMS=1` its largest programs too). Its linker:
-`*DEVLINK` links it, every file the host linker's **but two bytes**: the bank bytes in its list of
-places of its two regions that are not dynamic (`LKNODES`, `LKWORK`: `fixed`, in no bank), `$FF`
-where the host writes 0. A fault of `lk_dyn.put_region`, host and twin: it writes
-`bank_value[region_bank[r] - 1]`, and `region_bank` is 0 for a region in no bank, so the host's
-Python reads the array's last entry (0) and the twin the byte after its array. Image A's regions
-are all dynamic, so no image so far had it. Mended in a copy (`if region_bank[r] == 0` put 0), the
-B+128's link is the host's bytes; landed, it changes Wendy 2's two banked linkers (`LKDYN 1`) and
-nothing else, so it waits for the owner. Image B's linker as the host linked it, which the module
-holds, runs on the B+128 (an ADFS machine to it: its tables in main RAM above its data): hello
-compiled, linked and run.
+compiled, linked by `*DEVLINK`, loaded by MODLOAD and run on the B+128 (an ADFS machine to it: its
+tables in main RAM above its data), hello compiled, linked and run, every file the host tools'.
+
+That took a fault mended (2026-11-21, later): `lk_dyn.put_region`, host and twin, wrote
+`bank_value[region_bank[r] - 1]` for every region, and `region_bank` is 0 for a region in no bank
+(Image B's `fixed` `LKNODES` and `LKWORK`), so the host's Python read the array's last entry (0
+unless sixteen banks are given) and the twin the byte after its array (`$FF` in `*DEVLINK`): two
+bytes of Image B's linker's list. Now a region in no bank has the bank byte 0 (`test_lk_dynamic`, a
+region in no bank beside sixteen banks). Image A's regions are all dynamic, so no image had it; the
+host's output for every image is as before, and the bytes that moved are Wendy 2's two banked
+linkers' (`LKDYN 1`: their third bank and resident image) and the developer's linker's.
+
+And MODLOAD reads a command table whose entries have a page limit (an image with a program of
+`HIGHEST_PAGE`, Image B's compiler: module.asm's `page_limit`): the description's byte 5 is 2 then
+(1 with a top alone), MODLOAD steps over the word and checks it against the tool's `HIGHEST_PAGE`
+(or its start). No whole layout had such a program, so no HOME changed; MODLOAD's own bytes did.
 
 **What still comes from the host**, after the first load:
 
@@ -1578,7 +1590,8 @@ compiled, linked and run.
 - **The developer's linker itself**: from the host. It has no dynamic region, so the image's own
   `*LLINK` or itself could link it on the BBC, from its own objects (its defines are not the
   image's linker's: `LKDYN 1`, `LKROOMS 0`); not shown, and a third pair of discs.
-- **Image B's compiler in a module**: a HOME of its own; and its compile commands are typed short.
+- **Image B's compiler in a module**: a HOME of its own (MODLOAD now reads its entries); and its
+  compile commands are typed short.
 
 ## The texts' packer on the BBC (2026-11-20)
 
@@ -2365,18 +2378,12 @@ option, not a gain.
 - Nothing is redundant yet: the B+128 builds of today (`$1900` with `BBCFS` 0 and 1, the ADFS
   build with `BBCFS 2`) stay until Image A carries the names chosen at run time and fits with them.
 - The developer's cycle for the images (2026-11-21: "The developer's cycle", "For the images that
-  ship"): Image A's both tools rebuilt and run from the B+128's module with `*DEVLINK`; Image B's
-  compiler rebuilt there (its commands typed without the defines no source names) and run on a
-  Model B; Image B's linker's link two bytes from the host's, by a fault of `lk_dyn.put_region`
-  (host and twin index `bank_value` with -1 for a region in no bank) whose mending changes Wendy
-  2's banked linkers: the owner's. Not done: the developer's linker rebuilt on the BBC; Image B's
-  compiler in a module of the B+128 (a HOME of its own); a compile command file (`*LATHE @FILE`,
-  as the linker has), which Image B's compiler's 249 bytes of options call for; MODLOAD's walk of
-  the command table assumes entries without a page limit (`HIGHEST_PAGE`), so a whole layout with
-  Image B's compiler would be misread for its second and later tools (by inspection: read two
-  bytes off, their start and top would not match, so refused), until the description says the
-  entries' length; everything the host still makes (that section's
-  list).
+  ship"): Image A's both tools and Image B's linker rebuilt and run from the B+128's module with
+  `*DEVLINK`; Image B's compiler rebuilt there (its commands typed without the defines no source
+  names) and run on a Model B. Not done: the developer's linker rebuilt on the BBC; Image B's
+  compiler in a module of the B+128 (a HOME of its own); a compile command file (`*LATHE @FILE`, as
+  the linker has), which Image B's compiler's 249 bytes of options call for; everything the host
+  still makes (that section's list).
 
 ## The image for machines with no sideways RAM (2026-11-20, later)
 
