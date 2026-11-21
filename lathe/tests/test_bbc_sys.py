@@ -86,8 +86,9 @@ class Choice(unittest.TestCase):
         self.assertEqual(bbc['error_text'], (['byte'], []))
 
     def test_bbc_has_no_initial_values(self):
-        """sys.lth imports bbc in every build, and a module's $init is linked whether or not
-        anything else of it is: bbc.lth must have none, so that other builds stay as they were."""
+        """A module's $init is linked whether or not anything else of it is, and sys.lth imported
+        bbc in every build until build.py followed its `#if PORTS` (2026-11-20): bbc.lth has none,
+        so that other builds stayed as they were."""
         work = tempfile.mkdtemp(prefix='lathe-bbc-init-')
         self.addCleanup(shutil.rmtree, work, True)
         objects = build.compile_all([('bbcfs', os.path.join(RT, 'bbcfs.lth')),
@@ -136,6 +137,7 @@ class SysOverBBC(unittest.TestCase):
         self.assertIn('bbc.read', kept)
         self.assertNotIn('disk.read', kept)
         self.assertNotIn('bbc.$init', kept)
+        self.assertNotIn('disk.$init', kept)        # sys imports disk only under `#if PORTS`
 
     def test_a_file_is_copied_byte_for_byte(self):
         data = bytes(range(256)) * 5 + b'end'

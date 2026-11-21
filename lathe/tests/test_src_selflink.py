@@ -126,12 +126,15 @@ class SelfLink(unittest.TestCase):
     @unittest.skipUnless(ALL or REPORT, 'LATHE_SELFLINK=1 links the compiler and the linker')
     def test_the_linker_links_the_compiler(self):
         env = support.banked_env('lathec', os.path.join(self.dir, 'lathec.env'))
-        args = self.check('lathec', os.path.join(support.SRC, 'lathec.lth'), env)
-        self.assertGreater(len(' '.join(args)), 256 - len(args))
+        # Its arguments were longer than a command line holds until `disk`, which `sys` imports only
+        # for other machines, stopped being linked (build.py follows #if, 2026-11-21); the linker's
+        # own link, below, still shows a link that needs the command file.
+        self.check('lathec', os.path.join(support.SRC, 'lathec.lth'), env)
 
     @unittest.skipUnless(ALL or REPORT, 'LATHE_SELFLINK=1 links the compiler and the linker')
     def test_the_linker_links_itself(self):
         args = self.check('link', os.path.join(support.SRC, 'link.lth'), ENV)
+        # More than a command line holds: this link is only possible by the command file.
         self.assertGreater(len(' '.join(args)), 256 - len(args))
 
 

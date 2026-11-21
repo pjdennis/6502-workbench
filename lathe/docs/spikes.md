@@ -1749,3 +1749,14 @@ area and nodes), and 157 of its bytes stay free. What it gave: `*LLINK`'s start-
 at `$1900` (646,312), 678,564 at `$1F00` (733,069), the `calls` link 20.4 million (21.1, −3 %), and
 434 bytes of the image (3,207 free). The largest generated program on the ADFS machine (512 each):
 6 modules of 21 functions, 15.5 KB, 507 slots; 22 functions a module need 528 and are refused there.
+
+The tenth block (2026-11-20, later): `build.py`'s `imports_of` had ignored `#if`, so `sys.lth`'s
+`import disk` and `lk_emit`'s `import lk_dyn` (under `#if PORTS` and `#if LKDYN`) linked their
+modules' `$init` and variables into the BBC's tools. Following the `#if`s took 42 bytes off Image
+B's resident linker (8,196 to 8,154: the code ends at `$3ED9`), enough to end the code range at
+`$3EDF` (36 bytes over before) and the data a page lower, at `$6DFF`, with seven blocks above it:
+on the DFS machine 768 symbols, 1,024 slots and 768 calls, every table at least the 32K build's
+(640, 848, 768), on ADFS 512, 768 and 512, whose largest generated program is now 7 modules of 22
+functions (17.9 KB: 389 symbols, 623 slots, 499 calls; 23 functions need 542 calls and are refused
+there). `*LLINK`'s start-up 552,928 cycles at `$1900`, 642,257 at `$1F00`; the `calls` link 20.3
+million; the 25 KB link 364.3 million (365.9). Every BBC image has 26 to 60 bytes more free.

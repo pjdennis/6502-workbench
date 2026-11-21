@@ -5,8 +5,9 @@
                                        [--naive] [--keep DIR] [--disk DIR]
                                        [--define NAME[=NUMBER]]...
 
-1. Finds the modules the program imports: `import NAME` lines; NAME.lth beside SOURCE, then in
-   lathe/rt/. Compiles them in dependency order with lathe/host/lathec.py into one directory,
+1. Finds the modules the program imports: `import NAME` lines, but for those in an `#if` branch
+   that the compiler skips with the environment's and the build's defines (imports_of); NAME.lth
+   beside SOURCE, then in lathe/rt/. Compiles them in dependency order with lathe/host/lathec.py into one directory,
    with the options compiler_options() gives: the environment's `cpu` and `define` entries,
    and each --define. Then the modules that the objects import without an `import` line (the
    IMP record the compiler writes for a run-time module its code calls, such as rt_frame),
@@ -76,15 +77,155 @@ class BuildError(Exception):
     pass
 
 
-def imports_of(path):
-    """Module names imported by a source file, in order."""
+def imports_of(path, constants=None):
+    """Module names imported by a source file, in order.
+
+    With `constants` ({name in lower case: value}, what the compiler predeclares: the
+    environment's and the build's defines and cpu_65c02; compile_constants() gives them), an
+    `import` in a branch of `#if`, `#else` and `#end` that the compiler skips is not one, as it is
+    not read there (lathe/docs/language.md, "Conditional compilation"). A condition that names
+    anything else (a constant the module declares) is not worked out here: both of its branches'
+    imports count, so that nothing the compiler reads is missing. Without `constants` every
+    `import` counts."""
     out = []
+    branches = []       # for each open #if: 'yes', 'no' (this branch skipped), 'both', 'skip' (all)
     with open(path, encoding='latin-1') as fh:
         for line in fh:
-            m = IMPORT_RE.match(line.split(';', 1)[0])
+            text = line.split(';', 1)[0]
+            directive = DIRECTIVE_RE.match(text)
+            if directive and constants is not None:
+                word, rest = directive.group(1).lower(), directive.group(2)
+                if word == 'if':
+                    if 'no' in branches or 'skip' in branches:
+                        branches.append('skip')
+                    else:
+                        value = condition_value(rest, constants)
+                        branches.append('both' if value is None else 'yes' if value else 'no')
+                elif word == 'else' and branches:
+                    branches[-1] = {'yes': 'no', 'no': 'yes'}.get(branches[-1], branches[-1])
+                elif word == 'end' and branches:
+                    branches.pop()
+                continue
+            if 'no' in branches or 'skip' in branches:
+                continue
+            m = IMPORT_RE.match(text)
             if m and m.group(1).lower() not in out:
                 out.append(m.group(1).lower())
     return out
+
+
+def compile_constants(env=None, defines=()):
+    """{name in lower case: value} of the constants the compiler predeclares for an environment
+    (a mapenv.Env, or None for none) and further defines (NAME or NAME=NUMBER), as
+    compiler_options() gives them: cpu_65c02, then each define, `true` for one without a value;
+    the last of a name counts."""
+    constants = {'cpu_65c02': bool(env is not None and env.cpu)}
+    for name, value in (env.defines if env is not None else []):
+        constants[name.lower()] = True if value is None else value
+    for d in defines:
+        name, _, value = d.partition('=')
+        constants[name.lower()] = expression_value(value, {}) if value else True
+    return constants
+
+
+# A directive (`#if CONDITION`, `#else`, `#end`) at the start of a line, blanks before it allowed.
+DIRECTIVE_RE = re.compile(r'^\s*#(if|else|end)\b(.*)$', re.IGNORECASE)
+CONDITION_TOKEN_RE = re.compile(r"\s*(?:(\$[0-9A-Fa-f]+|%[01]+|[0-9]+|'.')|([A-Za-z_][A-Za-z0-9_]*)|"
+                                r"(==|!=|<=|>=|<<|>>|[-+|^*/&~<>()]))")
+
+
+def expression_value(text, constants):
+    """The value of a constant expression such as an `#if` condition (an expression of the language's operators over numbers
+    and `constants`, lathe/docs/language.md, "Expressions"), or None if it names anything else
+    or cannot be read here. Numbers are Python integers, `true` and `false` booleans."""
+    tokens, at = [], 0
+    text = text.strip()
+    while at < len(text):
+        m = CONDITION_TOKEN_RE.match(text, at)
+        if not m:
+            return None
+        number, name, operator = m.groups()
+        if number is not None:
+            tokens.append(('n', int(number[1:], 16) if number[0] == '$' else int(number[1:], 2)
+                           if number[0] == '%' else ord(number[1]) if number[0] == "'" else int(number)))
+        elif name is not None:
+            word = name.lower()
+            tokens.append(('o', word) if word in ('or', 'and', 'not', 'mod') else ('n', word))
+        else:
+            tokens.append(('o', operator))
+        at = m.end()
+
+    class Unknown(Exception):
+        pass
+
+    def peek():
+        return tokens[0][1] if tokens and tokens[0][0] == 'o' else None
+
+    def binary(next_level, operators):
+        def parse():
+            left = next_level()
+            while peek() in operators:
+                operator = tokens.pop(0)[1]
+                left = apply(operator, left, next_level())
+            return left
+        return parse
+
+    def apply(operator, left, right):
+        return {'or': lambda: left or right, 'and': lambda: left and right,
+                '==': lambda: left == right, '!=': lambda: left != right, '<': lambda: left < right,
+                '<=': lambda: left <= right, '>': lambda: left > right, '>=': lambda: left >= right,
+                '+': lambda: left + right, '-': lambda: left - right, '|': lambda: left | right,
+                '^': lambda: left ^ right, '*': lambda: left * right, '/': lambda: left // right,
+                'mod': lambda: left % right, '&': lambda: left & right, '<<': lambda: left << right,
+                '>>': lambda: left >> right}[operator]()
+
+    def unary():
+        if peek() in ('-', '~'):
+            operator = tokens.pop(0)[1]
+            value = unary()
+            return -value if operator == '-' else ~value
+        if peek() == '(':
+            tokens.pop(0)
+            value = disjunction()
+            if peek() != ')':
+                raise Unknown
+            tokens.pop(0)
+            return value
+        if not tokens or tokens[0][0] != 'n':
+            raise Unknown
+        value = tokens.pop(0)[1]
+        if isinstance(value, str):
+            if value in ('true', 'false'):
+                return value == 'true'
+            if value not in constants:
+                raise Unknown
+            return constants[value]
+        return value
+
+    product = binary(unary, ('*', '/', 'mod', '&', '<<', '>>'))
+    total = binary(product, ('+', '-', '|', '^'))
+    comparison = binary(total, ('==', '!=', '<', '<=', '>', '>='))
+
+    def negation():
+        if peek() == 'not':
+            tokens.pop(0)
+            return not negation()
+        return comparison()
+
+    conjunction = binary(negation, ('and',))
+    disjunction = binary(conjunction, ('or',))
+    try:
+        value = disjunction()
+    except (Unknown, ArithmeticError, TypeError, ValueError):
+        return None
+    return None if tokens else value
+
+
+def condition_value(text, constants):
+    """Whether an `#if` condition is true (a `bool` that is true or a number that is not 0), or
+    None if expression_value() cannot say."""
+    value = expression_value(text, constants)
+    return value if value is None or isinstance(value, bool) else value != 0
 
 
 # Directories searched between the source's and lathe/rt/: those of the board being built for
@@ -102,8 +243,10 @@ def find_module(name, main_dir):
     raise BuildError(f'module {name} not found beside the source or in lathe/rt/')
 
 
-def module_order(source):
-    """[(module name, path)] with every module after the modules it imports; main last."""
+def module_order(source, constants=None):
+    """[(module name, path)] with every module after the modules it imports; main last. With
+    `constants` (compile_constants()), an import in an `#if` branch the compiler skips is not
+    followed (imports_of)."""
     main_dir = os.path.dirname(os.path.abspath(source))
     order, state = [], {}
 
@@ -113,7 +256,7 @@ def module_order(source):
         if state.get(name) == 'active':
             raise BuildError('imports form a cycle: ' + ' -> '.join(chain + [name]))
         state[name] = 'active'
-        for dep in imports_of(path):
+        for dep in imports_of(path, constants):
             visit(dep, find_module(dep, main_dir), chain + [name])
         state[name] = 'done'
         order.append((name, path))
@@ -177,7 +320,7 @@ def compile_all(order, outdir, options=()):
     return objects
 
 
-def compile_implicit(order, outdir, options=(), main_dir='.', farcall=None):
+def compile_implicit(order, outdir, options=(), main_dir='.', farcall=None, constants=None):
     """Compile the modules that the compiled ones import without an `import` line: the
     compiler writes an IMP record for each run-time module its code calls (rt_frame, for the
     calls that save a recursive function's frame; `rt_with`, for `with` blocks, which is the
@@ -185,10 +328,10 @@ def compile_implicit(order, outdir, options=(), main_dir='.', farcall=None):
     They are found as imports are, and their own imports with them. Returns their objects,
     which go after the others."""
     return implicit_of([os.path.join(outdir, name + '.lo') for name, _ in order],
-                       {name for name, _ in order}, outdir, options, main_dir, farcall)
+                       {name for name, _ in order}, outdir, options, main_dir, farcall, constants)
 
 
-def implicit_of(waiting, done, outdir, options, main_dir, farcall=None):
+def implicit_of(waiting, done, outdir, options, main_dir, farcall=None, constants=None):
     """compile_implicit for the objects `waiting`, with the modules in `done` compiled
     already."""
     objects = []
@@ -197,7 +340,7 @@ def implicit_of(waiting, done, outdir, options, main_dir, farcall=None):
             if name == FARCALL and farcall:
                 name = farcall
             if name not in done:
-                more = [(n, p) for n, p in module_order(find_module(name, main_dir)) if n not in done]
+                more = [(n, p) for n, p in module_order(find_module(name, main_dir), constants) if n not in done]
                 done.update(n for n, _ in more)
                 made = compile_all(more, outdir, options)
                 objects += made
@@ -205,7 +348,7 @@ def implicit_of(waiting, done, outdir, options, main_dir, farcall=None):
     return objects
 
 
-def compile_farcall(env, order, objects, outdir, options=(), main_dir='.'):
+def compile_farcall(env, order, objects, outdir, options=(), main_dir='.', constants=None):
     """The far-call module an environment that places code in a window names (`farcall
     rt_bank`): compiled with its imports, as compile_implicit compiles rt_frame, if the program
     does not already have it. Returns its objects, which go after the others."""
@@ -214,13 +357,13 @@ def compile_farcall(env, order, objects, outdir, options=(), main_dir='.'):
     done = {os.path.splitext(os.path.basename(p))[0] for p in objects}
     if env.farcall in done:
         return []
-    more = [(n, p) for n, p in module_order(find_module(env.farcall, main_dir)) if n not in done]
+    more = [(n, p) for n, p in module_order(find_module(env.farcall, main_dir), constants) if n not in done]
     made = compile_all(more, outdir, options)
     return made + implicit_of(list(made), done | {n for n, _ in more}, outdir, options, main_dir,
-                              env.farcall)
+                              env.farcall, constants)
 
 
-def compile_placer(env, objects, outdir, options=(), main_dir='.'):
+def compile_placer(env, objects, outdir, options=(), main_dir='.', constants=None):
     """The placer module of an environment with a dynamic region (`placer rt_place`: lathe/host/
     lk_dyn.py), which `$start` calls: compiled with its imports, as the far-call module is, if
     the program does not already have it. Returns its objects, which go after the others."""
@@ -229,10 +372,10 @@ def compile_placer(env, objects, outdir, options=(), main_dir='.'):
     done = {os.path.splitext(os.path.basename(p))[0] for p in objects}
     if env.placer in done:
         return []
-    more = [(n, p) for n, p in module_order(find_module(env.placer, main_dir)) if n not in done]
+    more = [(n, p) for n, p in module_order(find_module(env.placer, main_dir), constants) if n not in done]
     made = compile_all(more, outdir, options)
     return made + implicit_of(list(made), done | {n for n, _ in more}, outdir, options, main_dir,
-                              env.farcall)
+                              env.farcall, constants)
 
 
 def window_files(env, from_dir, to_dir):
@@ -282,18 +425,19 @@ def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, lo
 def build_with(source, out, env, use_asm, use_naive, keep, defines):
     work = os.path.abspath(keep) if keep else tempfile.mkdtemp(prefix='lathe-build-')
     os.makedirs(work, exist_ok=True)
-    order = module_order(source)
     main = module_name(source)          # the program is MAIN.main; the linker makes $start call it
     described = mapenv.read_env(env)
+    constants = compile_constants(described, defines)
+    order = module_order(source, constants)
     if described.banked() and (use_asm or use_naive):
         raise BuildError(f'{env} places code or a region in a window: the assembler path renders '
                          f'only programs linked all in one')
     options = compiler_options(described, defines)
     main_dir = os.path.dirname(os.path.abspath(source))
     objects = compile_all(order, work, options)
-    objects += compile_implicit(order, work, options, main_dir, described.farcall)
-    objects += compile_farcall(described, order, objects, work, options, main_dir)
-    objects += compile_placer(described, objects, work, options, main_dir)
+    objects += compile_implicit(order, work, options, main_dir, described.farcall, constants)
+    objects += compile_farcall(described, order, objects, work, options, main_dir, constants)
+    objects += compile_placer(described, objects, work, options, main_dir, constants)
     map_path = os.path.join(work, main + '.map')
     have_linker = os.path.isfile(LINKER) and not use_naive
     if have_linker:

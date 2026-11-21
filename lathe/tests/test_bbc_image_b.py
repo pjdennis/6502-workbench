@@ -13,17 +13,18 @@ What is tested here, by default:
 - the image fits the 128 KB module, the linker's list has no sideways RAM to probe (main_only);
 - what the linker gets on each machine, by the model of the placer (places.plan): a Model B with
   the DFS (PAGE $1900), with ADFS and the DFS (PAGE $1F00), and a B+ in a shadow mode at each;
+  on the DFS machine every table at least the 32K build's;
 - on a Model B with no sideways RAM at PAGE $1900 and at $1F00: *LLINK links a program of the
   end-to-end cases from the host compiler's objects, every file the host linker's at that
-  machine's capacities; a generated program that needs more slots than ADFS's machine gives
-  (6 modules of 22 functions: 528) is linked at $1900 and refused at $1F00, each as the host
+  machine's capacities; a generated program that needs more calls than ADFS's machine gives
+  (7 modules of 23 functions: 542) is linked at $1900 and refused at $1F00, each as the host
   linker at those capacities does it (so the real placer gives what the model says); PAGE above
   $1F00 is refused, and a screen mode below the tool's memory.
 
 LATHE_BBC_IMAGE_B_PROGRAMS=1: the largest generated program each machine takes, under the
 emulator's DFS at PAGE $1900 (the 25 KB program, 8 modules of 26 functions: every module compiled
 by *LATHE, linked by *LLINK @LINKARG, *SAVEd and run, as test_gen_program's 32K test does it) and
-under its ADFS at $1F00 (6 modules of 21 functions, the objects the host compiler's, since the
+under its ADFS at $1F00 (7 modules of 22 functions, the objects the host compiler's, since the
 compiler's form here runs at $1900 only: linked by *LLINK and run); every file the host tools'
 under that filing system's names (BBCFS 3), and the host linker at that machine's capacities
 gives the same. LATHE_BBC_IMAGE_B_REPORT=1 prints the capacities, the account and the cycles.
@@ -63,15 +64,17 @@ MACHINES = (
 )
 # What the linker gets there, by the model of the placer over the list (rows).
 LINKER_GETS = {
-    'Model B, DFS': {'locals': 512, 'slots': 1024, 'calls': 768},
-    'Model B, ADFS and DFS': {'locals': 512, 'slots': 512, 'calls': 512},
+    'Model B, DFS': {'locals': 768, 'slots': 1024, 'calls': 768},
+    'Model B, ADFS and DFS': {'locals': 512, 'slots': 768, 'calls': 512},
     'B+, DFS, shadow mode': {'locals': 768, 'slots': 1024, 'calls': 768},
-    'B+, ADFS and DFS, shadow mode': {'locals': 512, 'slots': 1024, 'calls': 512},
+    'B+, ADFS and DFS, shadow mode': {'locals': 512, 'slots': 1024, 'calls': 768},
 }
-# The generated programs (modules, functions a module): one that needs 528 slots, more than ADFS's
+# The 32K build's (LKSMALL 2): on a DFS machine Image B's linker has at least each of them.
+LINKER_32K = {'locals': 640, 'slots': 848, 'calls': 768}
+# The generated programs (modules, functions a module): one that needs 542 calls, more than ADFS's
 # machine gives; the largest each machine links and holds (PAGE, the emulator's filing system).
-MORE_SLOTS_THAN_ADFS = (6, 22)
-LARGEST = (('1900', 'dfs', 8, 26), ('1F00', 'adfs', 6, 21))
+MORE_THAN_ADFS = (7, 23)
+LARGEST = (('1900', 'dfs', 8, 26), ('1F00', 'adfs', 7, 22))
 
 
 def build_image(out_dir):
@@ -241,6 +244,8 @@ class ImageB(unittest.TestCase):
         for name, page, himem in MACHINES:
             with self.subTest(machine=name):
                 self.assertEqual(linker_capacities(self.tools[1], page, himem), LINKER_GETS[name])
+        dfs = LINKER_GETS['Model B, DFS']
+        self.assertEqual({t: dfs[t] for t in LINKER_32K if dfs[t] < LINKER_32K[t]}, {})
 
     def prepared(self, case, page):
         """A program of the end-to-end cases, its objects the host compiler's, ready to link on disk."""
@@ -275,12 +280,12 @@ class ImageB(unittest.TestCase):
                 if REPORT:
                     print('\n%s: calls linked in %d cycles' % (name, cycles))
 
-    def test_a_program_that_needs_more_slots_than_adfs_gives_links_with_the_dfs_alone(self):
+    def test_a_program_that_needs_more_than_adfs_gives_links_with_the_dfs_alone(self):
         """The machines' capacities told apart by the real placer: a generated program that needs
-        528 slots links at PAGE $1900 (1,024) and not at $1F00 (512), each time as the host
-        linker at that machine's capacities does it, the files or the error."""
-        work = os.path.join(self.dir, 'more-slots')
-        main, env, expected, p = generated(work, *MORE_SLOTS_THAN_ADFS, page='1F00')
+        542 calls links at PAGE $1900 (768) and not at $1F00 (512), each time as the host linker
+        at that machine's capacities does it, the files or the error."""
+        work = os.path.join(self.dir, 'more-calls')
+        main, env, expected, p = generated(work, *MORE_THAN_ADFS, page='1F00')
         for name, page, himem in MACHINES[:2]:
             with self.subTest(machine=name):
                 disk, compiles, link, files = host_objects(os.path.join(work, '%04X' % page), main, env)
@@ -297,7 +302,7 @@ class ImageB(unittest.TestCase):
                     self.assertEqual(host_files[link[2]], files[link[2]])   # as at full capacities
                 else:
                     self.assertEqual(host_status, 1)
-                    self.assertIn(b'slots', host_said)
+                    self.assertIn(b'calls', host_said)
                     self.assertEqual((status, out + mos), (1, host_said))
 
     def test_a_tool_is_refused_where_it_cannot_run(self):

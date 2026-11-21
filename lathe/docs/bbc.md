@@ -2179,7 +2179,7 @@ The owner asked for two images, one that needs sideways RAM (Image A, above) and
 not, **Image B**, each working with the DFS or ADFS by PAGE and using what the DFS leaves free.
 Image B is the 32K build made adaptive. **Built so far: the linker's half**, which on a DFS
 machine now gives every table at least the 32K build's (2026-11-20, later: "Every block on a
-page", below). The compiler's half (its name heap begun at PAGE, below) is designed and measured
+page" and "The tenth block", below). The compiler's half (its name heap begun at PAGE, below) is designed and measured
 but not built.
 
 ### Why not the placer for every table
@@ -2198,9 +2198,10 @@ linker's tables can move and the compiler's cannot.
 1, 'ADAPT': 1, 'ADFS': 1, 'BBCFS': 3})`; the `RAM32` and `ADAPT` entries of every other build are
 now guarded by `unless ADAPT` and `unless RAM32`, which changes none of them):
 
-- Linked from `$1F00`: code `$1F00-$3FDF`, data `$3FE0-$6EFF`, `more data $0401-$06FF`. The data range
+- Linked from `$1F00`: code `$1F00-$3EDF`, data `$3EE0-$6DFF`, `more data $0401-$06FF` (code
+  `$1F00-$3FDF` and data `$3FE0-$6EFF` before the tenth block, below). The data range
   ends at a page below HIMEM so that the variables that do not fit it go to `more`, and what is
-  free is one area, `$6F00` to HIMEM, on a page as the regions' blocks are (below).
+  free is one area, `$6E00` to HIMEM, on a page as the regions' blocks are (below).
 - `LKSMALL 2`'s capacities for everything but three tables. The work area (`LKWORK`, `LKNODES`) is
   fixed and told (`-f`); `LKWORK`'s blocks, which the 32K eight-bank build still keeps fixed (530
   bytes), are left out, since its bank 3 now has room for their readers (15,676 judged).
@@ -2232,26 +2233,26 @@ emulator ran the first two):
 
 | Machine | PAGE, HIMEM | Symbols of the object files | Slots | Calls | Functions, nodes |
 |---|---|---|---|---|---|
-| Model B, DFS | `$1900`, `$7C00` | **512** (`$6F00`) | **1,024** (`$7300`) | **768** (`$1900`, below `$1F00`) | 296, 300 |
-| Model B, ADFS and DFS | `$1F00`, `$7C00` | 512 | 512 | 512 | 296, 300 |
+| Model B, DFS | `$1900`, `$7C00` | **768** (`$6E00`) | **1,024** (`$7400`) | **768** (`$1900`, below `$1F00`) | 296, 300 |
+| Model B, ADFS and DFS | `$1F00`, `$7C00` | 512 | 768 | 512 | 296, 300 |
 | B+ in a shadow mode, DFS | `$1900`, `$8000` | 768 | 1,024 | 768 | 296, 300 |
-| B+ in a shadow mode, ADFS | `$1F00`, `$8000` | 512 | 1,024 | 512 | 296, 300 |
+| B+ in a shadow mode, ADFS | `$1F00`, `$8000` | 512 | 1,024 | 768 | 296, 300 |
 | the 32K build, for comparison | `$1900`, `$7C00` | 640 | 848 | 768 | 296, 300 |
 
 (Before the blocks were on a page, 2026-11-20: 512, 768 and 768 on the DFS machine, 512 each on
-ADFS, 512, 768 and 768 in either shadow mode.)
+ADFS, 512, 768 and 768 in either shadow mode. With nine blocks, before the tenth: 512, 1,024 and
+768 on the DFS machine, 512 each on ADFS, 768, 1,024, 768 and 512, 1,024, 512 in a shadow mode.)
 
-**On a DFS machine one table is below the 32K build's: the symbols of an object file, by 128 rows
-(512 of 640); the slots are 176 above (1,024 of 848)**, the calls, functions and nodes the same.
-The free main RAM comes in blocks of 512 bytes (256 rows of two bytes): three below `$1F00`, six
-above the data, nine in all, where the 32K build's capacities would need ten. Of the nine, the
-symbols at 512 and the slots at 1,024 serve real programs better than 768 and 768: the slots are
-the table a program of many functions fills first (the generated programs: 807 slots against 502
-symbols at 25 KB). **The generated 25 KB program (8 modules of 26 functions), which needs 502
-symbols, 807 slots and 726 calls, links and runs on the DFS machine.** On an ADFS machine the six
-blocks above the data are the least of each table (512 each): the largest generated program it
-links is 6 modules of 21 functions (15.5 KB; 331 symbols, 507 slots, 446 calls), and one of 22
-(528 slots) is refused there and links with the DFS.
+**On a DFS machine every table is at least the 32K build's: the symbols of an object file 128
+rows above (768 of 640), the slots 176 above (1,024 of 848)**, the calls, functions and nodes the
+same. The free main RAM comes in blocks of 512 bytes (256 rows of two bytes): three below
+`$1F00`, seven above the data, ten in all. **The generated 25 KB program (8 modules of 26
+functions), which needs 502 symbols, 807 slots and 726 calls, links and runs on the DFS
+machine.** On an ADFS machine the seven blocks above the data give the symbols and the calls 512
+each and the slots 768: the largest generated program it links is 7 modules of 22 functions
+(17.9 KB; 389 symbols, 623 slots, 499 calls), and one of 23 (542 calls) is refused there and
+links with the DFS. (With nine blocks the ADFS machine's largest was 6 modules of 21 functions,
+15.5 KB, and one of 22, 528 slots, was refused.)
 
 ### Every block on a page (2026-11-20, later)
 
@@ -2270,29 +2271,49 @@ free; but the data range must end at `$6DFF` for a seventh block above it, and t
 last that fits; `lk_tab`'s work area and nodes (6,000 bytes) are the last of the linker's own, so
 `more` holds the run-time modules' 610 bytes and no more, and 157 of its bytes stay free. Four
 bytes would give the DFS machine ten blocks (768 symbols, 1,024 slots and 768 calls, each at least
-the 32K build's) and an ADFS machine seven. Not taken: they would come
+the 32K build's) and an ADFS machine seven. Not taken then: they would come
 from a table's capacity (a function or a node fewer than the 32K build's) or from the order of the
-object files, which every image shares. What `dynamic main` gives now is speed (the slots' and calls'
+object files, which every image shares. What `dynamic main` gives is speed (the slots' and calls'
 accessors map nothing: see the cycles below) and 434 bytes of the 128 KB image (3,207 free, from
-2,773).
+2,773; 3,176 measured at the commit that built it, 77f5c64).
 
-**Tested** (`lathe/tests/test_bbc_image_b.py`, by default, about 15 s): the image fits the 128 KB
-module (2,773 bytes free with the 32K compiler) and its placer is the one for main RAM alone; the
-model's capacities on the four machines; on a Model B with no sideways RAM at PAGE `$1900` and
+### The tenth block (2026-11-20, later)
+
+Taken once `build.py` stopped linking what an `#if` branch not taken imports (`imports_of`;
+`lathe/host/README.md`, "build.py"): `sys.lth`'s `import disk`, under `#if PORTS`, had linked
+`disk.$init` (15 bytes of code) and its 4 bytes of variables into every BBC tool, and `lk_emit`'s
+`import lk_dyn`, under `#if LKDYN`, `lk_dyn`'s `$init` and variables into every ROM form of the
+linker (their `place lk_dyn` lines are now under `when LKDYN`). That took 42 bytes off Image B's
+resident linker (8,154, from 8,196), and the code then ends at `$3ED9`: the code range is now
+`$1F00-$3EDF` and the data `$3EE0-$6DFF`, the same length as before a page lower, so that the
+variables fit as they did and a seventh block is free above the data (before, the code was 36
+bytes over `$3EDF`). The images' free bytes, before and after (the listings): Image B 3,176 and
+3,225, the plain 128 KB image 5,408 and 5,460, the 32K image 5,422 and 5,474, Image A 2,869 and
+2,926, the image of `test_bbc_asked_fs` 3,682 and 3,742, the sixteen-bank images 72,317 and 72,353
+(ADFS), 72,409 and 72,445 (DFS), 72,439 and 72,475 (`test_bbc_toolchain`'s), the self-hosting
+image 162,696 and 162,722; main RAM free in Image B's compiler 138 and 160 bytes, in its linker
+(by its map) 529 and 575 before the split moved. Wendy 2's builds are the same bytes (their
+`PORTS 1` links `disk`, and `bbc` and `host` have no `$init`).
+
+**Tested** (`lathe/tests/test_bbc_image_b.py`, by default, about 25 s): the image fits the 128 KB
+module (3,225 bytes free with the 32K compiler) and its placer is the one for main RAM alone; the
+model's capacities on the four machines, the DFS machine's each at least the 32K build's; on a Model B with no sideways RAM at PAGE `$1900` and
 `$1F00` a program of the end-to-end cases (`calls`, the host compiler's objects) linked by
 `*LLINK`, every file the host linker's at that machine's capacities (`lk_rooms.py` with
-`LATHE_LK_SMALL=2`) and at its own; a generated program of 6 modules of 22 functions (528 slots)
+`LATHE_LK_SMALL=2`) and at its own; a generated program of 7 modules of 23 functions (542 calls)
 linked at `$1900` and refused at `$1F00`, each as the host linker at that machine's capacities
 does it, so the real placer tells the machines apart as the model does; a `dynamic main` program
 refused by `bbcrom.py` with the placer that probes; PAGE `$2100` refused (`PAGE too high`) and mode
-4 (`Mode 7 needed`). `*LLINK`'s start-up: 577,353 cycles at `$1900`, 678,564 at `$1F00` (646,312 and
-733,069 before the slots and calls were `main`); the `calls` link 20.4 million cycles at `$1900`,
-20.5 at `$1F00` (21.1 before). With `LATHE_BBC_IMAGE_B_PROGRAMS=1` (a minute): under the emulator's
+4 (`Mode 7 needed`). `*LLINK`'s start-up: 552,928 cycles at `$1900`, 642,257 at `$1F00` with ten
+blocks (577,353 and 678,564 with nine; 646,312 and 733,069 before the slots and calls were `main`);
+the `calls` link 20.3 million cycles at `$1900`, 20.4 at `$1F00` (20.4 and 20.5 with nine, 21.1
+before). With `LATHE_BBC_IMAGE_B_PROGRAMS=1` (a minute): under the emulator's
 DFS at `$1900` the 25 KB program (8 modules of 26 functions, 2,879 lines) compiled by `*LATHE`
-module by module (13 compiles, 262.7 million cycles), linked by `*LLINK @LINKARG` (365.9 million),
-`*SAVE`d and run, as `test_gen_program`'s 32K test does it; under its ADFS at `$1F00` the largest
-program there (6 modules of 21, 1,802 lines, 15,458 bytes) from the host compiler's objects, since
-the compiler's form in the image runs at `$1900` only, linked and run (233.9 million cycles);
+module by module (13 compiles, 262.7 million cycles), linked by `*LLINK @LINKARG` (364.3 million;
+365.9 with nine blocks), `*SAVE`d and run, as `test_gen_program`'s 32K test does it; under its ADFS
+at `$1F00` the largest program there (7 modules of 22, 2,112 lines, 17,904 bytes; 6 of 21 with nine
+blocks) from the host compiler's objects, since the compiler's form in the image runs at `$1900`
+only, linked and run (270.3 million cycles);
 every file the host tools' under that filing system's names (`BBCFS 3`), and the host linker at
 that machine's capacities linking it to the same image.
 
@@ -2313,9 +2334,9 @@ ADFS machine the heap has 1,536 bytes less, so Image B's own capacities must be 
 
 The 32K image (`test_bbc_ram32.build_image`) and its linker's form, once the compiler's half is
 built: Image B serves the 32K Model B under the DFS with the linker's calls, functions and nodes
-the same, 176 slots more and, today, 128 symbols fewer; `test_bbc_ram32`, `test_lk_ram32`'s BBC runs
-and `test_gen_program.OnTheModelB` could run Image B instead. Not before the owner accepts those
-two tables' cost.
+the same, 176 slots more and 128 symbols more (since the tenth block); `test_bbc_ram32`, `test_lk_ram32`'s BBC runs
+and `test_gen_program.OnTheModelB` could run Image B instead. Not before the owner accepts the
+compiler's half's cost.
 
 ## Open, for the owner
 

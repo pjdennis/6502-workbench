@@ -78,6 +78,59 @@ class TestDiscovery(Sources):
             ''')
         self.assertEqual(build.imports_of(p), ['host', 'strings'])
 
+    def test_an_import_under_an_if_not_taken_is_not_one(self):
+        """As the compiler skips the lines of an `#if` branch not taken (lathe/docs/language.md,
+        "Conditional compilation"), imports_of with the constants it predeclares does too,
+        nested `#if` and `#else` included."""
+        p = self.source('a.lth', '''\
+            module a
+            #if PORTS == 2
+            import bbc
+            #else
+            #if PORTS   ; a comment
+            import disk
+              #if not FAST and size > $0F
+            import slow
+              #end
+            #else
+            import host
+            #end
+            #end
+            import strings
+            ''')
+        self.assertEqual(build.imports_of(p, {'ports': 2}), ['bbc', 'strings'])
+        self.assertEqual(build.imports_of(p, {'ports': 1, 'fast': True, 'size': 16}), ['disk', 'strings'])
+        self.assertEqual(build.imports_of(p, {'ports': 1, 'fast': 0, 'size': 16}), ['disk', 'slow', 'strings'])
+        self.assertEqual(build.imports_of(p, {'ports': 1, 'fast': False, 'size': 15}), ['disk', 'strings'])
+        self.assertEqual(build.imports_of(p, {'ports': 0}), ['host', 'strings'])
+        # Without the constants, every import counts, as before.
+        self.assertEqual(build.imports_of(p), ['bbc', 'disk', 'slow', 'host', 'strings'])
+
+    def test_a_condition_that_names_anything_else_takes_both_branches(self):
+        """A condition over a name the constants do not have (a constant the module declares) is
+        not worked out: both branches' imports count, so nothing the compiler reads is missed."""
+        p = self.source('a.lth', '''\
+            module a
+            const MINE = 1
+            #if MINE == 1 or PORTS
+            import disk
+            #else
+            import host
+            #end
+            #if (PORTS + 1) * 2 != %110 and ~PORTS == -1
+            import bbc
+            #end
+            ''')
+        self.assertEqual(build.imports_of(p, {'ports': 0}), ['disk', 'host', 'bbc'])
+        self.assertEqual(build.imports_of(p, {'ports': 2}), ['disk', 'host'])
+
+    def test_the_module_order_follows_the_conditions(self):
+        self.source('lib.lth', 'module lib\n#if PORTS\nimport disk\n#end\nimport host\n')
+        main = self.source('main.lth', 'module main\nimport lib\n')
+        self.assertEqual([n for n, _ in build.module_order(main, {'ports': 0})], ['host', 'lib', 'main'])
+        self.assertEqual([n for n, _ in build.module_order(main, {'ports': 1})],
+                         ['disk', 'host', 'lib', 'main'])
+
     def test_dependency_order(self):
         self.source('b.lth', 'module b\nimport host\n')
         self.source('a.lth', 'module a\nimport b\nimport host\n')
@@ -175,6 +228,25 @@ class TestBuild(Sources):
             self.assertEqual(fh.read(), 'hi -c65c02 -dFAST -dsize=16 -dX=3 -dY\n')
         self.assertEqual(build.compiler_options(), [])
         self.assertEqual(build.compiler_options(None, ['A=1']), ['-dA=1'])
+
+    def test_a_module_imported_under_an_if_not_taken_is_not_built_or_linked(self):
+        """The environment's defines and the build's own decide the `#if`s, as they do the
+        compiler's: a module imported only under a branch not taken is not compiled, so not
+        linked; a define given to the build replaces the environment's."""
+        self.source('ports.lth', 'module ports\n')
+        self.source('plain.lth', 'module plain\n')
+        self.source('fast.lth', 'module fast\n')
+        self.source('lib.lth', 'module lib\n#if PORTS\nimport ports\n#else\nimport plain\n#end\n')
+        main = self.source('hi.lth', '; prints HI\nmodule hi\nimport lib\n#if cpu_65c02\nimport fast\n#end\n')
+        env = self.source('x.env', 'cpu 6502\ncode $0200 $BFFF\ndefine PORTS 0\nexit call $F00F\n')
+        for defines, compiled in (((), ['plain', 'lib', 'hi']), (('PORTS=1',), ['ports', 'lib', 'hi']),
+                                  (('PORTS',), ['ports', 'lib', 'hi'])):
+            keep = os.path.join(self.dir, 'keep-%d' % len(defines) + ''.join(defines))
+            build.build(main, os.path.join(self.dir, 'hi.bin'), env, keep=keep, defines=defines)
+            with open(os.path.join(keep, 'compiled.log')) as fh:
+                self.assertEqual([line.split()[0] for line in fh], compiled, defines)
+            self.assertEqual(sorted(f for f in os.listdir(keep) if f.endswith('.lo')),
+                             sorted(n + '.lo' for n in compiled))
 
     def test_the_regions_an_environment_keeps_fixed_are_given_with_fixed_regions(self):
         """`region NAME fixed` gives -fNAME (lathe/host/README.md, "Command lines") only in an

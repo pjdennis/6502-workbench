@@ -973,7 +973,8 @@ as they were and skip them as entries they do not know):
   window (else a bad entry), not from the window's end, and its fit check counts to ADDR; a second
   one is link error 43, an unknown bank 42. With ADDR the last byte of a page, a region of whole
   pages there starts on a page, as main RAM's free areas do: Image B's linker gives `$BEFF` for its
-  three banks of dynamic regions, which gives a DFS machine nine blocks of 512 bytes, not eight.
+  three banks of dynamic regions, which gives a DFS machine nine blocks of 512 bytes, not eight
+  (ten since the data range ends at `$6DFF`: [`bbc.md`](bbc.md), "The tenth block").
 - `region NAME WIN N dynamic main [VARIABLE ...]`: the placer puts the region in main RAM alone,
   never in sideways RAM. Code may name it without mapping its bank: the linker refuses no such use
   with link error 62 (lk_dyn.in_main, which lk_emit asks before lk_fix.check_mapped), and with
